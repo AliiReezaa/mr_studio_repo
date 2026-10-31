@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14,        id: macos-arm64 }
+          - { os: macos-15,        id: macos-arm64 }
           - { os: macos-15-intel,  id: macos-x64 }
           - { os: windows-latest,  id: windows-x64 }
     runs-on: ${{ matrix.os }}
@@ -44,10 +44,22 @@ jobs:
           mv "$RUNNER_TEMP/build_runtime"/* prototype/runtime/
           du -sh prototype/runtime | tee "size-${{ matrix.id }}.txt"
 
+      - name: Make the macOS runtime relocatable
+        if: runner.os == 'macOS'
+        run: python3 prototype/ci/relocate_macos.py "$RUNNER_TEMP/build_runtime" "$PWD/prototype/runtime"
+
       - name: Locate R
         run: |
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            RH="$(cygpath -m "$PWD/prototype/runtime/Lib/R")"; RBIN="$RH/bin/x64/Rterm.exe"
+            echo "Runtime top level:"; ls -la prototype/runtime | head -40
+            RTERM="$(find "$PWD/prototype/runtime" -iname Rterm.exe | grep -i x64 | head -1 || true)"
+            if [[ -z "$RTERM" ]]; then
+              echo "Rterm.exe not found. Candidates:"; find "$PWD/prototype/runtime" -maxdepth 4 -iname 'R*.exe' | head -20
+              exit 1
+            fi
+            RBIN="$(cygpath -m "$RTERM")"
+            RH="$(dirname "$(dirname "$(dirname "$RBIN")")")"
+            echo "Found R at $RBIN (R_HOME $RH)"
           else
             RH="$PWD/prototype/runtime/lib/R"; RBIN="$RH/bin/exec/R"
           fi

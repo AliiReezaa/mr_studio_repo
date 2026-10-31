@@ -9,3 +9,5 @@ prototype/runtime/*
 *.log
 .DS_Store
 mr_inventory_v2_backup.json
+__pycache__/
+*.pyc
