@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "No IPC permissions. The engine page is remote (127.0.0.1) and must not reach Tauri APIs; the local loading page needs none.",
+  "windows": ["main"],
+  "permissions": []
+}

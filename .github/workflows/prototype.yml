@@ -1,0 +1,137 @@
+# Week-1 prototype pipeline: builds the relocatable R runtime, runs the contract
+# and connection tests with it, builds the desktop installers, smoke-tests the
+# installed app, and compares results across operating systems (contracts C8.6).
+# Runs only when started by hand (Actions tab -> Run workflow) or on a v* tag,
+# to save build minutes.
+name: prototype
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14,        id: macos-arm64 }
+          - { os: macos-15-intel,  id: macos-x64 }
+          - { os: windows-latest,  id: windows-x64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash -el {0}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install micromamba
+        uses: mamba-org/setup-micromamba@v2
+        with:
+          init-shell: bash
+          post-cleanup: none
+
+      - name: Build R runtime, then move it (relocation test)
+        run: |
+          micromamba create -y -p "$RUNNER_TEMP/build_runtime" -f prototype/ci/runtime.yml
+          micromamba env export -p "$RUNNER_TEMP/build_runtime" --explicit > "runtime-lock-${{ matrix.id }}.txt"
+          rm -f prototype/runtime/README.txt
+          mv "$RUNNER_TEMP/build_runtime"/* prototype/runtime/
+          du -sh prototype/runtime | tee "size-${{ matrix.id }}.txt"
+
+      - name: Locate R
+        run: |
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            RH="$(cygpath -m "$PWD/prototype/runtime/Lib/R")"; RBIN="$RH/bin/x64/Rterm.exe"
+          else
+            RH="$PWD/prototype/runtime/lib/R"; RBIN="$RH/bin/exec/R"
+          fi
+          echo "R_HOME=$RH" >> "$GITHUB_ENV"
+          echo "R_SHARE_DIR=$RH/share" >> "$GITHUB_ENV"
+          echo "R_INCLUDE_DIR=$RH/include" >> "$GITHUB_ENV"
+          echo "R_DOC_DIR=$RH/doc" >> "$GITHUB_ENV"
+          echo "RBIN=$RBIN" >> "$GITHUB_ENV"
+          echo "CTDIR=$( [[ "$RUNNER_OS" == "Windows" ]] && cygpath -m "$RUNNER_TEMP/ct" || echo "$RUNNER_TEMP/ct" )" >> "$GITHUB_ENV"
+          echo "OMP_NUM_THREADS=1" >> "$GITHUB_ENV"
+          echo "OPENBLAS_NUM_THREADS=1" >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" != "Windows" ]]; then echo "LANG=en_US.UTF-8" >> "$GITHUB_ENV"; fi
+          "$RBIN" --no-echo --vanilla -e 'cat(R.version.string, "\n"); print(extSoftVersion()[c("BLAS","PCRE")])'
+
+      - name: Contract tests with the moved runtime
+        run: |
+          cd contracts
+          "$RBIN" --no-echo --no-restore --vanilla --file=r/tests/test_contracts.R --args "$CTDIR"
+          mkdir -p "$GITHUB_WORKSPACE/results-${{ matrix.id }}"
+          cp "$CTDIR"/run-*/result_*.json "$GITHUB_WORKSPACE/results-${{ matrix.id }}/"
+
+      - name: Connection gate tests (contracts C10)
+        run: |
+          python -m pip install --quiet websockets
+          MRGUI_R_CMD="$RBIN|--no-echo|--no-restore|--vanilla" python prototype/engine/test_gate.py
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build installers
+        working-directory: prototype/shell
+        run: npx --yes @tauri-apps/cli@2 build
+
+      - name: Smoke-test the bundled app
+        run: |
+          export MRGUI_SMOKE=1
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            APP="prototype/shell/target/release/bundle/macos/MR Studio.app/Contents/MacOS/mr-studio"
+            "$APP"
+            sleep 3
+            if pgrep -f "bin/exec/R" >/dev/null; then echo "engine left running"; exit 1; fi
+          else
+            INSTALLER="$(ls prototype/shell/target/release/bundle/nsis/*.exe | head -1)"
+            powershell -NoProfile -Command "Start-Process -Wait -FilePath '$(cygpath -w "$INSTALLER")' -ArgumentList '/S'"
+            powershell -NoProfile -Command '
+              $exe = Get-ChildItem "$env:LOCALAPPDATA" -Recurse -Filter "mr-studio.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+              if (-not $exe) { Write-Error "installed app not found"; exit 1 }
+              $p = Start-Process -FilePath $exe.FullName -Wait -PassThru
+              Start-Sleep -Seconds 3
+              if (Get-Process -Name Rterm -ErrorAction SilentlyContinue) { Write-Error "engine left running"; exit 1 }
+              exit $p.ExitCode'
+          fi
+
+      - name: Collect installer sizes
+        if: always()
+        run: |
+          find prototype/shell/target/release/bundle \( -name "*.dmg" -o -name "*.exe" \) -exec du -h {} \; | tee -a "size-${{ matrix.id }}.txt" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installer-${{ matrix.id }}
+          if-no-files-found: ignore
+          path: |
+            prototype/shell/target/release/bundle/dmg/*.dmg
+            prototype/shell/target/release/bundle/nsis/*.exe
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: report-${{ matrix.id }}
+          if-no-files-found: ignore
+          path: |
+            results-${{ matrix.id }}/
+            runtime-lock-${{ matrix.id }}.txt
+            size-${{ matrix.id }}.txt
+
+  cross-os:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { pattern: report-*, path: reports }
+      - name: Compare estimates across operating systems (tolerance 1e-8)
+        run: python3 prototype/ci/compare_results.py reports

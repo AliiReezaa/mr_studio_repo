@@ -1,0 +1,32 @@
+stage,rule_id,condition,action,message,source
+selection,R01,data_required involves individual-level data,HIDE (out of scope),Individual-level analyses are not supported in this app (summary data only).,design decision 2026-10-29
+selection,R02,runnable_tier = no_code,BLOCK,Literature only — no public implementation available.,inventory impl_verification
+selection,R03,runnable_tier = reference_only / gui_role = design_or_reference,HIDE from run list,Shown as guidance only.,design decision
+selection,R04,gui_role = excluded_by_design,BLOCK,Requires an AI/LLM API key (excluded by project rule).,user requirement
+selection,R05,joint_model method and n_selected_exposures < min_exposures or > max_exposures,BLOCK,Method needs {min_exposures}–{max_exposures} exposures in one model; you selected {n}.,inventory
+selection,R05b,pairwise_loop method with several exposures/outcomes selected,ALLOW (loop) + INFO,Will run separately for each of the {k} exposure–outcome pairs; multiple-testing correction applied.,design decision
+selection,R06,joint_model method and n_selected_outcomes < min_outcomes or > max_outcomes,BLOCK,Method needs {min_outcomes}–{max_outcomes} outcomes; you selected {n}.,inventory
+selection,R07,n_exposures + n_outcomes (+ mediators) < min_traits_total,BLOCK,Method needs at least {min_traits_total} traits.,inventory
+selection,R08,exposure_type = molecular_QTL and selected exposure is not a gene/protein/metabolite QTL dataset,BLOCK,cis-MR methods need a molecular (QTL) exposure with a defined gene region.,method definition
+selection,R09,needs_full_sumstats = Y and dataset provides only top hits,BLOCK,Needs full genome-wide summary statistics.,method definition
+selection,R10,needs_ld ≠ none and no LD reference for the selected ancestry,BLOCK,No matching LD reference for {ancestry}.,method definition
+selection,R11,needs_ldsc_matrices = Y and no LD scores for ancestry,BLOCK,LDSC parameters cannot be estimated for {ancestry}.,method definition
+selection,R12,min_ancestries ≥ 2 and datasets exist for only one ancestry,BLOCK,Cross-population methods need datasets from ≥2 ancestries.,method definition
+selection,R13,exposure and outcome GWAS ancestries differ and population_rule starts with same_ancestry,WARN (BLOCK if “required”),Ancestry mismatch biases two-sample MR; consider XMR/TEMR/MR-EILLS or matched datasets.,MR methodology
+selection,R14,"extra_data not available (e.g. sex-stratified, family, mediator, covariate GWAS)",BLOCK,Needs: {extra_data}.,inventory
+selection,R15,outcome_type/exposure_type mismatch (e.g. binary-only method with continuous outcome),BLOCK,Method supports {outcome_type} outcomes only.,inventory
+data,R20,n_IV < min_ivs_hard (evaluated after clumping/harmonisation),BLOCK,Needs ≥{min_ivs_hard} instruments; found {n_iv}.,iv_rule_source column
+data,R21,n_IV < min_ivs_recommended,WARN,"Runs, but low power/unstable with {n_iv} instruments.",iv_rule_source column
+data,R22,n_IV > max_ivs,BLOCK (offer top-N subset),Method limited to {max_ivs} instruments.,package code
+data,R23,mean F-statistic < 10 (univariable) or conditional F < 10 (MVMR),WARN + RECOMMEND dIVW / pIVW / MR-RAPS / MRlap / MVMR-cML,Weak instruments detected.,Burgess 2011 (PMID 21414999); Sanderson 2021 (PMID 34338327)
+data,R24,I²GX < 0.9 for MR-Egger family,WARN + RECOMMEND SIMEX / Radial-Egger,Egger estimate may be diluted (NOME violation).,Bowden 2016 (PMID 27616674)
+data,R25,significant Cochran Q,WARN + RECOMMEND random-effects / robust methods,Heterogeneity suggests pleiotropy.,Bowden 2017 (PMID 28114746)
+data,R26,Egger intercept p < 0.05,WARN,Directional pleiotropy; prefer methods robust to DP.,Bowden 2015 (PMID 26050253)
+data,R27,Steiger test indicates reverse direction for many IVs,WARN + offer Steiger filtering / bidirectional methods,Possible reverse causation.,Hemani 2017 (PMID 29149188)
+data,R28,estimated sample overlap > 0 (LDSC intercept or shared cohorts) and overlap_handling starts with assumes_none,WARN + RECOMMEND MRlap / MR-APSS / MR-SimSS / CAUSE,Sample overlap can bias toward the observational association.,Burgess 2016 (PMID 27625185)
+data,R29,palindromic SNPs without EAF,AUTO-DROP + INFO,Ambiguous palindromic variants removed.,TwoSampleMR harmonise_data
+data,R30,binary exposure,INFO,Estimate is per unit log-odds of exposure; ×0.693 gives per doubling of odds. Interpret via underlying continuous liability.,Burgess & Labrecque 2018 (PMID 30039250)
+data,R31,MR-PRESSO: NbDistribution ≤ n_IV,AUTO-FIX,NbDistribution raised above n_IV.,MR-PRESSO code
+data,R32,LD matrix not positive-definite / LD–GWAS mismatch,AUTO-FIX (prune / DENTIST QC) or BLOCK,LD reference inconsistent with GWAS.,Chen 2021 (PMID 34880243)
+runtime,R40,runtime_class = heavy,INFO + background job,Expected long runtime; runs in background with progress.,design decision
+runtime,R41,"runnable_tier ∈ {external_binary, python, needs_wrapper}",CHECK dependency installed; else BLOCK with install hint,Dependency missing.,design decision

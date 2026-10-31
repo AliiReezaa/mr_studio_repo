@@ -1,0 +1,16 @@
+# Bundled R runtime for the week-1 prototype (conda-forge).
+# R 4.5 rather than 4.6: on 2026-10-29 several R packages (e.g. r-dbi) had no
+# conda-forge build for R 4.6 yet. The exact resolved versions are saved by the
+# pipeline as runtime-lock-<os>.txt and become the pinned lock for v1.
+name: mrgui-runtime
+channels:
+  - conda-forge
+dependencies:
+  - r-base=4.5
+  - r-shiny
+  - r-httpuv
+  - r-later
+  - r-jsonlite
+  - r-digest
+  - r-dbi
+  - r-rsqlite

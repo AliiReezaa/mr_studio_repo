@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MR Studio</title>
+<style>
+  :root { --bg:#0B0F14; --panel:#121821; --text:#E8EEF5; --mute:#93A3B6; --accent:#5EE6C2; --warn:#F5B54A; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font-family: Inter, -apple-system, "Segoe UI", system-ui, sans-serif; }
+  main { height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:20px; }
+  .logo { width:56px; height:56px; border-radius:16px; background:var(--accent); color:#04261E;
+    display:flex; align-items:center; justify-content:center; font-weight:700; font-size:20px; }
+  .bar { width:220px; height:4px; border-radius:2px; background:var(--panel); overflow:hidden; }
+  .bar span { display:block; width:40%; height:4px; background:var(--accent); animation: slide 1.2s ease-in-out infinite; }
+  @keyframes slide { from { transform:translateX(-100%) } to { transform:translateX(250%) } }
+  p { margin:0; color:var(--mute); font-size:14px; }
+  #err { display:none; max-width:520px; text-align:center; color:var(--warn); }
+</style>
+</head>
+<body>
+<main>
+  <div class="logo">MR</div>
+  <div class="bar" id="bar"><span></span></div>
+  <p id="msg">Starting the analysis engine…</p>
+  <p id="err"></p>
+</main>
+<script>
+  const e = new URLSearchParams(location.search).get("error");
+  if (e) {
+    document.getElementById("bar").style.display = "none";
+    document.getElementById("msg").textContent = "The analysis engine could not start.";
+    const el = document.getElementById("err"); el.textContent = e; el.style.display = "block";
+  }
+</script>
+</body>
+</html>

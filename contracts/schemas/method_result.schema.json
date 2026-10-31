@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mrgui/contracts/1.0.0/method_result.schema.json",
+  "title": "MethodResult (contracts C7)",
+  "type": "object",
+  "required": ["contract_version", "task_id", "fingerprint", "method_id", "adapter_version", "status", "codes", "messages", "provenance"],
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "task_id": { "type": "string", "minLength": 3 },
+    "fingerprint": { "$ref": "#/$defs/sha256" },
+    "method_id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "adapter_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "status": { "enum": ["ok", "warn", "failed", "blocked"] },
+    "codes": { "type": "array", "items": { "type": "string", "pattern": "^(FEAS|DATA|DROP|RUN|SYS)_[A-Z0-9_]+$" } },
+    "messages": { "type": "array", "items": { "type": "string" } },
+    "estimates": { "type": ["array", "null"], "items": { "$ref": "#/$defs/estimate" } },
+    "diagnostics": { "type": ["array", "null"], "items": { "$ref": "#/$defs/diagnostic" } },
+    "variant_level_blob": { "anyOf": [{ "$ref": "#/$defs/sha256" }, { "type": "null" }] },
+    "provenance": { "$ref": "#/$defs/provenance" }
+  },
+  "allOf": [
+    { "if": { "properties": { "status": { "enum": ["ok", "warn"] } } },
+      "then": { "required": ["estimates"], "properties": { "estimates": { "type": "array", "minItems": 1 } } } }
+  ],
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "num": { "type": ["number", "null"] },
+    "estimate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["estimand", "exposure_id", "outcome_id", "scale", "estimate", "se", "ci_lower", "ci_upper", "ci_level", "ci_method", "p", "n_ivs_used"],
+      "properties": {
+        "estimand": { "enum": ["causal_effect", "direct_effect", "indirect_effect", "total_effect", "pleiotropy_intercept", "proportion_mediated", "colocalisation_pp", "genetic_correlation", "reverse_effect"] },
+        "exposure_id": { "type": "string" },
+        "outcome_id": { "type": "string" },
+        "scale": { "enum": ["beta", "log_or", "log_hr", "probability", "correlation", "proportion"] },
+        "estimate": { "type": "number" },
+        "se": { "$ref": "#/$defs/num" },
+        "ci_lower": { "$ref": "#/$defs/num" },
+        "ci_upper": { "$ref": "#/$defs/num" },
+        "ci_level": { "type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1 },
+        "ci_method": { "enum": ["wald", "wald_t", "profile", "bootstrap", "bayesian", "robust", "as_reported"] },
+        "p": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "n_ivs_used": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
+    "diagnostic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "value", "df", "p", "note"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+        "value": { "$ref": "#/$defs/num" },
+        "df": { "$ref": "#/$defs/num" },
+        "p": { "type": ["number", "null"], "minimum": 0, "maximum": 1 },
+        "note": { "type": ["string", "null"] }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["engine_version", "r_version", "os", "packages", "seed", "rng_kind", "threads", "started_at", "finished_at", "elapsed_s"],
+      "properties": {
+        "engine_version": { "type": "string" },
+        "r_version": { "type": "string" },
+        "os": { "enum": ["macos-arm64", "macos-x64", "windows-x64", "linux-x64"] },
+        "packages": { "type": "object", "additionalProperties": { "type": "string" } },
+        "seed": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+        "rng_kind": { "type": "string" },
+        "blas": { "type": "string" },
+        "threads": { "type": "integer", "const": 1 },
+        "started_at": { "type": "string" },
+        "finished_at": { "type": "string" },
+        "elapsed_s": { "type": "number", "minimum": 0 },
+        "peak_memory_mb": { "type": ["number", "null"] }
+      }
+    }
+  }
+}

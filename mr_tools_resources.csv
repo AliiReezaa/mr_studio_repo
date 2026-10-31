@@ -1,0 +1,24 @@
+id,name,role,type,url,ref_first_author,ref_year,ref_journal,ref_pmid,ref_doi,ref_verification,impl_verification
+opengwas,MRC IEU OpenGWAS,GWAS summary-statistics database & API,data,https://opengwas.io,Elsworth B,2020,bioRxiv,,10.1101/2020.08.10.244293,cited in source PDF (bbag468),URL (not re-fetched)
+ieugwasr,ieugwasr,"R client for OpenGWAS (instruments, LD clumping, LD matrix)",R package,https://github.com/MRCIEU/ieugwasr,-,-,package documentation,,-,function exists in package NAMESPACE (checked),GitHub 200 — checked 2026-10-25
+gwasvcf,GWAS-VCF format & gwas2vcf,standard summary-statistics format / converter,format/tool,https://github.com/MRCIEU/gwas2vcf,Lyon,2021,Genome Biol,33441155,10.1186/s13059-020-02248-0,PubMed (retrieved 2026-10-25),GitHub 200 — checked 2026-10-25
+mungesumstats,MungeSumstats,summary-statistics QC & standardisation,Bioconductor package,https://github.com/neurogenomics/MungeSumstats,Murphy,2021,Bioinformatics,34601555,10.1093/bioinformatics/btab665,PubMed (retrieved 2026-10-25),GitHub 200 — checked 2026-10-25
+mrinstruments,MRInstruments,"curated instrument sets (GWAS Catalog, QTLs)",R package,https://github.com/MRCIEU/MRInstruments,-,-,package documentation,,-,function exists in package NAMESPACE (checked),GitHub 200 — checked 2026-10-25
+gwascatalog,NHGRI-EBI GWAS Catalog,GWAS associations & summary statistics,data,https://www.ebi.ac.uk/gwas/,Sollis,2023,Nucleic Acids Res,36350656,10.1093/nar/gkac1010,PubMed (retrieved 2026-10-25),URL (not re-fetched)
+finngen,FinnGen,biobank GWAS summary statistics,data,https://www.finngen.fi/en,Kurki,2023,Nature,36653562,10.1038/s41586-022-05473-8,PubMed (retrieved 2026-10-25),URL (not re-fetched)
+ukb,UK Biobank,individual-level biobank data,data,https://www.ukbiobank.ac.uk,Bycroft,2018,Nature,30305743,10.1038/s41586-018-0579-z,PubMed (retrieved 2026-10-25),URL (not re-fetched)
+gtex,GTEx v8,tissue eQTL/sQTL,data,https://gtexportal.org,Consortium,2020,Science,32913098,10.1126/science.aaz1776,PubMed (retrieved 2026-10-25),URL (not re-fetched)
+eqtlgen,eQTLGen,blood cis/trans-eQTL,data,https://www.eqtlgen.org,Võsa,2021,Nat Genet,34475573,10.1038/s41588-021-00913-z,PubMed (retrieved 2026-10-25),URL (not re-fetched)
+ukbppp,UKB-PPP,plasma pQTL (Olink),data,—,Sun,2023,Nature,37794186,10.1038/s41586-023-06592-6,PubMed (retrieved 2026-10-25),—
+decode,deCODE plasma proteome,plasma pQTL (SomaScan),data,—,Ferkingstad,2021,Nat Genet,34857953,10.1038/s41588-021-00978-w,PubMed (retrieved 2026-10-25),—
+kg1000,1000 Genomes Phase 3,LD reference panel,data,https://www.internationalgenome.org,Consortium,2015,Nature,26432245,10.1038/nature15393,PubMed (retrieved 2026-10-25),URL (not re-fetched)
+phenoscanner,PhenoScanner / V2,variant–trait lookup for pleiotropy screening,database,—,Kamat,2019,Bioinformatics,31233103,10.1093/bioinformatics/btz469,PubMed (retrieved 2026-10-25),—
+ldlink,LDlink / LDlinkR,LD proxies & LD matrices,web + R package,https://github.com/CBIIT/LDlinkR,Machiela,2015,Bioinformatics,26139635; 32180801,10.1093/bioinformatics/btv402; 10.3389/fgene.2020.00157,PubMed (retrieved 2026-10-25),GitHub 200 — checked 2026-10-25
+plink,PLINK 1.9 / PLINK 2,"clumping, LD, genotype QC",CLI,https://www.cog-genomics.org/plink/,Purcell,2007,Am J Hum Genet,17701901; 25722852,10.1086/519795; 10.1186/s13742-015-0047-8,PubMed (retrieved 2026-10-25),URL (not re-fetched)
+gcta,"GCTA (incl. GSMR, COJO)","conditional analysis, GSMR",CLI,https://yanglab.westlake.edu.cn/software/gcta/,Yang,2010,Am J Hum Genet,21167468,10.1016/j.ajhg.2010.11.011,PubMed (retrieved 2026-10-25),URL (not re-fetched)
+ldsc,"LDSC (h², rg, intercepts)","heritability, genetic correlation, overlap parameters",CLI (Python),https://github.com/bulik/ldsc,Bulik-Sullivan,2015,Nat Genet,25642630; 26414676,10.1038/ng.3211; 10.1038/ng.3406,PubMed (retrieved 2026-10-25),GitHub 200 — checked 2026-10-25
+ldhub,LD Hub,web LDSC,web,—,Zheng,2016,Bioinformatics,27663502,10.1093/bioinformatics/btw613,PubMed (retrieved 2026-10-25),—
+hdl,HDL (high-definition likelihood),genetic correlation,R,https://github.com/zhenin/HDL,Ning,2020,Nat Genet,32601477,10.1038/s41588-020-0653-y,PubMed (retrieved 2026-10-25),GitHub 200 — checked 2026-10-25
+mtag,MTAG,multi-trait GWAS meta-analysis,CLI (Python),https://github.com/JonJala/mtag,Turley,2018,Nat Genet,29292387,10.1038/s41588-017-0009-4,PubMed (retrieved 2026-10-25),GitHub 200 — checked 2026-10-25
+genomicsem,GenomicSEM,multivariate genetic SEM; munge/ldsc/hdl wrappers,R package,https://github.com/GenomicSEM/GenomicSEM,Grotzinger,2019,Nat Hum Behav,30962613,10.1038/s41562-019-0566-x,PubMed (retrieved 2026-10-25),GitHub 200 — checked 2026-10-25
+onesamplemr,OneSampleMR,one-sample IV helpers,R package,https://github.com/remlapmot/OneSampleMR,-,-,package documentation,,-,function exists in package NAMESPACE (checked),GitHub 200 — checked 2026-10-25

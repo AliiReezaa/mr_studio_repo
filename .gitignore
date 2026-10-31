@@ -1,0 +1,11 @@
+# build outputs
+prototype/shell/target/
+prototype/shell/gen/
+node_modules/
+# runtime is produced by the pipeline
+prototype/runtime/*
+!prototype/runtime/README.txt
+# local scratch
+*.log
+.DS_Store
+mr_inventory_v2_backup.json

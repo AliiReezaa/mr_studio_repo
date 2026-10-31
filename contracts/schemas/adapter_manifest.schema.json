@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mrgui/contracts/1.0.0/adapter_manifest.schema.json",
+  "title": "Method adapter manifest (contracts C6.1)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "adapter_version", "label", "input_kind", "estimands", "requires", "packages", "stochastic", "supports_checkpoint", "runtime_class", "params"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_]+$" },
+    "adapter_version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "label": { "type": "string", "minLength": 1 },
+    "input_kind": { "enum": ["pair_iv", "pair_iv_ld", "multi_iv", "region", "genome_wide_pair"] },
+    "estimands": { "type": "array", "minItems": 1, "items": { "enum": ["causal_effect", "direct_effect", "indirect_effect", "total_effect", "pleiotropy_intercept", "proportion_mediated", "colocalisation_pp", "genetic_correlation", "reverse_effect"] } },
+    "requires": {
+      "type": "object",
+      "required": ["min_ivs", "needs_ld", "needs_eaf", "needs_n", "needs_full_sumstats", "min_exposures", "max_exposures"],
+      "properties": {
+        "min_ivs": { "type": "integer", "minimum": 1 },
+        "needs_ld": { "enum": ["none", "ld_matrix", "ld_scores", "ld_reference_genotypes"] },
+        "needs_eaf": { "type": "boolean" },
+        "needs_n": { "type": "boolean" },
+        "needs_full_sumstats": { "type": "boolean" },
+        "min_exposures": { "type": "integer", "minimum": 1 },
+        "max_exposures": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "packages": { "type": "object", "minProperties": 1, "additionalProperties": { "type": "string", "minLength": 1 } },
+    "stochastic": { "type": "boolean" },
+    "supports_checkpoint": { "type": "boolean" },
+    "runtime_class": { "enum": ["fast", "moderate", "slow", "very_slow"] },
+    "params": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["type", "default"],
+        "properties": {
+          "type": { "enum": ["double", "integer", "logical", "enum"] },
+          "default": {},
+          "min": { "type": "number" },
+          "max": { "type": "number" },
+          "values": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "mrgui/contracts/1.0.0/dataset_card.schema.json",
+  "title": "Dataset card (contracts C3)",
+  "type": "object",
+  "required": ["dataset_id", "source", "source_version", "retrieved_at", "variant_table_blob", "n_variants", "trait_label", "trait_id", "trait_type", "effect_scale", "units", "sample_size", "build_declared", "build_used", "ancestry", "cohorts", "full_sumstats", "data_use_terms", "checksums", "import_report"],
+  "properties": {
+    "dataset_id": { "type": "string", "pattern": "^src:[a-z_]+:.+$" },
+    "source": { "enum": ["opengwas", "gwas_catalog", "finngen", "panukb", "ukb_ppp", "eqtlgen", "file"] },
+    "source_version": { "type": "string" },
+    "retrieved_at": { "type": "string", "format": "date-time" },
+    "variant_table_blob": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "n_variants": { "type": "integer", "minimum": 1 },
+    "trait_label": { "type": "string", "minLength": 1 },
+    "trait_id": { "type": "string" },
+    "trait_type": { "enum": ["continuous", "binary", "count", "molecular"] },
+    "effect_scale": { "enum": ["beta", "log_or", "log_hr"] },
+    "units": {
+      "type": "object",
+      "required": ["scale", "unit_label", "sd_source", "user_confirmed"],
+      "properties": {
+        "scale": { "enum": ["sd", "natural", "log_transformed", "inverse_normal", "log_odds", "unknown"] },
+        "unit_label": { "type": ["string", "null"] },
+        "sd_estimated": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+        "sd_method": { "type": ["string", "null"] },
+        "sd_source": { "enum": ["reported", "estimated", "unknown"] },
+        "user_confirmed": { "type": "boolean" }
+      }
+    },
+    "sample_size": {
+      "type": "object",
+      "required": ["n_total"],
+      "properties": {
+        "n_total": { "type": ["number", "null"], "minimum": 1 },
+        "n_cases": { "type": ["number", "null"], "minimum": 0 },
+        "n_controls": { "type": ["number", "null"], "minimum": 0 },
+        "n_effective": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "build_declared": { "enum": ["GRCh37", "GRCh38", "unknown"] },
+    "build_used": { "const": "GRCh37" },
+    "ancestry": {
+      "type": "object",
+      "required": ["declared", "inferred", "classification", "main_group", "agreement", "single_threshold"],
+      "properties": {
+        "declared": { "type": "array", "items": { "$ref": "#/$defs/share" } },
+        "inferred": { "type": "array", "items": { "$ref": "#/$defs/share" } },
+        "inference_method": { "type": ["string", "null"] },
+        "classification": { "enum": ["single", "multi", "unknown"] },
+        "main_group": { "enum": ["EUR", "EAS", "AFR", "AMR", "SAS", "MID", "CSA", null] },
+        "agreement": { "enum": ["agree", "disagree", "inferred_only", "declared_only", "none"] },
+        "single_threshold": { "type": "number", "minimum": 0.5, "maximum": 1 }
+      }
+    },
+    "cohorts": { "type": "array", "items": { "type": "string" } },
+    "full_sumstats": { "type": "boolean" },
+    "data_use_terms": { "type": "string" },
+    "checksums": { "type": "object", "additionalProperties": { "type": "string" } },
+    "import_report": {
+      "type": "object",
+      "required": ["rows_read", "rows_kept"],
+      "properties": {
+        "rows_read": { "type": "integer", "minimum": 0 },
+        "rows_kept": { "type": "integer", "minimum": 0 },
+        "dropped": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+        "eaf_mismatch_threshold": { "type": "number" },
+        "palindrome_maf_threshold": { "type": "number" }
+      }
+    }
+  },
+  "$defs": {
+    "share": {
+      "type": "object",
+      "required": ["group", "proportion"],
+      "properties": { "group": { "type": "string" }, "proportion": { "type": "number", "minimum": 0, "maximum": 1 } }
+    }
+  }
+}

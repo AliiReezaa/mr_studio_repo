@@ -1,0 +1,30 @@
+{
+  "dataset_id": "src:opengwas:ieu-a-7",
+  "source": "opengwas",
+  "source_version": "EXAMPLE-ONLY",
+  "retrieved_at": "2026-10-29T12:00:00Z",
+  "variant_table_blob": "0000000000000000000000000000000000000000000000000000000000000000",
+  "n_variants": 9455778,
+  "trait_label": "Coronary heart disease (example card, illustrative values)",
+  "trait_id": "trait:coronary-heart-disease",
+  "trait_type": "binary",
+  "effect_scale": "log_or",
+  "units": { "scale": "log_odds", "unit_label": null, "sd_estimated": null, "sd_method": null, "sd_source": "unknown", "user_confirmed": false },
+  "sample_size": { "n_total": 184305, "n_cases": 60801, "n_controls": 123504, "n_effective": null },
+  "build_declared": "GRCh37",
+  "build_used": "GRCh37",
+  "ancestry": {
+    "declared": [{ "group": "EUR", "proportion": 0.77 }, { "group": "SAS", "proportion": 0.13 }, { "group": "EAS", "proportion": 0.10 }],
+    "inferred": [],
+    "inference_method": null,
+    "classification": "multi",
+    "main_group": "EUR",
+    "agreement": "declared_only",
+    "single_threshold": 0.9
+  },
+  "cohorts": ["CARDIoGRAMplusC4D"],
+  "full_sumstats": true,
+  "data_use_terms": "See source dataset page",
+  "checksums": { "original_sha256": "0000000000000000000000000000000000000000000000000000000000000000" },
+  "import_report": { "rows_read": 9455778, "rows_kept": 9455778, "dropped": {}, "eaf_mismatch_threshold": 0.2, "palindrome_maf_threshold": 0.42 }
+}
