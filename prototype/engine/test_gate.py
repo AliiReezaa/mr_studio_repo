@@ -74,8 +74,8 @@ def main():
         check("login with foreign Host header -> 403 (DNS rebinding)", s == 403)
         s, h, _ = http(port, "/auth?t=" + token)
         sc = h.get("Set-Cookie", "")
-        check("correct one-time token -> 302 with HttpOnly SameSite=Strict cookie",
-              s == 302 and "HttpOnly" in sc and "SameSite=Strict" in sc and h.get("Location") == "/")
+        check("correct one-time token -> 302 with HttpOnly SameSite=Lax cookie",
+              s == 302 and "HttpOnly" in sc and "SameSite=Lax" in sc and h.get("Location") == "/")
         cookie = sc.split(";")[0]
         s, h, _ = http(port, "/auth?t=" + token)
         check("login token cannot be reused -> 403", s == 403)

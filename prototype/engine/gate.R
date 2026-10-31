@@ -41,6 +41,11 @@ install_gate <- function(secret, login_token, port) {
   host_ok <- function(req) identical(req$HTTP_HOST, expected_host)
   cookie_ok <- function(req) .const_eq(.cookie_value(req$HTTP_COOKIE, COOKIE_NAME), secret)
 
+  # SameSite=Lax, not Strict: the shell window starts on tauri://localhost and navigates to
+  # http://127.0.0.1:<port>/auth. WebKit treats that chain as cross-site initiated and withholds
+  # Strict cookies on the redirect to "/", which produced "Forbidden" in the real app (found
+  # 2026-11-01). Lax is sent on top-level GET navigations; the Host check, the Origin check on
+  # WebSockets and the secret in the cookie remain the real protection.
   http_gate <- function(req) {
     if (!host_ok(req)) return(.forbidden())                    # DNS rebinding
     if (identical(req$PATH_INFO, "/auth")) {                    # one-time login
@@ -49,7 +54,7 @@ install_gate <- function(secret, login_token, port) {
       token_state$unused <- FALSE
       return(shiny::httpResponse(302L, "text/plain", "", headers = list(
         Location = "/",
-        `Set-Cookie` = sprintf("%s=%s; Path=/; HttpOnly; SameSite=Strict", COOKIE_NAME, secret),
+        `Set-Cookie` = sprintf("%s=%s; Path=/; HttpOnly; SameSite=Lax", COOKIE_NAME, secret),
         `Cache-Control` = "no-store")))
     }
     if (!cookie_ok(req)) return(.forbidden())
