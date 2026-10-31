@@ -69,10 +69,29 @@ jobs:
           echo "R_DOC_DIR=$RH/doc" >> "$GITHUB_ENV"
           echo "RBIN=$RBIN" >> "$GITHUB_ENV"
           echo "CTDIR=$( [[ "$RUNNER_OS" == "Windows" ]] && cygpath -m "$RUNNER_TEMP/ct" || echo "$RUNNER_TEMP/ct" )" >> "$GITHUB_ENV"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            RTW="$(cygpath -w "$PWD/prototype/runtime")"
+            echo "$RTW" >> "$GITHUB_PATH"
+            echo "$RTW\\Library\\bin" >> "$GITHUB_PATH"
+            echo "$RTW\\Library\\mingw-w64\\bin" >> "$GITHUB_PATH"
+            echo "$RTW\\Library\\usr\\bin" >> "$GITHUB_PATH"
+            echo "$(cygpath -w "$(dirname "$RTERM")")" >> "$GITHUB_PATH"
+          fi
           echo "OMP_NUM_THREADS=1" >> "$GITHUB_ENV"
           echo "OPENBLAS_NUM_THREADS=1" >> "$GITHUB_ENV"
           if [[ "$RUNNER_OS" != "Windows" ]]; then echo "LANG=en_US.UTF-8" >> "$GITHUB_ENV"; fi
+          export R_HOME="$RH" R_SHARE_DIR="$RH/share" R_INCLUDE_DIR="$RH/include" R_DOC_DIR="$RH/doc"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            RT="$PWD/prototype/runtime"
+            export PATH="$RT:$RT/Library/bin:$RT/Library/mingw-w64/bin:$RT/Library/usr/bin:$(dirname "$RTERM"):$PATH"
+            echo "RBIN: $RBIN"; ls -la "$RTERM" || true
+            echo "Dirs in runtime:"; find "$RT" -maxdepth 2 -type d | head -40
+          fi
+          set +e
           "$RBIN" --no-echo --vanilla -e 'cat(R.version.string, "\n"); print(extSoftVersion()[c("BLAS","PCRE")])'
+          RC=$?
+          echo "R exit code: $RC"
+          exit $RC
 
       - name: Contract tests with the moved runtime
         run: |
