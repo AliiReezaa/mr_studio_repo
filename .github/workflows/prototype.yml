@@ -111,7 +111,25 @@ jobs:
 
       - name: Build installers
         working-directory: prototype/shell
-        run: npx --yes @tauri-apps/cli@2 build
+        run: |
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            npx --yes @tauri-apps/cli@2 build --bundles app
+            # Tauri's own dmg step hangs on CI runners (hdiutil detach timeout), so pack the app ourselves.
+            mkdir -p target/release/bundle/dmg
+            VER="$(python3 -c "import json;print(json.load(open('tauri.conf.json'))['version'])")"
+            ARCH="$([[ "$(uname -m)" == "arm64" ]] && echo aarch64 || echo x64)"
+            DMG="target/release/bundle/dmg/MR Studio_${VER}_${ARCH}.dmg"
+            STAGE="$RUNNER_TEMP/dmgstage"; rm -rf "$STAGE"; mkdir -p "$STAGE"
+            cp -R "target/release/bundle/macos/MR Studio.app" "$STAGE/"
+            ln -s /Applications "$STAGE/Applications"
+            for i in 1 2 3; do
+              hdiutil create -volname "MR Studio" -srcfolder "$STAGE" -ov -format UDZO "$DMG" && break
+              echo "hdiutil attempt $i failed, retrying"; sleep 10
+            done
+            ls -la target/release/bundle/dmg
+          else
+            npx --yes @tauri-apps/cli@2 build
+          fi
 
       - name: Smoke-test the bundled app
         run: |
