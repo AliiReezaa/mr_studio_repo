@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -295,4 +295,106 @@ DBI::dbDisconnect(h11c$con)
 expect("compare all: the saved results and the scripts are untouched", identical(pair_settings(h11$dir, r11$pair_folder)$nboot, 300) && !any(grepl("compare", list.files(h11$dir, recursive = TRUE))))
 expect("compare all: a pair with only default settings reports nothing to rerun", length(compare_defaults(h11b$dir, r11b$pair_folder, "expA", "outC", c("wm"))$rerun) == 0L)
 DBI::dbDisconnect(h11$con); DBI::dbDisconnect(h11b$con)
+# ---- Round 12: public GWAS from OpenGWAS (simulated OpenGWAS, no internet) ----
+b64u <- function(x) gsub("[=\n]", "", chartr("+/", "-_", jsonlite::base64_enc(charToRaw(x))))
+fake_jwt <- function(exp) paste(b64u('{"alg":"RS256","typ":"JWT"}'), b64u(sprintf('{"iss":"api.opengwas.io","sub":"someone@example.org","iat":1,"exp":%d}', as.integer(exp))), "c2lnbmF0dXJlLXNpZ25hdHVyZS1zaWduYXR1cmU", sep = ".")
+tok_ok <- fake_jwt(as.numeric(Sys.time()) + 5 * 86400); tok_old <- fake_jwt(as.numeric(Sys.time()) - 86400)
+expect("opengwas token: spaces, quotes and a Bearer prefix are tidied, text that is not a token is refused", identical(ogw_clean_token(paste0('  "Bearer ', tok_ok, '" ')), tok_ok) && is.null(ogw_clean_token("hello")) && is.null(ogw_clean_token("")) && is.null(ogw_clean_token(NULL)))
+ti <- ogw_token_info(tok_ok)
+expect("opengwas token: only the expiry is read (about 5 days left), the account is not returned", ti$set && ti$valid_shape && !ti$expired && abs(ti$days_left - 5) < 0.1 && !grepl("someone", paste(unlist(ti), collapse = " ")))
+expect("opengwas token: an expired token is recognised and refused before any request", isTRUE(ogw_token_info(tok_old)$expired) && grepl("expired", err_of(ogw_catalogue_update(tok_old))))
+expect("opengwas: no token gives a clear instruction, offline mode refuses before anything else", grepl("Paste your OpenGWAS access token", err_of(ogw_catalogue_update(NULL))) && grepl("Offline mode is on", err_of(ogw_catalogue_update(tok_ok, offline = TRUE))))
+
+mk_snp <- function(i) sprintf("rs%d", 1000 + i)
+set.seed(12); nx <- 15L; ex_t <- data.frame(rsid = mk_snp(1:nx), chr = rep(c("1", "2", "5"), 5), position = 1e6 * (1:nx), ea = rep(c("A", "C", "G"), 5), nea = rep(c("G", "T", "A"), 5), eaf = round(runif(nx, .15, .85), 3),
+  beta = runif(nx, .06, .12) * sample(c(-1, 1), nx, TRUE), se = runif(nx, .005, .007), n = 300000, id = "sim-exp-1", trait = "Simulated body mass", stringsAsFactors = FALSE)
+ex_t$p <- 2 * pnorm(-abs(ex_t$beta / ex_t$se))
+ex_raw <- rbind(ex_t, transform(ex_t[1, ], rsid = "rs5000", ea = "AT", nea = "A"), transform(ex_t[2, ]), transform(ex_t[3, ], rsid = "rs5001", se = NA))
+oy_beta <- 0.25 * ex_t$beta + rnorm(nx, 0, .004); oy_se <- runif(nx, .006, .01)
+mk_out <- function(ix, proxy = FALSE) data.frame(SNP = if (proxy) mk_snp(ix) else mk_snp(ix), chr = ex_t$chr[ix], pos = ex_t$position[ix], beta.outcome = oy_beta[ix], se.outcome = oy_se[ix], samplesize.outcome = 230000, pval.outcome = 2 * pnorm(-abs(oy_beta[ix] / oy_se[ix])),
+  eaf.outcome = ex_t$eaf[ix], effect_allele.outcome = ex_t$ea[ix], other_allele.outcome = ex_t$nea[ix], outcome = "Simulated heart disease", id.outcome = "sim-out-1", proxy.outcome = proxy,
+  target_snp.outcome = if (proxy) mk_snp(ix) else NA_character_, proxy_snp.outcome = if (proxy) sprintf("rs%d", 7000 + ix) else NA_character_, stringsAsFactors = FALSE)
+CATM <- data.frame(id = c("sim-exp-1", "sim-out-1", "sim-out-2", "sim-eas-1", "ukb-sim-1", "ukb-sim-2"), trait = c("Simulated body mass", "Simulated heart disease", "Simulated height", "Simulated East Asian trait", "UKB simulated A", "UKB simulated B"),
+  population = c("European", "European", "European", "East Asian", "European", "European"), sex = "Males and Females", build = "HG19/GRCh37", author = c("Sim", "Sim", "Sim", "Sim", "Neale", "Neale"), consortium = c("GIANT", "", "", "BBJ", "", ""),
+  category = "Risk factor", subcategory = "Anthropometric", unit = "SD", note = "", pmid = "1", ncase = c(NA, 30000, NA, NA, NA, 5000), ncontrol = c(NA, 200000, NA, NA, NA, 300000), sample_size = c(300000, 230000, 250000, 150000, 360000, 305000),
+  nsnp = 1e7, year = 2020, mr = c(1, 1, 1, 0, 1, 1), stringsAsFactors = FALSE)
+mock <- new.env(); mock$calls <- list(); mock$fail <- NULL
+chk <- function(jwt) { if (!is.null(mock$fail)) stop(mock$fail); if (!identical(jwt, tok_ok)) stop("Status code from OpenGWAS API: 401 Message: must provide a token") }
+BE <- list(
+  info = function(jwt, id = NULL) { chk(jwt); mock$calls[[length(mock$calls) + 1L]] <- list("info", id); if (is.null(id)) CATM else { r <- CATM[CATM$id == id, ]; if (!nrow(r)) stop("Status code from OpenGWAS API: 404") else r } },
+  tophits = function(id, p, r2, kb, pop, jwt) { chk(jwt); mock$calls[[length(mock$calls) + 1L]] <- list("tophits", id, p, r2, kb, pop); ex_raw },
+  outcome = function(snps, id, proxies, rsq, maf, jwt) { chk(jwt); mock$calls[[length(mock$calls) + 1L]] <- list("outcome", id, length(snps), proxies, rsq, maf)
+    direct <- setdiff(1:nx, c(4, 11, 15)); d <- mk_out(direct); if (isTRUE(proxies)) d <- rbind(d, mk_out(c(4, 11), TRUE)); d })
+options(mrgui.ogw_backend = BE)
+st <- ogw_catalogue_update(tok_ok)
+expect("opengwas catalogue: saved on this computer with a date, and read back", st$have && st$n == 6L && nrow(ogw_catalogue_read()) == 6L && !is.null(ogw_catalogue_status()$fetched))
+expect("opengwas catalogue: a wrong token gives the token message, not a technical one", grepl("did not accept the access token", err_of(ogw_catalogue_update(fake_jwt(as.numeric(Sys.time()) + 86400)))))
+cat12 <- ogw_catalogue_read()
+sr <- function(...) ogw_search(cat12, ...)$rows$id
+expect("opengwas search: every word must match, the exact trait first, and an empty query returns nothing", identical(sr("heart"), "sim-out-1") && identical(sr("body mass"), "sim-exp-1") && length(sr("")) == 0L && length(sr("heart body")) == 0L && identical(sr("SIM-OUT-2"), "sim-out-2"))
+expect("opengwas search: the MR-suitable filter, ancestry, size and binary/continuous filters work", !("sim-eas-1" %in% sr("simulated")) && identical(sr("simulated", population = "EAS", mr_only = FALSE), "sim-eas-1") &&
+       !("sim-out-1" %in% sr("simulated", min_n = 240000)) && "sim-out-2" %in% sr("simulated", min_n = 240000) && setequal(sr("simulated", kind = "binary"), c("sim-out-1", "ukb-sim-2")) && "sim-exp-1" %in% sr("simulated", kind = "continuous"))
+expect("opengwas search: larger studies come first among equal matches", identical(sr("simulated", kind = "continuous")[1], "sim-exp-1"))
+pl <- ogw_search_payload(ogw_search(cat12, "heart")); expect("opengwas search: the payload gives the screen what it shows (binary kind, ancestry code, no empty fields)", pl$rows[[1]]$kind == "binary" && pl$rows[[1]]$pop == "EUR" && !any(vapply(pl$rows[[1]], function(v) length(v) == 1L && is.na(v), TRUE)))
+
+lib0 <- length(library_list())
+rx <- ogw_get_exposure("sim-exp-1", tok_ok)
+th <- Filter(function(x) x[[1]] == "tophits", mock$calls)[[1]]
+expect("opengwas exposure: clumping settings reach the server call (P 5e-8, r2 0.001, 10000 kb, European panel taken from the dataset)", th[[3]] == 5e-8 && th[[4]] == 0.001 && th[[5]] == 10000 && th[[6]] == "EUR")
+expect("opengwas exposure: the 18 raw rows are cleaned to 15 (an indel, a repeat and a missing standard error dropped) and each drop is explained", rx$rows_in_file == 18L && rx$rows_kept == 15L && length(rx$warnings) >= 3L)
+expect("opengwas exposure: saved as independent, with its source, settings, package versions and the catalogue facts", isTRUE(rx$usable_as_exposure) && !isTRUE(rx$usable_as_outcome) && identical(rx$facts$independent, "yes") && rx$facts$ancestry == "EUR" && identical(rx$source$id, "sim-exp-1") && rx$source$params$kb == 10000 && !is.null(rx$source$packages$TwoSampleMR) && rx$facts$kind == "continuous")
+expect("opengwas exposure: it appears in the Data library and in the trait lists as OpenGWAS, as an exposure only", length(library_list()) == lib0 + 1L && any(vapply(catalogue_all()$exposures, function(r) identical(r$src, "OpenGWAS"), TRUE)) && !any(vapply(catalogue_all()$outcomes, function(r) identical(r$src, "OpenGWAS"), TRUE)))
+n_calls <- length(mock$calls); rx2 <- ogw_get_exposure("sim-exp-1", tok_ok)
+expect("opengwas exposure: asking again with the same settings reuses the saved copy and makes no request", isTRUE(rx2$reused) && length(mock$calls) == n_calls)
+expect("opengwas exposure: the same name with other settings is refused instead of overwritten", grepl("already in the Data library", err_of(ogw_get_exposure("sim-exp-1", tok_ok, p = 5e-6))))
+expect("opengwas exposure: out-of-range settings are refused with a sentence", grepl("between 1e-30 and 0.001", err_of(ogw_get_exposure("sim-exp-1", tok_ok, p = 0.5, name = "x"))) && grepl("r²", err_of(ogw_get_exposure("sim-exp-1", tok_ok, r2 = 0.9, name = "x"))) && grepl("window", err_of(ogw_get_exposure("sim-exp-1", tok_ok, kb = 1, name = "x"))))
+expect("opengwas exposure: a dataset with no clumping panel (mixed ancestry) needs the user to choose one", { CATM$population[1] <- "Mixed"; mock$cat <- NULL; unlink(ogw_cache_file()); ogw_catalogue_update(tok_ok); r <- grepl("no clumping reference panel", err_of(ogw_get_exposure("sim-exp-1", tok_ok, name = "Mixed test"))); CATM$population[1] <- "European"; unlink(ogw_cache_file()); ogw_catalogue_update(tok_ok); r })
+
+ro <- ogw_get_outcome("sim-out-1", rx$trait, tok_ok)
+oc <- Filter(function(x) x[[1]] == "outcome", mock$calls)[[1]]
+expect("opengwas outcome: only the 15 instruments are looked up, with proxies at r2 0.8 and the MAF limit 0.3", oc[[3]] == 15L && isTRUE(oc[[4]]) && oc[[5]] == 0.8 && oc[[6]] == 0.3)
+expect("opengwas outcome: 14 of 15 found (12 direct, 2 through proxies), 1 lost, and the recipe and warnings say so", ro$lookup$found == 14L && ro$lookup$direct == 12L && ro$lookup$by_proxy == 2L && ro$lookup$missing == 1L && any(grepl("1 of 15 instruments are not in this outcome", unlist(ro$warnings))) && any(grepl("replaced by a proxy", unlist(ro$warnings))))
+expect("opengwas outcome: binary outcome, usable as outcome only, tied to its exposure", ro$facts$kind == "binary" && isTRUE(ro$usable_as_outcome) && !isTRUE(ro$usable_as_exposure) && identical(ro$source$for_exposure, rx$trait))
+od <- library_dataset(ro$trait)$data
+expect("opengwas outcome: proxy variants keep the instrument's ID and record the proxy used", all(od$snp[od$proxy_snp != ""] %in% mk_snp(c(4, 11))) && setequal(od$proxy_snp[od$proxy_snp != ""], sprintf("rs%d", c(7004, 7011))))
+ro_np <- ogw_get_outcome("sim-out-1", rx$trait, tok_ok, proxies = FALSE, name = "No proxies")
+expect("opengwas outcome: with proxies off only the 12 direct hits are kept, and the warning says proxies were off", ro_np$lookup$found == 12L && any(grepl("proxies were off", unlist(ro_np$warnings))))
+
+pp12 <- pair_input(paste0("lib:", rx$trait), paste0("lib:", ro$trait))
+expect("opengwas pair: built by the same harmonisation as imported files; the ledger counts the proxies and what was lost", pp12$ledger$instruments == 15L && pp12$ledger$by_proxy == 2L && pp12$ledger$missing_in_outcome == 1L && pp12$ledger$kept == 14L && !isTRUE(pp12$ukb_both) && pp12$anc_x == "EUR" && pp12$anc_y == "EUR")
+h12 <- studio_new("OpenGWAS pair"); r12 <- studio_run(h12, pp12$exposure_label, pp12$outcome_label, pp12$input, c("ivw_mre", "egger"), idx = 1L)
+expect("opengwas pair: the analysis runs from downloaded data, replay identical, IVW estimate near the planted 0.25", all(vapply(r12$results, function(x) x$status, "") == "ok") && identical(r12$replay$status, "identical") && abs(pair_results(h12$dir, r12$pair_folder)$estimate[1] - 0.25) < 0.08)
+ui_state_set(h12$con, "pairs", list(list(ex = paste0("lib:", rx$trait), out = paste0("lib:", ro$trait), exName = pp12$exposure_label, outName = pp12$outcome_label, folder = r12$pair_folder, methods = as.list(c("ivw_mre", "egger")), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = pp12$ledger, anc_x = "EUR", anc_y = "EUR")))
+pk12 <- build_package(h12, c("report", "refs"), 140); htm12 <- paste(readLines(file.path(pk12$dir, "report.html"), warn = FALSE), collapse = "\n")
+expect("opengwas report: the methods name the OpenGWAS datasets, the date, the clumping settings, the proxy rule and the package versions", grepl("obtained from the OpenGWAS database (dataset sim-exp-1", htm12, fixed = TRUE) && grepl("clumped on the OpenGWAS server with ieugwasr::tophits", htm12, fixed = TRUE) && grepl("within 10,000 kb, 1000 Genomes EUR", htm12, fixed = TRUE) && grepl("of at least 0.8", htm12, fixed = TRUE) && grepl("found only through proxy variants", htm12, fixed = TRUE) && !grepl("were were", htm12, fixed = TRUE) && grepl("sample size 300,000", htm12, fixed = TRUE))
+expect("opengwas report: no wrong claim that the analyst declared independence, the limitations say the panel is a reference sample, data availability names the public source", !grepl("did not perform clumping", htm12, fixed = TRUE) && !grepl("rests on the analyst", htm12, fixed = TRUE) && grepl("reference sample", htm12, fixed = TRUE) && grepl("public OpenGWAS database (api.opengwas.io), dataset IDs: sim-exp-1; sim-out-1", htm12, fixed = TRUE) && !grepl("Add the public source", htm12, fixed = TRUE))
+DBI::dbDisconnect(h12$con)
+rx_b <- ogw_get_exposure("sim-exp-1", tok_ok, p = 5e-6, name = "Second exposure")
+expect("opengwas pair: an outcome fetched for one exposure cannot be paired with another (its other variants were never downloaded)", grepl("downloaded only for the instruments of", err_of(pair_input(paste0("lib:", rx_b$trait), paste0("lib:", ro$trait)))))
+expect("opengwas pair: a downloaded exposure with an imported outcome is allowed (same kind of ID)", is.null(tryCatch({ pair_input(paste0("lib:", rx$trait), paste0("lib:", ro_np$trait)); NULL }, error = function(e) e)))
+
+ux <- ogw_get_exposure("ukb-sim-1", tok_ok, name = "UKB exposure"); uo <- ogw_get_outcome("ukb-sim-2", ux$trait, tok_ok, name = "UKB outcome")
+expect("opengwas: UK Biobank datasets are flagged from the catalogue, and a pair of two of them carries the overlap flag", isTRUE(ux$facts$ukb) && isTRUE(uo$facts$ukb) && isTRUE(pair_input(paste0("lib:", ux$trait), paste0("lib:", uo$trait))$ukb_both) && isTRUE(pair_facts(paste0("lib:", ux$trait), paste0("lib:", uo$trait))$ukb_both))
+
+fe <- function(m) ogw_friendly(simpleError(m))
+expect("opengwas errors: each technical failure becomes a sentence that says what to do", grepl("access token", fe("Status code from OpenGWAS API: 401")) && grepl("limited how many requests", fe("Status code from OpenGWAS API: 429")) && grepl("Cannot reach OpenGWAS", fe("Could not resolve host: api.opengwas.io")) && grepl("server error", fe("Status code from OpenGWAS API: 503")) && grepl("does not know this dataset", fe("Status code from OpenGWAS API: 404")) && grepl("Cannot reach", fe("Timeout was reached")))
+mock$fail <- paste("curl error", tok_ok, "Could not resolve host")
+msg <- err_of(ogw_get_exposure("sim-eas-1", tok_ok, name = "Net down", pop = "EAS"))
+expect("opengwas errors: a network failure during a download says so, saves nothing and never repeats the token", grepl("Cannot reach OpenGWAS", msg) && !grepl("eyJ", msg) && !dir.exists(file.path(library_dir(), "Net down")))
+mock$fail <- paste("unexpected thing", tok_ok); msg <- err_of(ogw_catalogue_update(tok_ok))
+expect("opengwas errors: an unknown error is shown shortened and with any token removed", grepl("unexpected answer", msg) && !grepl("eyJ", msg) && nchar(msg) < 400)
+mock$fail <- NULL
+expect("opengwas download: offline mode and a missing token are refused before anything is requested", { n0 <- length(mock$calls); r <- grepl("Offline mode", err_of(ogw_get_exposure("sim-exp-1", tok_ok, offline = TRUE, name = "z"))) && grepl("Paste your OpenGWAS", err_of(ogw_get_outcome("sim-out-1", rx$trait, NULL, name = "z"))); r && length(mock$calls) == n0 })
+expect("opengwas download: asking for an unknown dataset ID gives the not-found sentence", grepl("does not know", err_of(ogw_get_exposure("nope-1", tok_ok, name = "q"))) && grepl("not a set of independent instruments|not in the Data library", err_of(ogw_get_outcome("sim-out-1", "no such dataset", tok_ok, name = "q"))))
+
+shiny::testServer(mr_server(args_dir), {
+  session$setInputs(act = list(t = "ogw_token_save", token = "not a token", nonce = 1)); expect("server: a text that is not a token is not stored", is.null(ogw_token_get()))
+  session$setInputs(act = list(t = "ogw_token_save", token = paste0(" ", tok_ok, " "), nonce = 2)); expect("server: a pasted token is kept in memory only", identical(ogw_token_get(), tok_ok))
+  session$setInputs(act = list(t = "ogw_search", q = "heart", pop = "", min_n = 0, mr_only = TRUE, kind = "any", nonce = 3)); expect("server: searching the saved catalogue does not crash", TRUE)
+  session$setInputs(act = list(t = "ogw_dl_exposure", id = "sim-eas-1", p = 5e-8, r2 = 0.001, kb = 10000, pop = "EAS", name = "EAS exposure", nonce = 4)); expect("server: a download through the screen's action saves the dataset", dir.exists(file.path(library_dir(), "EAS exposure")))
+  session$setInputs(act = list(t = "ogw_token_clear", nonce = 5)); expect("server: removing the token clears it", is.null(ogw_token_get()))
+})
+scan_for_token <- function(dirs) { fs <- unlist(lapply(dirs, function(d) list.files(d, recursive = TRUE, full.names = TRUE, all.files = TRUE))); fs <- fs[file.info(fs)$size > 0 & !file.info(fs)$isdir]; any(vapply(fs, function(f) { x <- readBin(f, "raw", file.size(f)); grepl(substr(tok_ok, 1, 40), rawToChar(replace(x, x == as.raw(0), as.raw(32))), fixed = TRUE) }, TRUE)) }
+expect("opengwas: the token is in no file at all (studies folder, Data library, recipes, scripts, settings, catalogue cache)", !scan_for_token(c(root, settings_dir())))
+options(mrgui.ogw_backend = NULL); ogw_token_set(NULL)
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

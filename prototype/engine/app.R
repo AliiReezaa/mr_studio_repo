@@ -47,6 +47,7 @@ mr_server <- function(engine_dir) {
     output$hello <- renderText("connected")
     rv <- reactiveValues(h = NULL, imp = NULL)
     ev <- function(t, ...) session$sendCustomMessage("ev", c(list(t = t), list(...)))
+    ogw_ev <- function() ev("ogw_state", token = ogw_token_info(ogw_token_get()), catalogue = ogw_catalogue_status(), offline = isTRUE(settings_read()$offline))
     close_study <- function() { if (!is.null(rv$h)) try(DBI::dbDisconnect(rv$h$con), silent = TRUE); rv$h <- NULL }
     onSessionEnded(function() isolate(close_study()))
     fail <- function(e) ev("error", msg = conditionMessage(e))
@@ -83,9 +84,10 @@ mr_server <- function(engine_dir) {
         init = {
           s <- settings_read(); root <- studies_root()
           ev("init", settings = s, library = library_list(), templates = template_list(), studies = studies_overview(root), catalogue = catalogue_all(), schemas = param_schemas(), root = root, diag = run_diagnostics(root))
+          ogw_ev()
         },
         study_folder = open_in_file_manager(file.path(studies_root(), basename(a$name))),
-        library = ev("library", items = library_list(), templates = template_list(), catalogue = catalogue_all()),
+        library = { ev("library", items = library_list(), templates = template_list(), catalogue = catalogue_all()); ogw_ev() },
         library_folder = { d <- library_dir(); dir.create(d, recursive = TRUE, showWarnings = FALSE); open_in_file_manager(d) },
         import_check = {
           req(rv$imp); v <- import_validate(rv$imp$path, rv$imp$sep, rv$imp$columns, a$mapping, a$facts)
@@ -105,7 +107,7 @@ mr_server <- function(engine_dir) {
         },
         settings_info = {
           root <- studies_root(); b <- if (dir.exists(root)) folder_size_bytes(root) else 0
-          ev("settings_info", info = list(size = fmt_bytes(b)))
+          ev("settings_info", info = list(size = fmt_bytes(b))); ogw_ev()
         },
         diagnostics = ev("diagnostics", items = run_diagnostics()),
         study_create = {
@@ -179,6 +181,37 @@ mr_server <- function(engine_dir) {
           r <- tryCatch(compare_defaults(rv$h$dir, a$folder, a$ex, a$out, unlist(a$methods), as.numeric(a$pthr %||% 5e-8)), error = function(e) e)
           if (inherits(r, "error")) { ev("compare", folder = a$folder, ok = FALSE, msg = conditionMessage(r)); return() }
           ev("compare", folder = a$folder, ok = TRUE, rows = r$rows, rerun = r$rerun)
+        },
+        ogw_state = ogw_ev(),
+        ogw_token_save = {
+          tok <- ogw_clean_token(a$token)
+          if (is.null(tok)) { ev("ogw_token", ok = FALSE, msg = "That does not look like an OpenGWAS token. A token is one long line made of three parts separated by dots, and it starts with eyJ. Copy all of it from api.opengwas.io."); return() }
+          ogw_token_set(tok); ev("ogw_token", ok = TRUE, token = ogw_token_info(tok), msg = "Token kept in memory until you close MR Studio.")
+        },
+        ogw_token_clear = { ogw_token_set(NULL); ev("ogw_token", ok = TRUE, token = ogw_token_info(NULL), msg = "Token removed.") },
+        ogw_token_test = {
+          r <- tryCatch(ogw_token_test(ogw_token_get(), isTRUE(settings_read()$offline)), error = function(e) e)
+          ev("ogw_token_tested", ok = !inherits(r, "error"), msg = if (inherits(r, "error")) conditionMessage(r) else "OpenGWAS accepted the token.")
+        },
+        ogw_catalogue_update = {
+          r <- tryCatch(ogw_catalogue_update(ogw_token_get(), isTRUE(settings_read()$offline)), error = function(e) e)
+          ev("ogw_cat", ok = !inherits(r, "error"), status = if (!inherits(r, "error")) r, msg = if (inherits(r, "error")) conditionMessage(r) else "")
+        },
+        ogw_search = {
+          cat <- ogw_catalogue_read()
+          if (is.null(cat)) { ev("ogw_results", q = a$q, total = 0L, rows = list(), nocat = TRUE); return() }
+          res <- ogw_search(cat, a$q %||% "", a$pop %||% "", as.numeric(a$min_n %||% 0), !identical(a$mr_only, FALSE), a$kind %||% "any")
+          pl <- ogw_search_payload(res); ev("ogw_results", q = a$q, total = pl$total, rows = pl$rows, nocat = FALSE)
+        },
+        ogw_dl_exposure = {
+          r <- tryCatch(ogw_get_exposure(a$id, ogw_token_get(), as.numeric(a$p), as.numeric(a$r2), as.numeric(a$kb), a$pop, a$name, isTRUE(settings_read()$offline)), error = function(e) e)
+          if (inherits(r, "error")) { ev("ogw_dl", ok = FALSE, msg = conditionMessage(r)); return() }
+          ev("ogw_dl", ok = TRUE, rec = r, reused = isTRUE(r$reused), items = library_list(), templates = template_list(), catalogue = catalogue_all())
+        },
+        ogw_dl_outcome = {
+          r <- tryCatch(ogw_get_outcome(a$id, a$exposure, ogw_token_get(), !identical(a$proxies, FALSE), as.numeric(a$rsq), as.numeric(a$maf), a$name, isTRUE(settings_read()$offline)), error = function(e) e)
+          if (inherits(r, "error")) { ev("ogw_dl", ok = FALSE, msg = conditionMessage(r)); return() }
+          ev("ogw_dl", ok = TRUE, rec = r, reused = isTRUE(r$reused), items = library_list(), templates = template_list(), catalogue = catalogue_all())
         },
         NULL))(), error = function(e) {
           if (identical(t, "set") && identical(a$key, "studies_root")) ev("set_err", key = "studies_root", msg = conditionMessage(e)) else fail(e)

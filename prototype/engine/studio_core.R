@@ -134,7 +134,7 @@ demo_catalogue <- function() {
 #' Datasets imported by the user, offered next to the simulated traits. An exposure must be marked as already independent (clumping is not built).
 library_catalogue <- function(root = studies_root()) {
   recs <- tryCatch(library_list(root), error = function(e) list())
-  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, src = "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?")
+  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?")
   list(exposures = lapply(Filter(function(r) isTRUE(r$usable_as_exposure), recs), mk, role = "exposure"),
        outcomes = lapply(Filter(function(r) isTRUE(r$usable_as_outcome), recs), mk, role = "outcome"))
 }
@@ -174,6 +174,8 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   ex <- library_dataset(sub("^lib:", "", exp_id), root); ou <- library_dataset(sub("^lib:", "", out_id), root)
   if (!isTRUE(ex$recipe$usable_as_exposure)) stop("\"", ex$recipe$trait, "\" is not marked as a set of independent instruments, so it cannot be an exposure yet. Clumping is not built. Import a file that holds only clumped, genome-wide significant variants and answer \"Yes\" to the question about independent variants.")
   if (!isTRUE(ou$recipe$usable_as_outcome)) stop("\"", ou$recipe$trait, "\" was imported as an exposure only.")
+  fe <- ou$recipe$source$for_exposure
+  if (!is.null(fe) && !identical(fe, ex$recipe$trait)) stop("\"", ou$recipe$trait, "\" was downloaded only for the instruments of \"", fe, "\", so it cannot be paired with \"", ex$recipe$trait, "\". Download this outcome again for the exposure you want (Data library).")
   kx <- .vkey(ex$data); ky <- .vkey(ou$data)
   if (!identical(kx$kind, ky$kind)) stop("One dataset identifies variants by rsID and the other only by chromosome and position, so they cannot be matched. Import both with the same kind of ID.")
   X <- ex$data; X$key <- kx$key; Y <- ou$data; Y$key <- ky$key
@@ -181,7 +183,7 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   led <- list(candidates = nrow(X))
   X <- X[is.finite(X$p) & X$p < pthr, , drop = FALSE]; led$instruments <- nrow(X)
   if (nrow(X) < 2L) stop("Fewer than 2 variants in \"", ex$recipe$trait, "\" reach P < ", format(pthr, scientific = TRUE), ". At least 2 instruments are needed.")
-  Y <- Y[Y$key %in% X$key, , drop = FALSE]; led$in_outcome <- nrow(Y); led$missing_in_outcome <- led$instruments - nrow(Y)
+  Y <- Y[Y$key %in% X$key, , drop = FALSE]; led$in_outcome <- nrow(Y); led$missing_in_outcome <- led$instruments - nrow(Y); led$by_proxy <- if ("proxy_snp" %in% names(Y)) sum(!is.na(Y$proxy_snp) & nzchar(Y$proxy_snp)) else 0L
   if (nrow(Y) < 2L) stop("Fewer than 2 instruments were found in \"", ou$recipe$trait, "\".")
   fmt <- function(D, type) {
     D2 <- data.frame(SNP = D$key, beta = D$beta, se = D$se, effect_allele = D$ea, other_allele = D$oa, stringsAsFactors = FALSE)
@@ -206,7 +208,8 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   if (led$kept < 2L) stop("Fewer than 2 instruments remain after harmonisation.")
   sc <- if (identical(ou$recipe$facts$kind, "binary")) "log_or" else "beta"
   list(exposure_label = ex$recipe$trait, outcome_label = ou$recipe$trait, simulated = FALSE, ledger = led,
-       anc_x = ex$recipe$facts$ancestry %||% "?", anc_y = ou$recipe$facts$ancestry %||% "?",
+       anc_x = ex$recipe$facts$ancestry %||% "?", anc_y = ou$recipe$facts$ancestry %||% "?", ukb_both = isTRUE(ex$recipe$facts$ukb) && isTRUE(ou$recipe$facts$ukb),
+       source_x = ex$recipe$source$id %||% NULL, source_y = ou$recipe$source$id %||% NULL,
        input = list(kind = "pair_iv", data = d, exposure_id = exp_id, outcome_id = out_id, outcome_scale = sc))
 }
 
@@ -225,7 +228,7 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
   pal <- sum((kept$ea == "A" & kept$oa == "T") | (kept$ea == "T" & kept$oa == "A") | (kept$ea == "C" & kept$oa == "G") | (kept$ea == "G" & kept$oa == "C"))
   list(exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(kept), mean_f = round(mean(Fs), 1), min_f = round(min(Fs), 1),
        n_weak = sum(Fs < 10), palindromic = pal, scale = p$input$outcome_scale,
-       simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger)
+       simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both))
 }
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger")
