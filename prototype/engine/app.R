@@ -138,7 +138,7 @@ mr_server <- function(engine_dir) {
           if (length(bad)) { ev("pair_done", i = a$i, ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
           pl <- ui_state_get(rv$h$con, "pairs") %||% list()
           pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
-          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), pthr = pt)
+          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
           ui_state_set(rv$h$con, "pairs", pl)
           ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder))
         },
@@ -159,6 +159,13 @@ mr_server <- function(engine_dir) {
           sens[[length(sens) + 1L]] <- rec; ui_state_set(rv$h$con, "sens", sens)
           ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(rv$h$dir, r$pair_folder), reused = isTRUE(r$reused))
         },
+        build_package = {
+          req(rv$h)
+          r <- tryCatch(build_package(rv$h, unlist(a$items), a$width_mm, a$pub), error = function(e) e)
+          if (inherits(r, "error")) { ev("package_done", ok = FALSE, msg = conditionMessage(r)); return() }
+          ev("package_done", ok = TRUE, folder = r$folder, files = as.list(r$files), notes = as.list(r$notes), simulated = r$simulated)
+        },
+        open_package = { req(rv$h); open_in_file_manager(file.path(rv$h$dir, "05_publication", a$folder)) },
         open_folder = { req(rv$h); open_in_file_manager(rv$h$dir) },
         open_rstudio = { req(rv$h); r <- open_in_rstudio(rv$h$dir, a$folder); ev("rstudio", opened = isTRUE(r$opened), script = r$script) },
         open_script = { req(rv$h); sp <- file.path(rv$h$dir, "03_pairs", a$folder, "02_scripts", "00_run_all.R"); open_in_file_manager(sp) },

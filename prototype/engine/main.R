@@ -33,6 +33,7 @@ watch_parent <- function() {
 source(file.path(args_dir, "studio_core.R"))
 load_contracts(find_contracts_dir(args_dir))
 source(file.path(args_dir, "import_core.R"))
+source(file.path(args_dir, "report_core.R"))
 source(file.path(args_dir, "app.R"))
 ui <- mr_ui_for(args_dir)
 server <- mr_server(args_dir)
