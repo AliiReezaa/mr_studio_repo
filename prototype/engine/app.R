@@ -66,6 +66,7 @@ mr_server <- function(engine_dir) {
           s <- settings_read(); root <- studies_root()
           ev("init", settings = s, library = library_list(), templates = template_list(), studies = studies_overview(root), catalogue = demo_catalogue(), schemas = param_schemas(), root = root, diag = run_diagnostics(root))
         },
+        study_folder = open_in_file_manager(file.path(studies_root(), basename(a$name))),
         library = ev("library", items = library_list(), templates = template_list()),
         library_folder = { d <- library_dir(); dir.create(d, recursive = TRUE, showWarnings = FALSE); open_in_file_manager(d) },
         import_check = {
@@ -99,7 +100,10 @@ mr_server <- function(engine_dir) {
         },
         plan_update = { req(rv$h); study_plan_save(rv$h, list(kind = a$kind, aim = a$aim %||% "", prereg = isTRUE(a$prereg))) },
         study_open = {
-          close_study(); h <- studio_open(a$name); rv$h <- h
+          close_study()
+          h <- tryCatch(studio_open(a$name), error = function(e) { ev("study_open_failed", name = a$name, msg = conditionMessage(e)); NULL })
+          if (is.null(h)) return(invisible())
+          rv$h <- h
           study_msg("study_opened", h, to = a$to %||% "auto")
         },
         facts = {
