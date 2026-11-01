@@ -100,7 +100,7 @@ function noticeBar() {
   return '<div role="alert" style="display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:14px;background:var(--panel2);border:1px solid ' + (warn ? 'var(--warn)' : 'var(--line)') + '"><span style="color:' + (warn ? 'var(--warn)' : 'var(--accent)') + ';display:flex">' + svg('M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z' + IC.info.replace('M12 8', 'M12 8'), 20, 2) + '</span><span style="flex-grow:1;white-space:pre-wrap">' + esc(S.notice.msg) + '</span><button type="button" data-a="dismiss" aria-label="Dismiss" style="border:0;background:transparent;color:var(--mute);font-size:18px">×</button></div>';
 }
 function frame(mode, active, main) {
-  return sidebar(mode, active) + '<main style="flex:999 1 640px;min-width:0;box-sizing:border-box;padding:32px 44px 40px;display:flex;flex-direction:column;gap:24px">' + noticeBar() + main + '</main>';
+  return sidebar(mode, active) + '<main style="flex:1 1 0;min-width:0;box-sizing:border-box;padding:32px clamp(20px,4vw,44px) 40px;display:flex;flex-direction:column;gap:24px">' + noticeBar() + main + '</main>';
 }
 const DEMO_NOTE = '<div style="font-size:12px;color:var(--mute)">Demo traits are simulated. They exist so every screen can be tested before real GWAS data can be downloaded.</div>';
 
