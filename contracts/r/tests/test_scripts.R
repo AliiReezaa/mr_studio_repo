@@ -12,7 +12,7 @@ expect <- function(desc, ok) {
   if (isTRUE(ok)) { n_pass <<- n_pass + 1L; cat("PASS ", desc, "\n") }
   else { n_fail <<- n_fail + 1L; cat("FAIL ", desc, "\n") }
 }
-near <- function(a, b, tol = 1e-12) isTRUE(all(abs(a - b) <= tol * pmax(1, abs(b))))
+near <- function(a, b, tol = 1e-12) { na <- is.na(a); length(a) == length(b) && identical(na, is.na(b)) && isTRUE(all(abs(a - b)[!na] <= (tol * pmax(1, abs(b)))[!na])) }   # missing values must be missing in both
 
 # ---- same simulated harmonised table as test_contracts.R ---------------------------------------
 set.seed(20261029)
@@ -122,17 +122,47 @@ pair8 <- file.path(out_dir, "P08_robust")
 prm8 <- function(a, l) resolve_params(a, l)
 m8 <- list(list(adapter = ADAPTER_WM_V11, input = input, params = list(nboot = 200L)),
            list(adapter = ADAPTER_SMED_V11, input = input, params = list(nboot = 200L)),
-           list(adapter = ADAPTER_MODE_V11, input = input, params = list(nboot = 200L, phi = 0.5)))
+           list(adapter = ADAPTER_MODE_V11, input = input, params = list(nboot = 200L, phi = 0.5)),
+           list(adapter = ADAPTER_SMODE_V11, input = input, params = list(nboot = 200L, phi = 0.5)))
 materialise_pair(pair8, m8, SEED)
 run8 <- run_in_dir(pair8, run_pair_script(pair8))
 expect("robust methods: master script runs in a fresh R", run8$status == 0L)
 stored8 <- list()
-for (a in list(ADAPTER_WM_V11, ADAPTER_SMED_V11, ADAPTER_MODE_V11)) {
-  pr <- prm8(a, if (a$id == "mode") list(nboot = 200L, phi = 0.5) else list(nboot = 200L))
+for (a in list(ADAPTER_WM_V11, ADAPTER_SMED_V11, ADAPTER_MODE_V11, ADAPTER_SMODE_V11)) {
+  pr <- prm8(a, if (a$id %in% c("mode", "smode")) list(nboot = 200L, phi = 0.5) else list(nboot = 200L))
   o <- a$run(input, pr, list(seed = SEED)); r <- read_method_results(pair8, a$id); stored8[[a$id]] <- r
   expect(sprintf("%s: script result equals oracle (1e-12) with the same seed", a$id), cmp(r$estimates, o$estimates) && cmp(r$diagnostics, o$diagnostics))
 }
-rp8 <- replay_check(pair8, c("wm", "smed", "mode"), stored8)
+rp8 <- replay_check(pair8, c("wm", "smed", "mode", "smode"), stored8)
 expect("robust methods: replay is identical", identical(rp8$status, "identical"))
+
+# ---- Round 10: outlier detectors. Planted outliers must be flagged; script equals oracle; replay identical ----
+set.seed(77); k10 <- 14
+bx10 <- runif(k10, 0.04, 0.12); sx10 <- runif(k10, 0.005, 0.01); sy10 <- runif(k10, 0.008, 0.015)
+by10 <- 0.3 * bx10 + rnorm(k10, 0, sy10); by10[c(3, 9)] <- by10[c(3, 9)] + 0.06
+dat10 <- data.frame(variant_id = sprintf("rs%d", seq_len(k10)), ea = "A", oa = "G", beta_x = bx10, se_x = sx10, eaf_x = 0.3,
+                    beta_y = by10, se_y = sy10, eaf_y = 0.3, p_x = 1e-9, p_y = 0.5, n_x = 1e5, n_y = 1e5,
+                    harmonise_action = "aligned", mr_keep = TRUE, stringsAsFactors = FALSE)
+input10 <- list(kind = "pair_iv", data = dat10, exposure_id = input$exposure_id, outcome_id = input$outcome_id, outcome_scale = "beta")
+pair10 <- file.path(out_dir, "P10_detectors")
+m10 <- list(list(adapter = ADAPTER_PRESSO_V11, input = input10, params = list(nbdist = 500L)),
+            list(adapter = ADAPTER_RADIAL_V11, input = input10, params = list(alpha = 0.05, weights = "3")),
+            list(adapter = ADAPTER_RADEGGER_V11, input = input10, params = list(alpha = 0.05)))
+materialise_pair(pair10, m10, SEED)
+run10 <- run_in_dir(pair10, run_pair_script(pair10))
+expect("detectors: master script runs in a fresh R", run10$status == 0L)
+stored10 <- list()
+for (m in m10) {
+  a <- m$adapter; pr <- resolve_params(a, m$params)
+  o <- a$run(input10, pr, list(seed = SEED)); r <- read_method_results(pair10, a$id); stored10[[a$id]] <- r
+  expect(sprintf("%s: script result equals oracle (1e-12)", a$id), cmp(r$estimates, o$estimates) && cmp(r$diagnostics, o$diagnostics))
+  nm <- if (a$id == "presso") "presso_outliers" else "radial_outliers"
+  flagged <- r$diagnostics$note[r$diagnostics$name == nm]
+  expect(sprintf("%s: flags the planted outlier rs3 and rs9", a$id), !is.na(flagged) && all(c("rs3", "rs9") %in% strsplit(flagged, ";")[[1]]))
+}
+rp10 <- replay_check(pair10, c("presso", "radial", "radegger"), stored10)
+expect("detectors: replay is identical", identical(rp10$status, "identical"))
+expect("detector schemas complete", all(vapply(list(ADAPTER_PRESSO_V11, ADAPTER_RADIAL_V11, ADAPTER_RADEGGER_V11), function(a) length(validate_param_schema(a)) == 0, logical(1))))
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail))
 quit(status = if (n_fail) 1L else 0L)

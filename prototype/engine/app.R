@@ -28,13 +28,18 @@ run_params <- function(x) {
   if (!is.null(x$ivw_model)) out$ivw_model <- as.character(x$ivw_model)
   if (!is.null(x$nboot)) out$nboot <- as.integer(round(as.numeric(x$nboot)))
   if (!is.null(x$phi)) out$phi <- as.numeric(x$phi)
+  if (!is.null(x$nbdist)) out$nbdist <- as.integer(round(as.numeric(x$nbdist)))
+  if (!is.null(x$signif)) out$signif <- as.numeric(x$signif)
+  if (!is.null(x$alpha)) out$alpha <- as.numeric(x$alpha)
+  if (!is.null(x$weights)) out$weights <- as.character(x$weights)
+  if (!is.null(x$tol)) out$tol <- as.numeric(x$tol)
   out
 }
 
 param_schemas <- function() {
   one <- function(ad) lapply(ad$params, function(p) list(label = p$label, hint = p$hint, min = p$min, max = p$max, default = p$default, type = p$type,
                                                          values = if (!is.null(p$values)) as.list(p$values), value_labels = if (!is.null(p$value_labels)) as.list(p$value_labels), value_hints = if (!is.null(p$value_hints)) as.list(p$value_hints)))
-  list(ivw_mre = one(ADAPTER_IVW_MRE_V11), egger = one(ADAPTER_EGGER_V11), wm = one(ADAPTER_WM_V11), smed = one(ADAPTER_SMED_V11), mode = one(ADAPTER_MODE_V11))
+  list(ivw_mre = one(ADAPTER_IVW_MRE_V11), egger = one(ADAPTER_EGGER_V11), wm = one(ADAPTER_WM_V11), smed = one(ADAPTER_SMED_V11), mode = one(ADAPTER_MODE_V11), smode = one(ADAPTER_SMODE_V11), presso = one(ADAPTER_PRESSO_V11), radial = one(ADAPTER_RADIAL_V11), radegger = one(ADAPTER_RADEGGER_V11))
 }
 
 mr_server <- function(engine_dir) {

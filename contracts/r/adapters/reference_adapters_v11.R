@@ -209,6 +209,7 @@
 ADAPTER_WM_V11 <- .robust_adapter("wm", "Weighted median", "mr_weighted_median", "weighted median estimator", .nboot_param_v11, "nboot = nboot")
 ADAPTER_SMED_V11 <- .robust_adapter("smed", "Simple median", "mr_simple_median", "simple median estimator", .nboot_param_v11, "nboot = nboot")
 ADAPTER_MODE_V11 <- .robust_adapter("mode", "Weighted mode", "mr_weighted_mode", "weighted mode estimator (MBE)", c(.nboot_param_v11, .phi_param_v11), "nboot = nboot, phi = phi")
+ADAPTER_SMODE_V11 <- .robust_adapter("smode", "Simple mode", "mr_simple_mode", "simple mode estimator (unweighted MBE)", c(.nboot_param_v11, .phi_param_v11), "nboot = nboot, phi = phi")
 
 ADAPTER_IVW_MRE_V11 <- .upgrade_adapter(ADAPTER_IVW_MRE, function(spec, params, seed) .emit_ivw_mre(spec, params, seed), .ivw_model_param_v11)
 ADAPTER_EGGER_V11 <- .upgrade_adapter(ADAPTER_EGGER, function(spec, params, seed) .emit_egger(spec, params, seed))
@@ -227,3 +228,249 @@ validate_param_schema <- function(adapter) {
   }
   problems
 }
+
+# ---- Round 10: outlier detectors (MR-PRESSO, radial IVW, radial Egger). They report an estimate AND the list of variants
+# they flag, so the app can offer the flagged variants as a labelled sensitivity analysis. They never remove anything themselves. ----
+PIN_MRPRESSO <- "3e3c92d7eda6dce0d1d66077373ec0f7ff4f7e87"
+PIN_RADIALMR <- "7ca35c052489001890347871e38998ca53a02b03"
+
+.nbdist_param_v11 <- list(nbdist = list(
+  type = "integer", default = 1000L, min = 500L, max = 20000L,
+  label = "Simulated datasets (NbDistribution)",
+  hint = "How many random datasets MR-PRESSO simulates for its null distribution. Must exceed the number of variants; the smallest possible P is 1 divided by it. More gives finer P values but takes longer.",
+  package_arg = "NbDistribution", kind = "int", conventional = TRUE, advanced = FALSE,
+  evidence = "1000 is the default of MR-PRESSO; Verbanck et al. (2018) used 10000 for finer P values.",
+  affects = c("p", "outliers")))
+
+.signif_param_v11 <- list(signif = list(
+  type = "double", default = 0.05, min = 0.001, max = 0.5,
+  label = "Significance threshold for outliers",
+  hint = "A variant is flagged when its outlier test P value is below this threshold, and outlier detection only runs when the global test is below it. MR-PRESSO applies a Bonferroni correction over all variants inside its outlier test.",
+  package_arg = "SignifThreshold", kind = "float", conventional = TRUE, advanced = FALSE,
+  evidence = "0.05 is the default of MR-PRESSO (Verbanck et al. 2018).",
+  affects = c("outliers", "estimate", "se", "ci", "p")))
+
+.radial_alpha_param_v11 <- list(alpha = list(
+  type = "double", default = 0.05, min = 0.0001, max = 0.5,
+  label = "Outlier significance level (alpha)",
+  hint = "A variant is flagged when its contribution to the Q statistic is significant at this level. The package applies it per variant with no multiplicity correction; dividing 0.05 by the number of variants gives a Bonferroni level.",
+  package_arg = "alpha", kind = "float", conventional = TRUE, advanced = FALSE,
+  evidence = "0.05 is the example value in the RadialMR documentation; Bowden et al. (2018) discuss a Bonferroni-corrected level.",
+  affects = c("outliers")))
+
+.radial_weights_param_v11 <- list(weights = list(
+  type = "enum", default = "1", values = c("1", "2", "3"),
+  value_labels = c("1" = "First order", "2" = "Second order", "3" = "Modified second order"),
+  value_hints = c("1" = "Weights each variant by the inverse variance of its ratio estimate using first-order terms. Same estimate as IVW.",
+                  "2" = "Adds the second-order term that accounts for uncertainty in the variant-exposure effect.",
+                  "3" = "Modified second-order weights (Bowden et al. 2018), which behave better when instruments are weak."),
+  label = "Weights",
+  hint = "How the variants are weighted in the radial regression and in the outlier Q statistics.",
+  package_arg = "weights", kind = "enum", conventional = TRUE, advanced = FALSE,
+  evidence = "Options of RadialMR; first order is the package default.",
+  affects = c("estimate", "se", "ci", "p", "outliers")))
+
+.radial_tol_param_v11 <- list(tol = list(
+  type = "double", default = 0.0001, min = 1e-8, max = 0.01,
+  label = "Convergence tolerance",
+  hint = "Stopping rule of the iterative radial IVW estimate. Smaller values iterate longer. Rarely worth changing.",
+  package_arg = "tol", kind = "float", conventional = FALSE, advanced = TRUE,
+  evidence = NA_character_, affects = c("estimate")))
+
+.script_lines_head_pk <- function(a, spec) {
+  h <- .script_lines_head(a, spec)
+  h[grepl("^# Package  :", h)] <- sprintf("# Package  : %s", paste(sprintf("%s commit %s", names(a$packages), unlist(a$packages)), collapse = "; "))
+  h
+}
+.script_lines_guard_pk <- function(spec, pkg) c(
+  "# ---- 1. Working directory check ----------------------------------------------",
+  sprintf("DATA_FILE <- file.path(\"01_data\", %s)", .q(spec$data_file)),
+  "if (!file.exists(DATA_FILE))",
+  "  stop(\"Wrong working directory. Set it to the pair folder (the folder that contains 01_data). In RStudio, open the .Rproj file.\")",
+  sprintf("if (!requireNamespace(\"%s\", quietly = TRUE))", pkg),
+  sprintf("  stop(\"Package %s is not installed. See README_RERUN.md (renv::restore()).\")", pkg),
+  "")
+
+.detector_emit <- function(a, spec, params, seed, pkg, body, seed_note) {
+  txt <- c(.script_lines_head_pk(a, spec), .script_lines_guard_pk(spec, pkg),
+           "# ---- 2. Settings (every adjustable argument of this method) --------------------",
+           .param_comment_lines(a, params),
+           sprintf("seed <- %d   # %s", as.integer(seed), seed_note),
+           "", .script_lines_repro(seed), .script_lines_data, .script_lines_minf(a$requires$min_ivs),
+           body, "", .script_lines_write(spec))
+  script_bundle(paste0(paste(txt, collapse = "\n"), "\n"), a$packages,
+                list(list(file = file.path("04_tables", spec$estimates_file), role = "estimates"),
+                     list(file = file.path("04_tables", spec$diagnostics_file), role = "diagnostics")),
+                seed, spec$data_file)
+}
+
+.ids_note <- function(ids) if (length(ids)) paste(ids, collapse = ";") else NA_character_
+
+# MR-PRESSO ----------------------------------------------------------------------------------------
+ADAPTER_PRESSO_V11 <- NULL
+ADAPTER_PRESSO_V11 <- mrgui_adapter(
+  id = "presso", adapter_version = "1.1.0", label = "MR-PRESSO", input_kind = "pair_iv", estimands = "causal_effect",
+  requires = list(min_ivs = 4, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE,
+                  needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(MRPRESSO = PIN_MRPRESSO), stochastic = TRUE, supports_checkpoint = FALSE, runtime_class = "slow",
+  params = c(.ci_param_v11, .nbdist_param_v11, .signif_param_v11, .minf_param_v11),
+  check = function(input, params) {
+    d <- .usable(input$data); nb <- if (is.null(params$nbdist)) 1000L else params$nbdist
+    if (nrow(d) < 4) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("MR-PRESSO needs at least 4 usable instruments; %d available.", nrow(d))))
+    if (nrow(d) >= nb) return(verdict("block", "FEAS_PRESSO_NBDIST", sprintf("MR-PRESSO needs more simulated datasets (%d) than variants (%d). Raise the number of simulated datasets.", nb, nrow(d))))
+    w <- .common_warnings(d)
+    verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+  },
+  run = function(input, params, ctx) {
+    d <- .usable(input$data)
+    RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(as.integer(ctx$seed))
+    pd <- data.frame(by = d$beta_y, bx = d$beta_x, sy = d$se_y, sx = d$se_x)
+    fit <- suppressWarnings(MRPRESSO::mr_presso(BetaOutcome = "by", BetaExposure = "bx", SdOutcome = "sy", SdExposure = "sx", data = pd,
+             OUTLIERtest = TRUE, DISTORTIONtest = TRUE, SignifThreshold = params$signif, NbDistribution = params$nbdist, seed = as.integer(ctx$seed)))
+    pr <- .presso_pick(fit, d$variant_id, nrow(d), params$ci_level, params$nbdist)
+    list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale,
+           pr$b, pr$se, pr$lo, pr$hi, "wald_t", pr$p, pr$n, params$ci_level),
+         diagnostics = pr$diag)
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_PRESSO_V11, spec, params, seed, "MRPRESSO", c(
+    "# ---- 5. Analysis: MR-PRESSO (global test, outlier test, distortion test) -------",
+    "pd <- data.frame(by = dat$beta_y, bx = dat$beta_x, sy = dat$se_y, sx = dat$se_x)",
+    "fit <- suppressWarnings(MRPRESSO::mr_presso(",
+    "  BetaOutcome = \"by\", BetaExposure = \"bx\", SdOutcome = \"sy\", SdExposure = \"sx\", data = pd,",
+    "  OUTLIERtest = TRUE, DISTORTIONtest = TRUE,",
+    "  SignifThreshold = signif, NbDistribution = nbdist, seed = seed))",
+    "main <- fit[[\"Main MR results\"]]",
+    "gt <- fit[[\"MR-PRESSO results\"]][[\"Global Test\"]]",
+    "dt <- fit[[\"MR-PRESSO results\"]][[\"Distortion Test\"]]",
+    "idx <- if (!is.null(dt) && is.numeric(dt[[\"Outliers Indices\"]])) dt[[\"Outliers Indices\"]] else integer(0)",
+    "n_all <- nrow(dat); n_out <- length(idx)",
+    "use_corrected <- n_out > 0 && is.finite(main[2, \"Causal Estimate\"])",
+    "row <- if (use_corrected) 2 else 1   # the outlier-corrected row exists only when outliers were found",
+    "df_t <- if (use_corrected) n_all - n_out - 1 else n_all - 1",
+    "tq <- stats::qt(1 - (1 - ci_level) / 2, df_t)   # t quantile, as in the lm() fit MR-PRESSO uses",
+    "b <- main[row, \"Causal Estimate\"]; se <- main[row, \"Sd\"]",
+    "p_num <- function(x) suppressWarnings(as.numeric(sub(\"^<\", \"\", as.character(x))))",
+    "estimates <- data.frame(estimand = \"causal_effect\",",
+    paste0("  ", .est_cols(spec)),
+    "  estimate = b, se = se, ci_lower = b - tq * se, ci_upper = b + tq * se,",
+    "  ci_level = ci_level, ci_method = \"wald_t\", p = main[row, \"P-value\"], n_ivs_used = as.integer(n_all - n_out),",
+    "  stringsAsFactors = FALSE)",
+    "diagnostics <- rbind(",
+    "  data.frame(name = \"presso_global_test\", value = gt$RSSobs, df = NA_real_, p = p_num(gt$Pvalue),",
+    "             note = if (grepl(\"^<\", as.character(gt$Pvalue))) \"P is below the smallest value the simulation can give (1 / NbDistribution)\" else NA_character_, stringsAsFactors = FALSE),",
+    "  data.frame(name = \"presso_outliers\", value = n_out, df = NA_real_, p = NA_real_,",
+    "             note = if (n_out) paste(dat$variant_id[idx], collapse = \";\") else NA_character_, stringsAsFactors = FALSE),",
+    "  data.frame(name = \"presso_distortion\", value = if (is.null(dt)) NA_real_ else as.double(dt[[\"Distortion Coefficient\"]]), df = NA_real_,",
+    "             p = if (is.null(dt)) NA_real_ else p_num(dt$Pvalue), note = \"percent change of the estimate caused by removing the outliers\", stringsAsFactors = FALSE),",
+    "  data.frame(name = \"presso_raw_estimate\", value = main[1, \"Causal Estimate\"], df = NA_real_, p = NA_real_,",
+    "             note = if (use_corrected) \"the reported estimate is the outlier-corrected one\" else \"no outliers found: the reported estimate is the raw one\", stringsAsFactors = FALSE),",
+    "  data.frame(name = \"presso_simulations\", value = as.double(nbdist), df = NA_real_, p = NA_real_, note = NA_character_, stringsAsFactors = FALSE))"),
+    "fixed seed: the null distribution is simulated, so the same seed gives the same numbers"),
+  column_requirements = .colreq_basic)
+
+.presso_pick <- function(fit, ids, n_all, ci_level, nbdist) {
+  main <- fit[["Main MR results"]]; gt <- fit[["MR-PRESSO results"]][["Global Test"]]; dt <- fit[["MR-PRESSO results"]][["Distortion Test"]]
+  idx <- if (!is.null(dt) && is.numeric(dt[["Outliers Indices"]])) dt[["Outliers Indices"]] else integer(0)
+  n_out <- length(idx); corr <- n_out > 0 && is.finite(main[2, "Causal Estimate"]); row <- if (corr) 2 else 1
+  df_t <- if (corr) n_all - n_out - 1 else n_all - 1; tq <- stats::qt(1 - (1 - ci_level) / 2, df_t)
+  b <- main[row, "Causal Estimate"]; se <- main[row, "Sd"]
+  pn <- function(x) suppressWarnings(as.numeric(sub("^<", "", as.character(x))))
+  list(b = b, se = se, lo = b - tq * se, hi = b + tq * se, p = main[row, "P-value"], n = n_all - n_out,
+       diag = rbind(diagnostic_row("presso_global_test", gt$RSSobs, NA_real_, pn(gt$Pvalue), if (grepl("^<", as.character(gt$Pvalue))) "P is below the smallest value the simulation can give (1 / NbDistribution)" else NA_character_),
+                    diagnostic_row("presso_outliers", n_out, NA_real_, NA_real_, .ids_note(ids[idx])),
+                    diagnostic_row("presso_distortion", if (is.null(dt)) NA_real_ else as.double(dt[["Distortion Coefficient"]]), NA_real_, if (is.null(dt)) NA_real_ else pn(dt$Pvalue), "percent change of the estimate caused by removing the outliers"),
+                    diagnostic_row("presso_raw_estimate", main[1, "Causal Estimate"], NA_real_, NA_real_, if (corr) "the reported estimate is the outlier-corrected one" else "no outliers found: the reported estimate is the raw one"),
+                    diagnostic_row("presso_simulations", as.double(nbdist))))
+}
+
+# Radial IVW and radial Egger (RadialMR) --------------------------------------------------------------
+.radial_q_p <- function(q, df) stats::pchisq(q, df, lower.tail = FALSE)
+.radial_ids <- function(o) if (is.data.frame(o)) as.character(o$SNP) else character(0)
+
+ADAPTER_RADIAL_V11 <- NULL
+ADAPTER_RADIAL_V11 <- mrgui_adapter(
+  id = "radial", adapter_version = "1.1.0", label = "Radial IVW", input_kind = "pair_iv", estimands = "causal_effect",
+  requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE,
+                  needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(RadialMR = PIN_RADIALMR), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .radial_alpha_param_v11, .radial_weights_param_v11, .radial_tol_param_v11, .minf_param_v11),
+  check = function(input, params) {
+    d <- .usable(input$data)
+    if (nrow(d) < 3) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("Radial IVW needs at least 3 usable instruments; %d available.", nrow(d))))
+    w <- .common_warnings(d)
+    verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+  },
+  run = function(input, params, ctx) {
+    d <- .usable(input$data)
+    r <- RadialMR::format_radial(d$beta_x, d$beta_y, d$se_x, d$se_y, d$variant_id)
+    fit <- suppressWarnings(RadialMR::ivw_radial(r, params$alpha, as.integer(params$weights), params$tol, FALSE))
+    cf <- fit$coef[1, ]; tq <- stats::qt(1 - (1 - params$ci_level) / 2, fit$df); ids <- .radial_ids(fit$outliers)
+    list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale,
+           cf[[1]], cf[[2]], cf[[1]] - tq * cf[[2]], cf[[1]] + tq * cf[[2]], "wald_t", cf[[4]], nrow(d), params$ci_level),
+         diagnostics = rbind(diagnostic_row("radial_q", fit$qstatistic, fit$df, .radial_q_p(fit$qstatistic, fit$df)),
+                             diagnostic_row("radial_outliers", length(ids), NA_real_, NA_real_, .ids_note(ids)),
+                             diagnostic_row("radial_alpha", params$alpha)))
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_RADIAL_V11, spec, params, seed, "RadialMR", c(
+    "# ---- 5. Analysis: radial IVW (RadialMR) ------------------------------------------",
+    "r_in <- RadialMR::format_radial(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, dat$variant_id)",
+    "fit <- suppressWarnings(RadialMR::ivw_radial(r_in, alpha, as.integer(weights), tol, FALSE))",
+    "cf <- fit$coef[1, ]   # first row is the radial IVW effect for the chosen weights",
+    "tq <- stats::qt(1 - (1 - ci_level) / 2, fit$df)   # t quantile, df = number of variants - 1",
+    "ids <- if (is.data.frame(fit$outliers)) as.character(fit$outliers$SNP) else character(0)",
+    "estimates <- data.frame(estimand = \"causal_effect\",",
+    paste0("  ", .est_cols(spec)),
+    "  estimate = cf[[1]], se = cf[[2]], ci_lower = cf[[1]] - tq * cf[[2]], ci_upper = cf[[1]] + tq * cf[[2]],",
+    "  ci_level = ci_level, ci_method = \"wald_t\", p = cf[[4]], n_ivs_used = nrow(dat),",
+    "  stringsAsFactors = FALSE)",
+    "diagnostics <- rbind(",
+    "  data.frame(name = \"radial_q\", value = fit$qstatistic, df = fit$df, p = stats::pchisq(fit$qstatistic, fit$df, lower.tail = FALSE), note = NA_character_, stringsAsFactors = FALSE),",
+    "  data.frame(name = \"radial_outliers\", value = length(ids), df = NA_real_, p = NA_real_, note = if (length(ids)) paste(ids, collapse = \";\") else NA_character_, stringsAsFactors = FALSE),",
+    "  data.frame(name = \"radial_alpha\", value = alpha, df = NA_real_, p = NA_real_, note = NA_character_, stringsAsFactors = FALSE))"),
+    "fixed seed (this method is deterministic; kept for the record)"),
+  column_requirements = .colreq_basic)
+
+ADAPTER_RADEGGER_V11 <- NULL
+ADAPTER_RADEGGER_V11 <- mrgui_adapter(
+  id = "radegger", adapter_version = "1.1.0", label = "Radial MR-Egger", input_kind = "pair_iv", estimands = "causal_effect",
+  requires = list(min_ivs = 4, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE,
+                  needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(RadialMR = PIN_RADIALMR), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .radial_alpha_param_v11, .radial_weights_param_v11, .minf_param_v11),
+  check = function(input, params) {
+    d <- .usable(input$data)
+    if (nrow(d) < 4) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("Radial MR-Egger needs at least 4 usable instruments; %d available.", nrow(d))))
+    w <- .common_warnings(d)
+    verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+  },
+  run = function(input, params, ctx) {
+    d <- .usable(input$data)
+    r <- RadialMR::format_radial(d$beta_x, d$beta_y, d$se_x, d$se_y, d$variant_id)
+    fit <- suppressWarnings(RadialMR::egger_radial(r, params$alpha, as.integer(params$weights), FALSE))
+    sl <- fit$coef[2, ]; ic <- fit$coef[1, ]; tq <- stats::qt(1 - (1 - params$ci_level) / 2, fit$df); ids <- .radial_ids(fit$outliers)
+    list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale,
+           sl[[1]], sl[[2]], sl[[1]] - tq * sl[[2]], sl[[1]] + tq * sl[[2]], "wald_t", sl[[4]], nrow(d), params$ci_level),
+         diagnostics = rbind(diagnostic_row("radial_q", fit$qstatistic, fit$df, .radial_q_p(fit$qstatistic, fit$df)),
+                             diagnostic_row("radial_outliers", length(ids), NA_real_, NA_real_, .ids_note(ids)),
+                             diagnostic_row("radial_intercept", ic[[1]], NA_real_, ic[[4]], "intercept of the radial Egger regression, on the weighted scale (not the same unit as the MR-Egger intercept)"),
+                             diagnostic_row("radial_alpha", params$alpha)))
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_RADEGGER_V11, spec, params, seed, "RadialMR", c(
+    "# ---- 5. Analysis: radial MR-Egger (RadialMR) -------------------------------------",
+    "r_in <- RadialMR::format_radial(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, dat$variant_id)",
+    "fit <- suppressWarnings(RadialMR::egger_radial(r_in, alpha, as.integer(weights), FALSE))",
+    "sl <- fit$coef[2, ]; ic <- fit$coef[1, ]   # slope = causal effect; intercept = directional pleiotropy",
+    "tq <- stats::qt(1 - (1 - ci_level) / 2, fit$df)   # t quantile, df = number of variants - 2",
+    "ids <- if (is.data.frame(fit$outliers)) as.character(fit$outliers$SNP) else character(0)",
+    "estimates <- data.frame(estimand = \"causal_effect\",",
+    paste0("  ", .est_cols(spec)),
+    "  estimate = sl[[1]], se = sl[[2]], ci_lower = sl[[1]] - tq * sl[[2]], ci_upper = sl[[1]] + tq * sl[[2]],",
+    "  ci_level = ci_level, ci_method = \"wald_t\", p = sl[[4]], n_ivs_used = nrow(dat),",
+    "  stringsAsFactors = FALSE)",
+    "diagnostics <- rbind(",
+    "  data.frame(name = \"radial_q\", value = fit$qstatistic, df = fit$df, p = stats::pchisq(fit$qstatistic, fit$df, lower.tail = FALSE), note = NA_character_, stringsAsFactors = FALSE),",
+    "  data.frame(name = \"radial_outliers\", value = length(ids), df = NA_real_, p = NA_real_, note = if (length(ids)) paste(ids, collapse = \";\") else NA_character_, stringsAsFactors = FALSE),",
+    "  data.frame(name = \"radial_intercept\", value = ic[[1]], df = NA_real_, p = ic[[4]], note = \"intercept of the radial Egger regression, on the weighted scale (not the same unit as the MR-Egger intercept)\", stringsAsFactors = FALSE),",
+    "  data.frame(name = \"radial_alpha\", value = alpha, df = NA_real_, p = NA_real_, note = NA_character_, stringsAsFactors = FALSE))"),
+    "fixed seed (this method is deterministic; kept for the record)"),
+  column_requirements = .colreq_basic)

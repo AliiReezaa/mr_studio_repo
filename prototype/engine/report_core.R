@@ -106,7 +106,7 @@ REFS <- list(
   hartwig2017 = list(pmid = "29040600", key = "Hartwig2017", authors = "Hartwig FP, Davey Smith G, Bowden J.", title = "Robust inference in summary data Mendelian randomization via the zero modal pleiotropy assumption", journal = "Int J Epidemiol", year = "2017", vol = "46", pages = "1985-1998", doi = "10.1093/ije/dyx102"),
   burgess2023 = list(pmid = "32760811", key = "Burgess2023", authors = "Burgess S, Davey Smith G, Davies NM, et al.", title = "Guidelines for performing Mendelian randomization investigations: update for summer 2023", journal = "Wellcome Open Res", year = "2023", vol = "4", pages = "186", doi = "10.12688/wellcomeopenres.15555.3"),
   skrivankova2021 = list(pmid = "34698778", key = "Skrivankova2021", authors = "Skrivankova VW, Richmond RC, Woolf BAR, et al.", title = "Strengthening the reporting of observational studies in epidemiology using Mendelian randomisation (STROBE-MR): explanation and elaboration", journal = "JAMA", year = "2021", vol = "326", pages = "1614-1621", doi = "10.1001/jama.2021.18236"))
-METHOD_REFS <- list(ivw_mre = "burgess2013", egger = "bowden2015", wm = "bowden2016", smed = "bowden2016", mode = "hartwig2017", mrpresso = "verbanck2018", radial = "bowden2018")
+METHOD_REFS <- list(ivw_mre = "burgess2013", egger = "bowden2015", wm = "bowden2016", smed = "bowden2016", mode = "hartwig2017", smode = "hartwig2017", presso = "verbanck2018", radial = "bowden2018", radegger = "bowden2018")
 REFS$verbanck2018 <- list(pmid = "29686387", key = "Verbanck2018", authors = "Verbanck M, Chen CY, Neale B, Do R.", title = "Detection of widespread horizontal pleiotropy in causal relationships inferred from Mendelian randomization between complex traits and diseases", journal = "Nat Genet", year = "2018", vol = "50", pages = "693-698", doi = "10.1038/s41588-018-0099-7")
 REFS$bowden2018 <- list(pmid = "29961852", key = "Bowden2018", authors = "Bowden J, Spiller W, Del Greco M F, et al.", title = "Improving the visualization, interpretation and analysis of two-sample summary data Mendelian randomization via the Radial plot and Radial regression", journal = "Int J Epidemiol", year = "2018", vol = "47", pages = "1264-1278", doi = "10.1093/ije/dyy101")
 ref_text <- function(r) sprintf("%s %s. %s. %s;%s:%s. doi:%s. PMID %s.", r$authors, r$title, r$journal, r$year, r$vol, r$pages, r$doi, r$pmid)
@@ -130,7 +130,7 @@ refs_ris <- function(ids) paste(vapply(ids, function(i) { r <- REFS[[i]]; paste(
   for (l in lines) graphics::abline(a = l$a, b = l$b, col = l$col, lty = l$lty, lwd = 2)
   graphics::legend("topleft", legend = vapply(lines, `[[`, "", "name"), col = vapply(lines, `[[`, "", "col"), lty = vapply(lines, `[[`, 1, "lty"), lwd = 2, bty = "n", cex = 0.85)
 }
-.MCOL <- c(ivw_mre = "#2b3fc7", egger = "#b5541c", wm = "#2f7fd6", smed = "#8c4fd6", mode = "#d6407a")
+.MCOL <- c(ivw_mre = "#2b3fc7", egger = "#b5541c", wm = "#2f7fd6", smed = "#8c4fd6", mode = "#d6407a", smode = "#2a9d8f", presso = "#b8860b", radial = "#3d9a38", radegger = "#a04a3d")
 .fig_write <- function(base, w_mm, h_mm, draw) {
   w <- w_mm / 25.4; h <- h_mm / 25.4; out <- character()
   ok <- function(f, expr) { r <- tryCatch({ expr; TRUE }, error = function(e) FALSE); if (!r) { try(grDevices::dev.off(), silent = TRUE); if (file.exists(f)) unlink(f) }; if (r) out <<- c(out, f) }
@@ -148,7 +148,7 @@ refs_ris <- function(ids) paste(vapply(ids, function(i) { r <- REFS[[i]]; paste(
   d <- do.call(rbind, lapply(pay$estimates, function(e) data.frame(method = e$method, name = e$method_name, estimand = e$estimand, estimate = e$estimate, se = e$se, ci_lower = e$ci_lower, ci_upper = e$ci_upper, ci_level = e$ci_level, p = e$p, n_ivs = e$n_ivs_used, scale = e$scale %||% "beta", stringsAsFactors = FALSE)))
   d
 }
-.short <- c(ivw_mre = "IVW", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode")
+.short <- c(ivw_mre = "IVW", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial Egger")
 pair_context <- function(h, p) {
   pay <- pair_payload(h$dir, p$folder); est <- .est_df(pay); ce <- est[est$estimand == "causal_effect", , drop = FALSE]
   v <- do.call(rbind, lapply(pay$variants, function(x) data.frame(id = x$id, bx = x$bx, by = x$by, sx = x$sx, sy = x$sy, keep = x$keep, stringsAsFactors = FALSE)))
@@ -168,7 +168,7 @@ pair_context <- function(h, p) {
 report_text <- function(ctxs, study_name) {
   txt <- list(methods = character(), results = character(), limitations = character(), availability = character(), legends = character())
   used <- unique(unlist(lapply(ctxs, function(x) x$methods))); anysim <- any(vapply(ctxs, `[[`, TRUE, "simulated")); anyimp <- any(!vapply(ctxs, `[[`, TRUE, "simulated"))
-  mname <- c(ivw_mre = "inverse-variance weighted (IVW)", egger = "MR-Egger regression", wm = "weighted median", smed = "simple median", mode = "weighted mode")
+  mname <- c(ivw_mre = "inverse-variance weighted (IVW)", egger = "MR-Egger regression", wm = "weighted median", smed = "simple median", mode = "weighted mode", smode = "simple mode", presso = "MR-PRESSO", radial = "radial IVW", radegger = "radial MR-Egger")
   txt$methods <- c(
     "We performed a two-sample Mendelian randomization (MR) analysis using summary-level genetic associations, run in MR Studio, an application that writes every analysis step and setting into R scripts that can be re-run. The analysis plan follows the structure recommended in current MR guidelines [Burgess 2023]; reporting against the STROBE-MR checklist [Skrivankova 2021] has not been checked automatically and must be completed by the authors.")
   for (cx in ctxs) {
@@ -192,9 +192,13 @@ report_text <- function(ctxs, study_name) {
     egger = "MR-Egger regression was used to test for directional pleiotropy through its intercept and to estimate the effect allowing for it; variants were oriented to a positive exposure effect and confidence intervals use a t distribution with k - 2 degrees of freedom [Bowden 2015].",
     wm = sprintf("The weighted median estimator, which is consistent when at least half of the weight comes from valid instruments, was computed with a bootstrapped standard error (%s replications) [Bowden 2016].", format(st1$nboot %||% 1000)),
     smed = sprintf("The simple median estimator, which is consistent when at least half of the variants are valid instruments, was computed with a bootstrapped standard error (%s replications) [Bowden 2016].", format(st1$nboot %||% 1000)),
-    mode = sprintf("The weighted mode estimator, which is consistent when the largest group of variants with similar ratio estimates is valid, was computed with a bandwidth multiplier phi = %s and a bootstrapped standard error (%s replications) [Hartwig 2017].", format(st1$phi %||% 1), format(st1$nboot %||% 1000)), ""), "")
-  txt$methods <- c(txt$methods, unname(desc[nzchar(desc)]), sprintf("Confidence intervals are %s intervals. All estimates come from TwoSampleMR (commit %s) in %s. Bootstrap-based methods use a fixed seed recorded in each script, and every pair was re-run from its saved scripts in a fresh R session; the replay check was %s.",
-    .pct(ctxs[[1]]$ce$ci_level[1] %||% 0.95), substr(ADAPTER_IVW_MRE_V11$packages$TwoSampleMR, 1, 10), R.version.string, paste(unique(vapply(ctxs, function(x) x$pay$replay$status %||% "not run", "")), collapse = " / ")))
+    mode = sprintf("The weighted mode estimator, which is consistent when the largest group of variants with similar ratio estimates is valid, was computed with a bandwidth multiplier phi = %s and a bootstrapped standard error (%s replications) [Hartwig 2017].", format(st1$phi %||% 1), format(st1$nboot %||% 1000)),
+    smode = sprintf("The simple mode estimator (the unweighted counterpart of the weighted mode) was computed with a bandwidth multiplier phi = %s and a bootstrapped standard error (%s replications) [Hartwig 2017].", format(st1$phi %||% 1), format(st1$nboot %||% 1000)),
+    presso = sprintf("MR-PRESSO (global test of horizontal pleiotropy, outlier test and distortion test) was run with %s simulated datasets and a significance threshold of %s. Variants it flags are reported but were not removed from any analysis [Verbanck 2018].", format(st1$nbdist %||% 1000), format(st1$signif %||% 0.05)),
+    radial = sprintf("Radial IVW was used to flag outlying variants through their contribution to Cochran's Q statistic (outlier level alpha = %s, %s weights); flagged variants are reported but were not removed [Bowden 2018].", format(st1$alpha %||% 0.05), c("1" = "first-order", "2" = "second-order", "3" = "modified second-order")[[as.character(st1$weights %||% "1")]]),
+    radegger = sprintf("Radial MR-Egger was used to flag outlying variants and to estimate the effect allowing for directional pleiotropy (outlier level alpha = %s, %s weights); flagged variants are reported but were not removed [Bowden 2018].", format(st1$alpha %||% 0.05), c("1" = "first-order", "2" = "second-order", "3" = "modified second-order")[[as.character(st1$weights %||% "1")]]), ""), "")
+  txt$methods <- c(txt$methods, unname(desc[nzchar(desc)]), sprintf("Confidence intervals are %s intervals. All estimates come from TwoSampleMR (commit %s)%s in %s. Bootstrap-based methods use a fixed seed recorded in each script, and every pair was re-run from its saved scripts in a fresh R session; the replay check was %s.",
+    .pct(ctxs[[1]]$ce$ci_level[1] %||% 0.95), substr(ADAPTER_IVW_MRE_V11$packages$TwoSampleMR, 1, 10), if (any(c("presso", "radial", "radegger") %in% used)) sprintf(", with %s%s%s", if ("presso" %in% used) sprintf("MRPRESSO (commit %s)", substr(PIN_MRPRESSO, 1, 10)) else "", if ("presso" %in% used && any(c("radial", "radegger") %in% used)) " and " else "", if (any(c("radial", "radegger") %in% used)) sprintf("RadialMR (commit %s)", substr(PIN_RADIALMR, 1, 10)) else "") else "", R.version.string, paste(unique(vapply(ctxs, function(x) x$pay$replay$status %||% "not run", "")), collapse = " / ")))
   for (cx in ctxs) {
     ce <- cx$ce; if (!nrow(ce)) next; sc <- ce$scale[1]; ratio <- sc == "log_or"
     unit <- if (ratio) sprintf("odds of %s per unit of %s", cx$p$outName, cx$p$exName) else sprintf("units of %s per unit of %s", cx$p$outName, cx$p$exName)
@@ -204,6 +208,13 @@ report_text <- function(ctxs, study_name) {
     txt$results <- c(txt$results, sprintf("%s -> %s (%d instruments, effect expressed as %s). %s.%s%s %d of %d methods agree on the direction of the effect.", cx$p$exName, cx$p$outName, ce$n_ivs[1], unit, paste(lines, collapse = "; "),
       if (length(dg)) sprintf(" Cochran's Q for the IVW estimate was %.1f (P = %s).", dg[[1]]$value, .fp(dg[[1]]$p)) else "",
       if (nrow(ic)) sprintf(" The MR-Egger intercept was %s (P = %s)%s.", .fnum(ic$estimate, 4), .fp(ic$p), if (ic$p < 0.05) ", suggesting directional pleiotropy" else ", giving no evidence of directional pleiotropy") else "", same, nrow(ce)))
+    for (dm in intersect(c("presso", "radial", "radegger"), cx$ce$method)) {
+      dg <- Filter(function(d) d$method == dm, cx$pay$diagnostics); od <- Filter(function(d) grepl("_outliers$", d$name), dg)
+      ids <- if (length(od) && !is.null(od[[1]]$note) && !is.na(od[[1]]$note) && nzchar(od[[1]]$note)) strsplit(od[[1]]$note, ";")[[1]] else character(0)
+      gl <- Filter(function(d) d$name == "presso_global_test", dg); ql <- Filter(function(d) d$name == "radial_q", dg)
+      txt$results <- c(txt$results, sprintf("%s flagged %s of %d variants%s%s. No variant was removed from the primary analysis.", .short[[dm]], if (length(ids)) length(ids) else "none", nrow(cx$kept), if (length(ids)) paste0(" (", paste(ids, collapse = ", "), ")") else "",
+        if (length(gl)) sprintf("; the global test P was %s%s", if (!is.null(gl[[1]]$note) && !is.na(gl[[1]]$note)) "below " else "", .fp(gl[[1]]$p)) else if (length(ql)) sprintf("; the radial Q statistic was %.1f (P = %s)", ql[[1]]$value, .fp(ql[[1]]$p)) else ""))
+    }
   }
   lim <- c("The three core MR assumptions (relevance, independence from confounders, and no effect of the variants on the outcome except through the exposure) cannot be proven from summary data. The median and mode estimators relax the third assumption only under their own conditions (a majority or plurality of valid instruments).")
   if (anysim) lim <- c(lim, "SIMULATED DATA: at least one pair uses simulated demonstration traits. These results illustrate the software and must not be presented as scientific findings.")
@@ -211,7 +222,7 @@ report_text <- function(ctxs, study_name) {
   lim <- c(lim, "Sample overlap between the exposure and outcome studies was not tested. Overlap biases estimates toward the observational association, most strongly with weak instruments.",
            "Directionality was not tested (the Steiger test is not built), so reverse causation is not excluded by this analysis.",
            if (any(vapply(ctxs, function(x) x$n_weak > 0, TRUE))) "Some variants have an F statistic below 10, which can bias estimates toward the null in two-sample MR." else NULL,
-           "Outlier detection (MR-PRESSO, radial MR) is reported only if its results appear in this package. Pleiotropy-robust estimators were compared with the IVW estimate; agreement in direction does not prove the assumptions hold.",
+           if (any(c("presso", "radial", "radegger") %in% used)) "Variants flagged by MR-PRESSO or radial MR were reported but not removed from the primary analysis. Detectors flag variants by a statistical rule and cannot tell horizontal pleiotropy from valid heterogeneity; any analysis without flagged variants is a post-hoc sensitivity analysis and must be reported as one [Burgess 2023]." else "Outlier detection (MR-PRESSO, radial MR) was not run in this study. Pleiotropy-robust estimators were compared with the IVW estimate; agreement in direction does not prove the assumptions hold.",
            "No correction for multiple testing was applied across pairs.")
   txt$limitations <- lim
   src <- unique(unlist(lapply(ctxs, function(cx) c(if (!cx$simulated) cx$src_x$file, if (!cx$simulated) cx$src_y$file))))
@@ -240,7 +251,8 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     for (i in seq_along(ctxs)) { cx <- ctxs[[i]]; ce <- cx$ce; if (!nrow(ce)) next; tag <- sprintf("P%d", i)
       est <- transform(ce, label = .short[method], col = .MCOL[method], unit = if (ce$scale[1] == "log_or") "log odds ratio" else "effect on outcome per unit of exposure", ratio = FALSE)
       fh <- max(40, 22 + 8 * nrow(est)); ff <- .fig_write(file.path(pk, "figures", paste0(tag, "_forest")), wmm, fh, function() .draw_forest(est))
-      ln <- lapply(seq_len(nrow(ce)), function(j) { m <- ce$method[j]; ic <- cx$est$estimate[cx$est$estimand == "pleiotropy_intercept"]; list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else if (m == "egger") 2 else 3, a = if (m == "egger" && length(ic)) ic[1] else 0, b = ce$estimate[j]) })
+      ceS <- ce[ce$method != "radegger", , drop = FALSE]   # the radial Egger intercept is on a weighted scale, so it cannot be drawn as a line on this plot
+      ln <- lapply(seq_len(nrow(ceS)), function(j) { m <- ceS$method[j]; ic <- cx$est$estimate[cx$est$estimand == "pleiotropy_intercept"]; list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else if (m == "egger") 2 else 3, a = if (m == "egger" && length(ic)) ic[1] else 0, b = ceS$estimate[j]) })
       sf <- .fig_write(file.path(pk, "figures", paste0(tag, "_scatter")), wmm, round(wmm * 0.75), function() .draw_scatter(cx$kept, ln, paste("Effect on", cx$p$exName), paste("Effect on", cx$p$outName)))
       figs[[i]] <- list(forest = ff, scatter = sf, fh = fh, sh = round(wmm * 0.75)); for (f in c(ff, sf)) add(f) }
     if (!length(Filter(Negate(is.null), figs))) note <- c(note, "No figures could be drawn on this computer.")
