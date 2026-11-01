@@ -497,7 +497,7 @@ compare_defaults <- function(study, pair_folder, exp_id, out_id, methods, pthr =
     } else {
       cd <- ci_default_rows(list(e))
       rows[[length(rows) + 1L]] <- list(method = m, ran = FALSE, estimate = e$estimate, lo = if (length(cd)) cd[[1]]$lo else e$ci_lower, hi = if (length(cd)) cd[[1]]$hi else e$ci_upper, p = e$p, n = e$n_ivs_used,
-                                        what = if (ci_changed) list(sprintf("Confidence level: %s (default 95%%)", format(st$ci_level))) else list())
+                                        what = if (ci_changed) list(sprintf("Confidence level: %s%% (default 95%%)", format(round(st$ci_level * 100, 1)))) else list())
     }
   }
   list(rows = rows, rerun = as.list(rerun))
