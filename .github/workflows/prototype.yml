@@ -151,6 +151,13 @@ jobs:
             rmdir "$RT/libexec" 2>/dev/null || true
             # compiler and LLVM command-line programs in bin (prefixed compilers, llvm-*, clang*, gfortran)
             rm -f "$RT"/bin/llvm-* "$RT"/bin/clang* "$RT"/bin/*-apple-darwin*-* "$RT"/bin/gfortran "$RT"/bin/lld* "$RT"/bin/ld64* 2>/dev/null || true
+            rm -f "$RT"/bin/dsymutil-* "$RT"/bin/opt-* "$RT"/bin/llc-* "$RT"/bin/lli-* "$RT"/bin/llubi-* "$RT"/bin/sancov-* 2>/dev/null || true
+            # LLVM and clang libraries: only the removed compiler needed them (about 260 MB)
+            rm -f "$RT"/lib/libLLVM* "$RT"/lib/libclang* "$RT"/lib/libLTO* "$RT"/lib/libRemarks* 2>/dev/null || true
+            # static libraries are only for linking, not for running
+            find "$RT/lib" -maxdepth 1 -name '*.a' -type f -exec rm -f {} + 2>/dev/null || true
+            # report anything that still links to the removed libraries (contract tests are the real gate)
+            find "$RT" -type f \( -name '*.dylib' -o -name '*.so' \) -exec sh -c 'otool -L "$1" 2>/dev/null | grep -Eq "libLLVM|libclang|libLTO" && echo "STILL LINKS LLVM: $1"' _ {} \; || true
           fi
           # debug symbol files (not needed to run anything)
           find $RT -name '*.pdb' -type f -exec rm -f {} + 2>/dev/null || true
