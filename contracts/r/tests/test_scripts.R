@@ -87,17 +87,20 @@ expect("replay on the same computer: identical", identical(rp$status, "identical
 expect("replay compares all 27 numeric values (IVW 10, Egger 17) with zero difference", rp$n_values_compared == 27L && identical(rp$max_rel_diff, 0))
 
 # user edits the script (changes ci_level) -> replay must notice and report 'differs'
+# (files are written as raw bytes: writeLines() would turn line ends into CRLF on Windows)
+put <- function(lines, path) writeBin(charToRaw(paste0(paste(lines, collapse = "\n"), "\n")), path)
 sp <- file.path(pair, "02_scripts", "01_ivw_mre.R")
-orig <- readLines(sp); hash_orig <- sha256_file(sp)
-writeLines(sub("ci_level <- 0.9$", "ci_level <- 0.8", orig), sp)
+orig_raw <- readBin(sp, "raw", file.size(sp)); orig <- readLines(sp); hash_orig <- sha256_file(sp)
+put(sub("ci_level <- 0.9$", "ci_level <- 0.8", orig), sp)
 expect("edited script has a different hash", sha256_file(sp) != hash_orig)
 rp2 <- replay_check(pair, c("ivw_mre", "egger"), stored)
 expect("replay reports 'differs' for an edited script", identical(rp2$status, "differs") && rp2$max_rel_diff > 1e-3)
 # a script that stops with an error -> 'failed'
-writeLines(c(orig, "stop(\"broken on purpose\")"), sp)
+put(c(orig, "stop(\"broken on purpose\")"), sp)
 rp3 <- replay_check(pair, c("ivw_mre", "egger"), stored)
 expect("replay reports 'failed' when the script errors", identical(rp3$status, "failed"))
-writeLines(orig, sp)
+writeBin(orig_raw, sp)
+expect("restored script is byte-identical to the generated one", identical(sha256_file(sp), hash_orig))
 expect("restored script replays identical again", identical(replay_check(pair, c("ivw_mre", "egger"), stored)$status, "identical"))
 
 # ---- guard against the wrong working directory ----------------------------------------------

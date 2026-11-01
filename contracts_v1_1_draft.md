@@ -87,3 +87,6 @@ Option (a) was chosen: the pipeline installs TwoSampleMR, MRMix, MRPRESSO and Ra
 Pins: TwoSampleMR 5e93ee7d8e1f67581acb8134299759389d73efba, MRMix 56afdb2bc96760842405396f5d3f02e60e305039, MR-PRESSO 3e3c92d7eda6dce0d1d66077373ec0f7ff4f7e87, RadialMR 7ca35c052489001890347871e38998ca53a02b03.
 Rehearsed on Linux with conda-forge R 4.5.3: all four install (pure R, no compiler needed), 37 of 37 original and 24 of 24 new tests pass. macOS and Windows are verified only when the pipeline runs.
 Cost: the conda dependencies pull in pandoc (about 160 MB) through rmarkdown, which TwoSampleMR imports. Check the installer sizes after the first run before deciding whether to strip it.
+
+### Verification update (2026-11-01, pipeline run 8)
+Script generation, the run in a fresh R and the replay check passed on macOS Apple Silicon, macOS Intel and Windows (CI). Across the three systems the generated scripts and data files agree (scripts byte-identical except for one test artefact, fixed in the test), and result tables agree within 1.3e-15 relative. Two launcher issues found and fixed on the way: the bundled R launcher kept the build folder path, and R's launcher breaks when the install folder name contains a space (for example MR Studio.app); `relocate_macos.py` now patches both, and `script.R` passes RHOME to Rscript.
