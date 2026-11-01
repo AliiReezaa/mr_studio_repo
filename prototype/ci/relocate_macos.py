@@ -9,6 +9,11 @@ install name and rpath that starts with the build prefix to a path relative to
 the file itself (@loader_path/...), then re-signs each changed file ad hoc
 (required on Apple Silicon).
 
+It also makes R's own launcher script (lib/R/bin/R) and etc/ldpaths relocatable. conda
+writes the build prefix into them as plain text; `R CMD INSTALL`, `Rscript` and `R CMD`
+start R through that launcher, so it must find its own folder wherever the runtime lives
+(including a folder whose name contains a space, such as /Applications/MR Studio.app).
+
 Usage: relocate_macos.py OLD_PREFIX NEW_PREFIX
   OLD_PREFIX  the folder the runtime was built in (as it appears in otool -L)
   NEW_PREFIX  the folder the runtime lives in now
@@ -67,6 +72,43 @@ def rpaths(path):
     return re.findall(r"cmd LC_RPATH\n\s+cmdsize \d+\n\s+path (.+?) \(offset \d+\)", res.stdout)
 
 
+LAUNCHER_HEAD = """# --- MR Studio: relocatable launcher. The install prefix is derived from this file's own location.
+MRGUI_SELF="$0"
+while [ -L "$MRGUI_SELF" ]; do
+  MRGUI_LINK="$(readlink "$MRGUI_SELF")"
+  case "$MRGUI_LINK" in /*) MRGUI_SELF="$MRGUI_LINK" ;; *) MRGUI_SELF="$(dirname "$MRGUI_SELF")/$MRGUI_LINK" ;; esac
+done
+MRGUI_PREFIX="$(cd "$(dirname "$MRGUI_SELF")/../../.." && pwd -P)"
+"""
+
+
+def relocate_text_files(old, new):
+    """Rewrite the build prefix in R's launcher script and etc/ldpaths. Returns a list of problems."""
+    problems = []
+    r_home = os.path.join(new, "lib", "R")
+    launcher = os.path.join(r_home, "bin", "R")
+    if os.path.isfile(launcher):
+        text = open(launcher, encoding="utf-8").read()
+        if "MRGUI_PREFIX" not in text:
+            lines = text.split("\n", 1)           # keep the #! line first
+            body = lines[1].replace(old, "${MRGUI_PREFIX}")
+            # the launcher uses ${SED} unquoted, which breaks when the folder name has a space
+            # (for example /Applications/MR Studio.app); the system sed is always present
+            body = body.replace("SED=${MRGUI_PREFIX}/bin/sed", "SED=sed")
+            text = lines[0] + "\n" + LAUNCHER_HEAD + body
+            open(launcher, "w", encoding="utf-8").write(text)
+        if old in open(launcher, encoding="utf-8").read():
+            problems.append(launcher)
+    ldpaths = os.path.join(r_home, "etc", "ldpaths")
+    if os.path.isfile(ldpaths):
+        text = open(ldpaths, encoding="utf-8").read()
+        text = text.replace(old, "${R_HOME}/../..")
+        open(ldpaths, "w", encoding="utf-8").write(text)
+        if old in text:
+            problems.append(ldpaths)
+    return problems
+
+
 def main():
     old, new = sys.argv[1].rstrip("/"), os.path.realpath(sys.argv[2]).rstrip("/")
     needle = old.encode()
@@ -113,6 +155,9 @@ def main():
                 print("WARN codesign", path, sign.stderr.strip(), file=sys.stderr)
             changed += 1
             failed += 0 if ok else 1
+    text_problems = relocate_text_files(old, new)
+    for path in text_problems:
+        print("  STILL (text):", path)
     # verification: no Mach-O load command may still point at the old prefix
     remaining = []
     for root, _dirs, files in os.walk(new, followlinks=False):
@@ -127,7 +172,7 @@ def main():
     print(f"relocate_macos: rewrote {changed} files, {failed} with warnings, {len(remaining)} still reference {old}")
     for path, bad in remaining[:20]:
         print("  STILL:", path, bad[:3])
-    sys.exit(1 if remaining else 0)
+    sys.exit(1 if (remaining or text_problems) else 0)
 
 
 if __name__ == "__main__":

@@ -130,8 +130,9 @@ default_rscript <- function() {
 run_pair_script <- function(pair_dir, rscript = default_rscript(), console_name = "run_all_console.txt") {
   pair_dir <- normalizePath(pair_dir)
   # one thread for the numerical libraries (same on every operating system); restored afterwards
-  old <- Sys.getenv(c("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS"), unset = NA)
-  Sys.setenv(OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1")
+  # RHOME tells Rscript where this R lives (a moved runtime has no valid built-in location)
+  old <- Sys.getenv(c("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "RHOME"), unset = NA)
+  Sys.setenv(OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", RHOME = R.home())
   on.exit(for (n in names(old)) if (is.na(old[[n]])) Sys.unsetenv(n) else do.call(Sys.setenv, setNames(list(old[[n]]), n)), add = TRUE)
   out <- suppressWarnings(system2(rscript, c("--vanilla", shQuote(file.path("02_scripts", "00_run_all.R"))),
                                   stdout = TRUE, stderr = TRUE, wait = TRUE))
