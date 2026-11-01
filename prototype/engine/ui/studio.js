@@ -88,7 +88,7 @@ function sidebar(mode, active) {
   const back = mode === 'study' ? '<button type="button" class="nav" data-a="nav" data-v="home" style="display:flex;align-items:center;gap:8px;height:34px;padding:0 12px;border:0;border-radius:10px;font-size:13px;color:var(--mute);background:transparent">' + svg(IC.back, 16) + 'All studies</button>' : '';
   let prog = '';
   if (mode === 'study') { const ai = Math.max(0, STEPS.findIndex((s) => s[1] === active)); prog = '<div style="padding:14px;border-radius:14px;background:var(--panel2);border:1px solid var(--line)"><div style="font-size:12px;color:var(--mute);margin-bottom:6px">Saved in the study folder</div><div style="font-weight:600;margin-bottom:10px">Step ' + (ai + 1) + ' of 7</div><div style="height:4px;border-radius:2px;background:var(--line)"><div style="width:' + Math.round((ai + 1) / 7 * 100) + '%;height:4px;border-radius:2px;background:var(--accent)"></div></div></div>'; }
-  return '<aside style="flex:1 1 248px;max-width:264px;min-width:220px;box-sizing:border-box;padding:24px 16px;display:flex;flex-direction:column;gap:24px;background:var(--panel);border-right:1px solid var(--line)">' +
+  return '<aside style="flex:1 1 248px;max-width:264px;min-width:220px;box-sizing:border-box;padding:20px 16px;display:flex;flex-direction:column;gap:18px;position:sticky;top:0;height:100vh;align-self:flex-start;overflow-y:auto;background:var(--panel);border-right:1px solid var(--line)">' +
     '<div style="display:flex;align-items:center;gap:12px;padding:0 8px"><div style="width:32px;height:32px;border-radius:10px;background:var(--accent);color:var(--accentInk);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;letter-spacing:-0.02em">MR</div>' + top + '</div>' + back +
     '<nav style="display:flex;flex-direction:column;gap:2px" aria-label="' + (mode === 'study' ? 'Study steps' : 'Main') + '">' + nav + '</nav>' +
     '<div style="margin-top:auto;display:flex;flex-direction:column;gap:16px">' + prog + '<div><div style="font-size:12px;color:var(--mute);margin:0 8px 10px">Theme</div><div style="display:flex;gap:10px;padding:0 8px;flex-wrap:wrap">' + swatches() + '</div></div>' +
@@ -100,7 +100,7 @@ function noticeBar() {
   return '<div role="alert" style="display:flex;align-items:center;gap:14px;padding:14px 18px;border-radius:14px;background:var(--panel2);border:1px solid ' + (warn ? 'var(--warn)' : 'var(--line)') + '"><span style="color:' + (warn ? 'var(--warn)' : 'var(--accent)') + ';display:flex">' + svg('M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z' + IC.info.replace('M12 8', 'M12 8'), 20, 2) + '</span><span style="flex-grow:1;white-space:pre-wrap">' + esc(S.notice.msg) + '</span><button type="button" data-a="dismiss" aria-label="Dismiss" style="border:0;background:transparent;color:var(--mute);font-size:18px">×</button></div>';
 }
 function frame(mode, active, main) {
-  return sidebar(mode, active) + '<main style="flex:999 1 640px;min-width:0;box-sizing:border-box;padding:40px 48px;display:flex;flex-direction:column;gap:28px">' + noticeBar() + main + '</main>';
+  return sidebar(mode, active) + '<main style="flex:999 1 640px;min-width:0;box-sizing:border-box;padding:32px 44px 40px;display:flex;flex-direction:column;gap:24px">' + noticeBar() + main + '</main>';
 }
 const DEMO_NOTE = '<div style="font-size:12px;color:var(--mute)">Demo traits are simulated. They exist so every screen can be tested before real GWAS data can be downloaded.</div>';
 
