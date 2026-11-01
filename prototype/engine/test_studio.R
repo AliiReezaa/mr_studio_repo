@@ -217,4 +217,23 @@ swd <- data.frame(snp = c("rs1", "rs2", "rs3"), ea = c("A", "C", "G"), oa = c("G
 invisible(import_save(fsw, "sw.csv", ",", names(swd), list(snp = "snp", ea = "ea", oa = "oa", beta = "beta", se = "se"), modifyList(fct("Swap test", "outcome", "no", ea_ok = "swap"), list(frq = "none"))))
 sd2 <- library_dataset("Swap test")$data
 expect("import: answering 'no, the effect is for the other allele' swaps the allele labels", identical(sd2$ea, c("G", "T", "A")) && identical(sd2$oa, c("A", "C", "G")))
+# ---- Round 8: weighted median, simple median, weighted mode ----
+p8 <- pair_input("expA", "outC"); d8 <- p8$input$data; d8 <- d8[d8$mr_keep, ]
+h8 <- studio_new("Robust methods")
+r8 <- studio_run(h8, p8$exposure_label, p8$outcome_label, p8$input, c("ivw_mre", "wm", "smed", "mode"), idx = 1L, params = list(ci_level = 0.9, nboot = 300L, phi = 0.5))
+pl8 <- pair_payload(h8$dir, r8$pair_folder); by8 <- function(m) Filter(function(e) e$method == m, pl8$estimates)[[1]]
+expect("robust methods: all run and the replay check is identical", all(vapply(r8$results, function(x) identical(x$status, "ok"), TRUE)) && identical(pl8$replay$status, "identical"))
+tp <- TwoSampleMR::default_parameters(); tp$nboot <- 300; tp$phi <- 0.5
+dm <- function(f) f(d8$beta_x, d8$beta_y, d8$se_x, d8$se_y, tp)
+expect("weighted and simple median point estimates equal TwoSampleMR", abs(by8("wm")$estimate - dm(TwoSampleMR::mr_weighted_median)$b) < 1e-12 && abs(by8("smed")$estimate - dm(TwoSampleMR::mr_simple_median)$b) < 1e-12)
+expect("bootstrap standard errors are close to TwoSampleMR's with another seed", abs(by8("wm")$se / dm(TwoSampleMR::mr_weighted_median)$se - 1) < 0.35)
+expect("robust methods use the confidence level and write the bootstrap size", by8("wm")$ci_level == 0.9 && abs((by8("wm")$ci_upper - by8("wm")$ci_lower) / 2 / by8("wm")$se - stats::qnorm(0.95)) < 1e-9 && any(vapply(pl8$diagnostics, function(g) identical(g$name, "bootstrap_replications") && g$value == 300, TRUE)))
+expect("phi is read back from the scripts and changes the mode estimate", identical(pair_settings(h8$dir, r8$pair_folder)$phi, 0.5) && identical(pair_settings(h8$dir, r8$pair_folder)$nboot, 300) &&
+       abs(by8("mode")$estimate - TwoSampleMR::mr_weighted_mode(d8$beta_x, d8$beta_y, d8$se_x, d8$se_y, modifyList(tp, list(phi = 1)))$b) > 0 &&
+       abs(by8("mode")$estimate - TwoSampleMR::mr_weighted_mode(d8$beta_x, d8$beta_y, d8$se_x, d8$se_y, tp)$b) < 0.05)
+r8b <- studio_run(h8, p8$exposure_label, p8$outcome_label, p8$input, c("wm"), idx = 1L, params = list(ci_level = 0.9, nboot = 300L, phi = 0.5))
+expect("rerunning with the same settings reuses the saved results", isTRUE(r8b$reused))
+expect("the parameter schemas of the new methods are complete", identical(names(param_schemas()$wm), c("ci_level", "nboot", "min_f")) && identical(names(param_schemas()$mode), c("ci_level", "nboot", "phi", "min_f")) && identical(names(param_schemas()$smed), c("ci_level", "nboot", "min_f")))
+expect("a bad bootstrap size is refused by the adapter", grepl("nboot below minimum 100", tryCatch(studio_run(h8, "A", "B", p8$input, "wm", idx = 2L, params = list(nboot = 5L)), error = conditionMessage)))
+DBI::dbDisconnect(h8$con)
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

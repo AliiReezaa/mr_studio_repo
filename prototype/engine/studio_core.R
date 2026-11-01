@@ -228,14 +228,14 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
        simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger)
 }
 
-METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger")
+METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode")
 
 studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx = NULL, params = NULL) {
   params <- c(params[setdiff(names(params), "ci_level")], list(ci_level = if (!is.null(params$ci_level)) params$ci_level else ci_level))
   if (!length(methods)) stop("Choose at least one method.")
   exposure_label <- trimws(exposure_label); outcome_label <- trimws(outcome_label)
   if (!nzchar(exposure_label) || !nzchar(outcome_label)) stop("Give the exposure and the outcome a name.")
-  ad <- list(ivw_mre = ADAPTER_IVW_MRE_V11, egger = ADAPTER_EGGER_V11)
+  ad <- list(ivw_mre = ADAPTER_IVW_MRE_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11)
   spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = input,
                                            params = params[intersect(names(params), names(ad[[m]]$params))]))
   if (is.null(idx)) idx <- studio_pair_index(h$dir, exposure_label, outcome_label)
@@ -244,12 +244,12 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
   r
 }
 
-METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", egger = "MR-Egger")
+METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode")
 IVW_MODEL_NAMES <- c(mre = "IVW (multiplicative random effects)", mre_floor = "IVW (random effects when over-dispersed)", fixed = "IVW (fixed effect)")
 
 #' The settings a pair was run with, read back from the settings lines of its scripts (the scripts are the record).
 pair_settings <- function(study, pair_folder) {
-  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre")
+  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1)
   for (f in Sys.glob(file.path(study, "03_pairs", pair_folder, "02_scripts", "[0-9]*_*.R"))) {
     for (k in names(out)) {
       ln <- grep(paste0("^", k, " <- "), readLines(f, warn = FALSE), value = TRUE)
@@ -452,7 +452,7 @@ studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre",
   d$mr_keep[hit] <- FALSE; inp$input$data <- d
   kept <- sum(d$mr_keep)
   if (kept < 2L) stop("At least 2 instruments must remain.")
-  if (kept < 3L) methods <- setdiff(methods, "egger")
+  if (kept < 3L) methods <- setdiff(methods, c("egger", "wm", "smed", "mode"))
   lab <- sprintf("%s [without %d]", inp$exposure_label, length(remove))
   r <- studio_run(h, lab, inp$outcome_label, inp$input, methods, ci_level, idx = idx, params = params)
   r$kept <- kept; r$label <- lab; r

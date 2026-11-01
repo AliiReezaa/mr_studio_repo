@@ -116,5 +116,23 @@ expect("analysis CSV round trip within 2e-16 relative",
        max(abs(back$beta_x - input$data$beta_x) / abs(input$data$beta_x)) < 2.3e-16 &&
        max(abs(back$se_y - input$data$se_y) / abs(input$data$se_y)) < 2.3e-16)
 
+
+# ---- Round 8: bootstrap-based robust methods: script equals oracle with the same seed, and replay is identical ----
+pair8 <- file.path(out_dir, "P08_robust")
+prm8 <- function(a, l) resolve_params(a, l)
+m8 <- list(list(adapter = ADAPTER_WM_V11, input = input, params = list(nboot = 200L)),
+           list(adapter = ADAPTER_SMED_V11, input = input, params = list(nboot = 200L)),
+           list(adapter = ADAPTER_MODE_V11, input = input, params = list(nboot = 200L, phi = 0.5)))
+materialise_pair(pair8, m8, SEED)
+run8 <- run_in_dir(pair8, run_pair_script(pair8))
+expect("robust methods: master script runs in a fresh R", run8$status == 0L)
+stored8 <- list()
+for (a in list(ADAPTER_WM_V11, ADAPTER_SMED_V11, ADAPTER_MODE_V11)) {
+  pr <- prm8(a, if (a$id == "mode") list(nboot = 200L, phi = 0.5) else list(nboot = 200L))
+  o <- a$run(input, pr, list(seed = SEED)); r <- read_method_results(pair8, a$id); stored8[[a$id]] <- r
+  expect(sprintf("%s: script result equals oracle (1e-12) with the same seed", a$id), cmp(r$estimates, o$estimates) && cmp(r$diagnostics, o$diagnostics))
+}
+rp8 <- replay_check(pair8, c("wm", "smed", "mode"), stored8)
+expect("robust methods: replay is identical", identical(rp8$status, "identical"))
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail))
 quit(status = if (n_fail) 1L else 0L)

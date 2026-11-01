@@ -26,13 +26,15 @@ run_params <- function(x) {
   if (!is.null(x$ci_level)) out$ci_level <- as.numeric(x$ci_level)
   if (!is.null(x$min_f)) out$min_f <- as.numeric(x$min_f)
   if (!is.null(x$ivw_model)) out$ivw_model <- as.character(x$ivw_model)
+  if (!is.null(x$nboot)) out$nboot <- as.integer(round(as.numeric(x$nboot)))
+  if (!is.null(x$phi)) out$phi <- as.numeric(x$phi)
   out
 }
 
 param_schemas <- function() {
   one <- function(ad) lapply(ad$params, function(p) list(label = p$label, hint = p$hint, min = p$min, max = p$max, default = p$default, type = p$type,
                                                          values = if (!is.null(p$values)) as.list(p$values), value_labels = if (!is.null(p$value_labels)) as.list(p$value_labels), value_hints = if (!is.null(p$value_hints)) as.list(p$value_hints)))
-  list(ivw_mre = one(ADAPTER_IVW_MRE_V11), egger = one(ADAPTER_EGGER_V11))
+  list(ivw_mre = one(ADAPTER_IVW_MRE_V11), egger = one(ADAPTER_EGGER_V11), wm = one(ADAPTER_WM_V11), smed = one(ADAPTER_SMED_V11), mode = one(ADAPTER_MODE_V11))
 }
 
 mr_server <- function(engine_dir) {

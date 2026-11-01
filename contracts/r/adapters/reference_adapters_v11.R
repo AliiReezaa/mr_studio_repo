@@ -131,6 +131,85 @@
                 seed, spec$data_file)
 }
 
+# ---- Round 8: robust estimators (TwoSampleMR). All three bootstrap their standard error, so they are stochastic:
+# the script sets a fixed seed and the replay check repeats the same draws. ----
+.nboot_param_v11 <- list(nboot = list(
+  type = "integer", default = 1000L, min = 100L, max = 10000L,
+  label = "Bootstrap replications",
+  hint = "How many times the data are resampled to get the standard error. More replications give a steadier standard error but take longer. The seed is fixed, so the same number always gives the same answer.",
+  package_arg = "parameters$nboot", kind = "int", conventional = TRUE, advanced = FALSE,
+  evidence = "1000 replications is the TwoSampleMR default and the usual choice in published analyses.",
+  affects = c("se", "ci", "p")))
+
+.phi_param_v11 <- list(phi = list(
+  type = "double", default = 1, min = 0.05, max = 5,
+  label = "Kernel bandwidth multiplier (phi)",
+  hint = "Scales the smoothing of the density whose peak is the mode estimate. Smaller values follow the data more closely but are noisier. 1 is the default; 0.5 and 0.25 are common sensitivity checks.",
+  package_arg = "parameters$phi", kind = "float", conventional = TRUE, advanced = FALSE,
+  evidence = "phi = 1 is the default of Hartwig, Davey Smith and Bowden (2017); 0.5 and 0.25 are the sensitivity values they suggest.",
+  affects = c("estimate", "se", "ci", "p")))
+
+.emit_robust <- function(a, fun, title, spec, params, seed, pars) {
+  txt <- c(
+    .script_lines_head(a, spec), .script_lines_guard(spec),
+    "# ---- 2. Settings (every adjustable argument of this method) --------------------",
+    .param_comment_lines(a, params),
+    sprintf("seed <- %d   # fixed seed: the standard error is bootstrapped, so the same seed gives the same numbers", as.integer(seed)),
+    "",
+    .script_lines_repro(seed), .script_lines_data, .script_lines_minf(a$requires$min_ivs),
+    sprintf("# ---- 5. Analysis: %s (TwoSampleMR) ----------------", title),
+    sprintf("fit <- TwoSampleMR::%s(", fun),
+    "  b_exp = dat$beta_x, b_out = dat$beta_y,",
+    "  se_exp = dat$se_x, se_out = dat$se_y,",
+    sprintf("  parameters = utils::modifyList(TwoSampleMR::default_parameters(), list(%s)))", pars),
+    "z <- stats::qnorm(1 - (1 - ci_level) / 2)   # normal interval around the estimate, using the bootstrapped standard error",
+    "estimates <- data.frame(estimand = \"causal_effect\",",
+    paste0("  ", .est_cols(spec)),
+    "  estimate = fit$b, se = fit$se, ci_lower = fit$b - z * fit$se, ci_upper = fit$b + z * fit$se,",
+    "  ci_level = ci_level, ci_method = \"wald\", p = fit$pval, n_ivs_used = as.integer(fit$nsnp),",
+    "  stringsAsFactors = FALSE)",
+    "diagnostics <- data.frame(name = \"bootstrap_replications\", value = as.double(nboot), df = NA_real_, p = NA_real_,",
+    "                          note = NA_character_, stringsAsFactors = FALSE)",
+    "",
+    .script_lines_write(spec))
+  script_bundle(paste0(paste(txt, collapse = "\n"), "\n"), a$packages,
+                list(list(file = file.path("04_tables", spec$estimates_file), role = "estimates"),
+                     list(file = file.path("04_tables", spec$diagnostics_file), role = "diagnostics")),
+                seed, spec$data_file)
+}
+
+.robust_adapter <- function(id, label, fun, title, extra, pars_fn) {
+  ad <- NULL
+  ad <- mrgui_adapter(
+    id = id, adapter_version = "1.1.0", label = label, input_kind = "pair_iv", estimands = "causal_effect",
+    requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE,
+                    needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+    packages = list(TwoSampleMR = "5e93ee7d8e1f67581acb8134299759389d73efba"),
+    stochastic = TRUE, supports_checkpoint = FALSE, runtime_class = "fast",
+    params = c(.ci_param_v11, extra, .minf_param_v11),
+    check = function(input, params) {
+      d <- .usable(input$data)
+      if (nrow(d) < 3) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("%s needs at least 3 usable instruments; %d available.", label, nrow(d))))
+      w <- .common_warnings(d)
+      verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+    },
+    run = function(input, params, ctx) {
+      d <- .usable(input$data)
+      RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(as.integer(ctx$seed))
+      fit <- getExportedValue("TwoSampleMR", fun)(d$beta_x, d$beta_y, d$se_x, d$se_y, do.call(function(nboot = 1000L, phi = 1) utils::modifyList(TwoSampleMR::default_parameters(), list(nboot = nboot, phi = phi)), params[intersect(names(params), c("nboot", "phi"))]))
+      z <- stats::qnorm(1 - (1 - params$ci_level) / 2)
+      list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale,
+             fit$b, fit$se, fit$b - z * fit$se, fit$b + z * fit$se, "wald", fit$pval, as.integer(fit$nsnp), params$ci_level),
+           diagnostics = diagnostic_row("bootstrap_replications", as.double(params$nboot)))
+    },
+    emit_script = function(spec, params, seed) .emit_robust(ad, fun, title, spec, params, seed, pars_fn),
+    column_requirements = .colreq_basic)
+  ad
+}
+ADAPTER_WM_V11 <- .robust_adapter("wm", "Weighted median", "mr_weighted_median", "weighted median estimator", .nboot_param_v11, "nboot = nboot")
+ADAPTER_SMED_V11 <- .robust_adapter("smed", "Simple median", "mr_simple_median", "simple median estimator", .nboot_param_v11, "nboot = nboot")
+ADAPTER_MODE_V11 <- .robust_adapter("mode", "Weighted mode", "mr_weighted_mode", "weighted mode estimator (MBE)", c(.nboot_param_v11, .phi_param_v11), "nboot = nboot, phi = phi")
+
 ADAPTER_IVW_MRE_V11 <- .upgrade_adapter(ADAPTER_IVW_MRE, function(spec, params, seed) .emit_ivw_mre(spec, params, seed), .ivw_model_param_v11)
 ADAPTER_EGGER_V11 <- .upgrade_adapter(ADAPTER_EGGER, function(spec, params, seed) .emit_egger(spec, params, seed))
 
