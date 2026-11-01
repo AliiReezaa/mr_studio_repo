@@ -53,7 +53,7 @@ const EXPORT_ITEMS = [['scripts', 'Scripts and data tables', 'The R scripts, the
 const S = { screen: 'boot', theme: 'aurora', settings: {}, studies: [], cat: { exposures: [], outcomes: [] }, schemas: {}, study: null, maxStep: 0,
   kind: 'basic', name: '', aim: '', prereg: false, err: null, notice: null, q: '', ex: [], out: [], pop: 'EUR', methods: ['ivw_mre', 'egger'], mfilter: 'all',
   params: { ci_level: 0.95 }, custom: null, facts: null, pairs: [], run: null, payloads: {}, rp: 0, size: 'Double column', pub: null, xsel: ['scripts'],
-  info: null, diag: null, editFolder: false, folderErr: null, root: '' };
+  info: null, diag: null, editFolder: false, folderErr: null, root: '', dialog: null, lost: false, cmp: null, inst: null, sel: [], sens: [], sensBusy: false, lib: [], tmpls: [], imp: null };
 let focusId = null;
 const $root = () => document.getElementById('root');
 const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -120,7 +120,69 @@ function studyGrid(list, title) {
 function vStudies() { return frame('global', 'studies', '<header>' + eyebrow('STUDIES') + h1('All studies') + sub('Every study is a normal folder in ' + '<span class="mono">' + esc(S.root) + '</span>' + '.') + '</header>' + studyGrid(S.studies, 'Studies on this computer')); }
 function vLibrary() {
   const rows = (list, t) => '<section style="flex:1 1 300px;min-width:0;display:flex;flex-direction:column;gap:10px"><div style="padding:0 4px">' + H2(t) + '</div>' + list.map((r) => '<div style="display:flex;align-items:center;gap:12px;padding:14px;border-radius:14px;background:var(--panel);border:1px solid var(--line)"><span style="flex-grow:1;min-width:0"><span style="display:block;font-weight:550">' + esc(r.name) + '</span><span class="mono" style="display:block;font-size:11px;color:var(--mute);margin-top:2px">' + esc(r.src) + ' · N ' + esc(r.n) + '</span></span><span class="mono" style="font-size:11px;padding:3px 8px;border-radius:999px;color:var(--mute);border:1px solid var(--line)">' + esc(r.anc) + '</span></div>').join('') + '</section>';
-  return frame('global', 'library', '<header>' + eyebrow('DATA LIBRARY') + h1('Traits on this computer') + sub('This version ships a small simulated catalogue. The searchable catalogue of public GWAS and file import come in later steps.') + '</header><div style="display:flex;flex-wrap:wrap;gap:20px">' + rows(S.cat.exposures, 'Exposures') + rows(S.cat.outcomes, 'Outcomes') + '</div>' + DEMO_NOTE);
+  const mine = S.lib.length ? S.lib.map((r) => '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:14px 16px;border-radius:14px;background:var(--panel);border:1px solid var(--line)"><span style="flex:1 1 220px;min-width:0"><span style="display:block;font-weight:600">' + esc(r.trait) + '</span><span class="mono" style="display:block;font-size:11px;color:var(--mute);margin-top:2px">' + esc(r.original.file) + ' · ' + Number(r.rows_kept).toLocaleString() + ' variants kept of ' + Number(r.rows_in_file).toLocaleString() + ' · ' + esc(r.saved_at) + '</span></span><span class="mono" style="font-size:11px;padding:3px 8px;border-radius:999px;color:var(--mute);border:1px solid var(--line)">' + esc(r.role === 'outcome' ? 'OUTCOME' : (r.role === 'either' ? 'EITHER' : 'EXPOSURE')) + '</span><span class="mono" style="font-size:11px;padding:3px 8px;border-radius:999px;color:var(--warn);border:1px solid var(--warn)">NOT USABLE IN RUNS YET</span></div>').join('') : '<div style="color:var(--mute);padding:4px">Nothing imported yet. Files you import are checked, saved with a recipe of how they were read, and listed here.</div>';
+  const tm = S.tmpls.length ? S.tmpls.map((t) => '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;border-radius:14px;background:var(--panel2)"><span style="flex-grow:1"><span style="display:block;font-weight:550">' + esc(t.name) + '</span><span class="mono" style="display:block;font-size:11px;color:var(--mute)">' + Object.keys(t.mapping || {}).length + ' columns mapped</span></span><button type="button" data-a="tmpl_delete" data-v="' + esc(t.name) + '" style="border:0;background:transparent;color:var(--mute);text-decoration:underline">Remove</button></div>').join('') : '<div style="color:var(--mute);padding:4px">No templates yet. After an import you can save the column mapping as a template for files with the same layout.</div>';
+  return frame('global', 'library', '<header style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between"><div style="max-width:660px">' + eyebrow('DATA LIBRARY') + h1('Traits on this computer') + sub('The built-in simulated traits, and the GWAS files you import. The searchable catalogue of public GWAS and downloads come in later steps.') + '</div><div style="display:flex;gap:10px;flex-wrap:wrap">' + ghost('Show folder', 'library_folder') + cta('Import a GWAS file', 'imp_new', '', 'height:44px;padding:0 20px') + '</div></header>' +
+    '<section style="display:flex;flex-direction:column;gap:10px"><div style="padding:0 4px">' + H2('Your imported files') + '</div>' + mine + '<div style="font-size:12px;color:var(--mute);padding:0 4px">Imported files are read and saved in a standard layout. Using them in an analysis also needs clumping and harmonising with the other trait, which is planned.</div></section>' +
+    '<section style="display:flex;flex-direction:column;gap:10px"><div style="padding:0 4px">' + H2('Saved column templates') + '</div>' + tm + '</section>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:20px">' + rows(S.cat.exposures, 'Built-in exposures (simulated)') + rows(S.cat.outcomes, 'Built-in outcomes (simulated)') + '</div>' + DEMO_NOTE);
+}
+// ---- import wizard (FR-71 to FR-78) ---------------------------------------------------------------------------------------
+const IMP_ROLES = [['snp', 'Variant ID (rsID)', true], ['chr', 'Chromosome', false], ['pos', 'Position', false], ['ea', 'Effect allele', true], ['oa', 'Other allele', true], ['eaf', 'Effect allele frequency', false], ['beta', 'Effect size', true], ['se', 'Standard error', true], ['p', 'P value', false], ['n', 'Sample size', false]];
+const IMP_STEPS = ['File', 'Columns', 'Study facts', 'Check and save'];
+function impNew() { return { step: 1, busy: false, head: null, mapping: {}, conf: {}, why: {}, tmpl: null, facts: { name: '', role: 'exposure', kind: 'continuous', scale: 'beta', ea_ok: 'yes', frq: 'none', build: 'unknown', ancestry: 'EUR', n: '', scope: 'genomewide', sex: 'both', ukb: false }, report: null, checking: false, saveTmpl: false, tmplName: '', saved: null, saving: false, err: null }; }
+const selStyle = 'height:40px;padding:0 10px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit;max-width:100%';
+const inStyle = 'height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit;box-sizing:border-box;width:100%';
+function opt(v, label, cur) { return '<option value="' + esc(v) + '"' + (v === cur ? ' selected' : '') + '>' + esc(label) + '</option>'; }
+function field(label, hint, inner) { return '<div style="display:flex;flex-direction:column;gap:6px"><div style="font-weight:550">' + label + '</div>' + (hint ? '<div style="font-size:12px;color:var(--mute)">' + hint + '</div>' : '') + inner + '</div>'; }
+function chips(key, list, cur) { return '<div style="display:flex;flex-wrap:wrap;gap:8px">' + list.map((x) => { const on = x[0] === cur; return '<button type="button" data-a="imp_fact" data-k="' + key + '" data-v="' + x[0] + '" aria-pressed="' + on + '" style="padding:8px 14px;border-radius:999px;font-size:13px;font-weight:550;color:' + (on ? 'var(--accentInk)' : 'var(--text)') + ';background:' + (on ? 'var(--accent)' : 'transparent') + ';border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + '">' + x[1] + '</button>'; }).join('') + '</div>'; }
+function vImport() {
+  const I = S.imp, st = I.step;
+  const bar = '<div style="display:flex;gap:8px">' + IMP_STEPS.map((l, i) => '<div style="flex:1"><div style="height:4px;border-radius:2px;background:' + (i < st ? 'var(--accent)' : 'var(--line)') + '"></div><div class="mono" style="margin-top:8px;font-size:11px;color:' + (i === st - 1 ? 'var(--text)' : 'var(--mute)') + '">' + (i + 1) + ' · ' + l + '</div></div>').join('') + '</div>';
+  let body = '';
+  if (st === 1) {
+    body = '<div style="display:flex;flex-direction:column;align-items:flex-start;gap:16px;padding:32px;border-radius:16px;border:1px dashed var(--mute);background:var(--panel2)"><div style="font-size:18px;font-weight:600">Choose a GWAS summary file</div><div style="color:var(--mute);max-width:560px">Text tables with a heading row: tab, comma, semicolon or space separated, optionally compressed as .gz. Column order does not matter, and common spellings of the headings are recognised. The file never leaves your computer and is never changed.</div>' + (I.busy ? '<div class="mono" style="color:var(--accent)">Reading the file…</div>' : cta('Choose a file', 'imp_choose', '', 'height:44px;padding:0 24px')) + '<div style="font-size:12px;color:var(--mute)">Not supported yet: GWAS-VCF, .zip and .bgz files. Individual-level data is refused.</div></div>';
+  } else if (st === 2) {
+    const h = I.head, first = h.rows[0] || {};
+    const sel = IMP_ROLES.map((r) => { const cur = I.mapping[r[0]] || '', conf = I.conf[r[0]];
+      return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:var(--panel2)"><div style="flex:1 1 190px"><div style="font-weight:550">' + r[1] + (r[2] ? ' <span style="color:var(--warn)" title="Required">*</span>' : '') + '</div><div class="mono" style="font-size:11px;color:var(--mute)">' + (cur && first[cur] != null ? 'first row: ' + esc(first[cur]) : (cur ? '' : 'not in this file')) + '</div></div><select data-map="' + r[0] + '" aria-label="' + r[1] + '" style="' + selStyle + ';flex:1 1 200px"><option value="">Not in this file</option>' + h.columns.map((c) => opt(c, c, cur)).join('') + '</select><span class="mono" style="flex:0 0 76px;text-align:right;font-size:11px;color:' + (conf === 'high' ? 'var(--accent)' : (conf ? 'var(--warn)' : 'var(--mute)')) + '" title="' + esc(I.why[r[0]] || '') + '">' + (conf ? conf.toUpperCase() : (cur ? 'YOUR CHOICE' : '')) + '</span></div>'; }).join('');
+    const prev = '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:12px"><thead><tr>' + h.columns.map((c) => '<th class="mono" style="text-align:left;padding:6px 14px 6px 0;color:var(--mute);font-weight:500;white-space:nowrap">' + esc(c) + '</th>').join('') + '</tr></thead><tbody>' + h.rows.slice(0, 5).map((r) => '<tr>' + h.columns.map((c) => '<td class="mono" style="padding:4px 14px 4px 0;white-space:nowrap">' + esc(r[c]) + '</td>').join('') + '</tr>').join('') + '</tbody></table></div>';
+    const tb = I.tmpl ? '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:14px 18px;border-radius:14px;background:var(--panel2);border:1px solid var(--accent)"><span class="mono" style="font-size:11px;color:var(--accent)">TEMPLATE FOUND</span><span style="flex-grow:1">This file has the same headings as your template <b>' + esc(I.tmpl.name) + '</b> (' + Math.round(I.tmpl.similarity * 100) + '% match). Applying it fills in the columns and the study facts. You still see everything before saving.</span>' + ghost('Apply template', 'imp_apply_tmpl', '', 'height:38px') + '</div>' : '';
+    body = tb + '<div style="display:flex;flex-direction:column;gap:8px"><div style="font-size:13px;color:var(--mute)"><b style="color:var(--text)">' + esc(h.name) + '</b> · ' + (h.size / 1048576).toFixed(1) + ' MB · ' + h.columns.length + ' columns. Check each match. Suggestions marked MEDIUM or LOW are guesses.</div>' + sel + '</div><div><div style="font-size:12px;color:var(--mute);margin-bottom:8px">First rows of the file</div>' + prev + '</div>';
+  } else if (st === 3) {
+    const F = I.facts, h = I.head, first = h.rows[0] || {}, ea = first[I.mapping.ea], oa = first[I.mapping.oa];
+    body = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:22px">' +
+      field('Trait name', 'Becomes the name in the Data library.', '<input id="f_name" value="' + esc(F.name) + '" style="' + inStyle + '">') +
+      field('Use it as', 'You can change this later by importing again.', chips('role', [['exposure', 'Exposure'], ['outcome', 'Outcome'], ['either', 'Either']], F.role)) +
+      field('Type of trait', '', chips('kind', [['continuous', 'Continuous'], ['binary', 'Binary (cases and controls)']], F.kind)) +
+      field('Effect size is', 'Odds ratios are converted to log odds. The standard error must then be the standard error of the log odds ratio.', chips('scale', [['beta', 'Beta or log odds'], ['or', 'Odds ratio'], ['z', 'Z-score']], F.scale)) +
+      '<div style="grid-column:1/-1;padding:16px;border-radius:14px;background:var(--panel2);border:1px solid ' + (F.ea_ok === 'yes' ? 'var(--line)' : 'var(--warn)') + '">' + field('Which allele is the effect allele?', 'This is the most common source of wrong MR results, so please check it against your first row.', '<div style="margin:6px 0">In your first row the file says: effect allele <b class="mono">' + esc(ea || '?') + '</b>, other allele <b class="mono">' + esc(oa || '?') + '</b>.</div>' + chips('ea_ok', [['yes', 'Yes, the effect size is for ' + esc(ea || 'the effect allele')], ['swap', 'No, it is for ' + esc(oa || 'the other allele') + ' (swap them)']], F.ea_ok)) + '</div>' +
+      field('The frequency column is', I.mapping.eaf ? 'A minor allele frequency cannot be used as the effect allele frequency.' : 'No frequency column was chosen.', chips('frq', [['eaf', 'Effect allele frequency'], ['maf', 'Minor allele frequency'], ['none', 'No frequency']], F.frq)) +
+      field('Sample size' + (I.mapping.n ? ' (the file has a column)' : ''), 'Total number of people. Leave empty if unknown.', '<input id="f_n" inputmode="numeric" value="' + esc(F.n) + '" placeholder="For example 250000" style="' + inStyle + '">') +
+      field('Genome build', 'Not detected automatically yet.', chips('build', [['37', 'GRCh37 (hg19)'], ['38', 'GRCh38 (hg38)'], ['unknown', 'Unknown']], F.build)) +
+      field('Ancestry', '', chips('ancestry', [['EUR', 'European'], ['EAS', 'East Asian'], ['AFR', 'African'], ['SAS', 'South Asian'], ['AMR', 'American'], ['Mixed', 'Mixed']], F.ancestry)) +
+      field('Which variants are in the file?', '', chips('scope', [['genomewide', 'Genome-wide'], ['selected', 'Only selected variants']], F.scope)) +
+      field('Sex of the sample', '', chips('sex', [['both', 'Both'], ['female', 'Female'], ['male', 'Male']], F.sex)) +
+      field('Includes UK Biobank?', 'Used later to check for overlap with another trait.', chips('ukb', [['no', 'No or not sure'], ['yes', 'Yes']], F.ukb ? 'yes' : 'no')) + '</div>';
+  } else {
+    const R = I.report, sv = I.saved;
+    if (sv) body = '<div style="display:flex;flex-direction:column;gap:14px;padding:24px;border-radius:16px;background:var(--panel2);border:1px solid var(--accent)"><span class="mono" style="font-size:11px;color:var(--accent)">SAVED</span><div style="font-size:18px;font-weight:600">' + esc(sv.rec.trait) + ' is in your Data library</div><div style="color:var(--mute)">' + Number(sv.rec.rows_kept).toLocaleString() + ' variants kept of ' + Number(sv.rec.rows_in_file).toLocaleString() + '. The standard copy and a recipe (original file name, size, checksum, column mapping and your answers) were saved next to each other, so the import can be repeated exactly.' + (sv.template ? ' The column mapping was saved as the template "' + esc(sv.template) + '".' : '') + '</div><div style="color:var(--warn);font-size:13px">It cannot be used in an analysis yet. That also needs clumping and harmonising with the other trait, which is planned.</div><div>' + cta('Back to the Data library', 'imp_done', '', 'height:44px;padding:0 24px;display:inline-flex') + '</div></div>';
+    else if (!R) body = '<div class="mono" style="color:var(--accent)">Checking the whole file…</div>';
+    else {
+      const st2 = R.stats || {}, li = (arr, c, tag) => arr.map((x) => '<div style="display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-radius:12px;background:var(--panel2);border:1px solid ' + (tag === 'ERROR' ? 'var(--warn)' : 'var(--line)') + '"><span class="mono" style="flex:none;font-size:11px;color:' + c + ';padding-top:2px">' + tag + '</span><span>' + esc(x) + '</span></div>').join('');
+      body = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">' + [['Rows read', Number(st2.rows || 0).toLocaleString()], ['Variants kept', Number(st2.kept || 0).toLocaleString()], ['Palindromic', Number(st2.palindromic || 0).toLocaleString()], ['With rsID', Number(st2.snps || 0).toLocaleString()]].map((x) => '<div style="padding:16px;border-radius:14px;background:var(--panel2)"><div style="font-size:12px;color:var(--mute)">' + x[0] + '</div><div class="mono" style="font-size:24px;font-weight:500;margin-top:4px">' + x[1] + '</div></div>').join('') + '</div>' +
+        (R.errors.length ? '<div style="display:flex;flex-direction:column;gap:8px">' + li(R.errors, 'var(--warn)', 'ERROR') + '</div>' : '') + (R.warnings.length ? '<div style="display:flex;flex-direction:column;gap:8px">' + li(R.warnings, 'var(--warn)', 'CHECK') + '</div>' : '') + (R.ok && !R.warnings.length ? '<div style="color:var(--accent)">Nothing unusual found.</div>' : '') +
+        (R.ok ? '<div style="display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:14px;background:var(--panel2)"><div style="display:flex;align-items:center;gap:12px"><span style="flex-grow:1"><span style="display:block;font-weight:550">Remember this column mapping</span><span style="display:block;font-size:12px;color:var(--mute)">Next time a file has the same headings, the app proposes it and fills everything in.</span></span><button type="button" role="switch" aria-checked="' + I.saveTmpl + '" data-a="imp_tmpl_toggle" style="flex:none;width:40px;height:24px;border-radius:12px;border:0;padding:0;position:relative;background:' + (I.saveTmpl ? 'var(--accent)' : 'var(--line)') + '"><span style="position:absolute;top:3px;width:18px;height:18px;border-radius:50%;background:' + (I.saveTmpl ? 'var(--accentInk)' : 'var(--mute)') + ';left:' + (I.saveTmpl ? 19 : 3) + 'px;transition:left .15s"></span></button></div>' + (I.saveTmpl ? '<input id="f_tmpl" value="' + esc(I.tmplName) + '" placeholder="For example: FinnGen R12" style="' + inStyle + '">' : '') + '</div>' : '');
+    }
+  }
+  const back = st > 1 && !I.saved ? ghost('Back', 'imp_back') : (st === 1 ? ghost('Cancel', 'imp_done') : '');
+  let next = '';
+  if (st === 2) next = cta('Continue', 'imp_next', '', 'height:44px;padding:0 24px');
+  else if (st === 3) next = cta('Check the file', 'imp_next', '', 'height:44px;padding:0 24px');
+  else if (st === 4 && !I.saved) next = '<button type="button" class="cta" data-a="imp_save" ' + (I.report && I.report.ok && !I.saving ? '' : 'disabled') + ' style="height:44px;padding:0 24px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;font-size:14px;opacity:' + (I.report && I.report.ok && !I.saving ? 1 : .5) + '">' + (I.saving ? 'Saving…' : 'Save to the Data library') + '</button>';
+  const main = '<header style="max-width:680px">' + eyebrow('DATA LIBRARY · IMPORT') + h1('Import a GWAS file') + sub('Four short steps. Nothing is changed in your original file, and every answer is written into a recipe that is saved with the data.') + '</header>' +
+    '<section style="box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;gap:24px">' + bar + body + '<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center"><span>' + back + '</span><span>' + next + '</span></div></section>';
+  return frame('global', 'library', main);
 }
 function vSetup() {
   const d = S.diag || [], ok = (n) => (d.find((x) => x.name === n) || {}).ok;
@@ -200,12 +262,18 @@ function vMethods() {
     '<button type="button" class="cta" data-a="m_next" ' + (sel.length ? '' : 'disabled') + ' style="display:flex;align-items:center;justify-content:center;gap:8px;height:48px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;font-size:14px;opacity:' + (sel.length ? 1 : .5) + '">Continue to check' + svg(IC.arrow, 16, 2.2) + '</button></aside></div>' + DEMO_NOTE;
   return frame('study', 'methods', main) + (S.custom ? vCustomise() : '');
 }
+function cmpParams(keys, sch) {
+  const ch = keys.filter((k) => Number(S.params[k] == null ? sch[k].default : S.params[k]) !== Number(sch[k].default));
+  if (!keys.length) return '';
+  if (!ch.length) return '<div style="font-size:12px;color:var(--accent)">All settings are at their defaults.</div>';
+  return '<div><div style="font-size:12px;color:var(--mute);margin-bottom:8px">Compared with default</div><table style="width:100%;border-collapse:collapse;font-size:13px">' + ch.map((k) => '<tr><td style="padding:6px 0">' + esc(sch[k].label) + '</td><td class="mono" style="padding:6px 0;color:var(--mute)">' + esc(sch[k].default) + '</td><td class="mono" style="padding:6px 0 6px 8px">→ ' + esc(S.params[k]) + '</td></tr>').join('') + '</table><div style="font-size:12px;color:var(--mute);margin-top:6px">After the run, the Results screen offers a side-by-side comparison with the default.</div></div>';
+}
 function vCustomise() {
   const m = METHODS.find((x) => x.id === S.custom), sch = (S.schemas[S.custom] || {});
   const keys = Object.keys(sch);
   const body = keys.length ? keys.map((k) => { const p = sch[k], v = S.params[k] == null ? p.default : S.params[k], dflt = Number(v) === Number(p.default);
     return '<div><label for="p_' + k + '" style="display:block;font-weight:550;margin-bottom:4px">' + esc(p.label) + '</label><div style="font-size:12px;color:var(--mute);margin-bottom:10px">' + esc(p.hint) + '</div><div style="display:flex;align-items:center;gap:12px"><input id="p_' + k + '" data-param="' + k + '" type="number" step="0.01" min="' + p.min + '" max="' + p.max + '" value="' + esc(v) + '" style="width:140px;box-sizing:border-box;height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit"><span class="mono" style="font-size:12px;color:' + (dflt ? 'var(--accent)' : 'var(--warn)') + '">' + (dflt ? 'DEFAULT' : 'CHANGED') + '</span><button type="button" data-a="param_reset" data-v="' + k + '" style="border:0;background:transparent;color:var(--accent);font-weight:550">Reset to default</button></div><div class="mono" style="font-size:11px;color:var(--mute);margin-top:8px">Allowed ' + p.min + ' to ' + p.max + ' · default ' + p.default + '</div></div>'; }).join('') : '<div style="color:var(--mute)">This method has no adjustable settings. It is run exactly as the package defines it, and the script says so.</div>';
-  return '<div class="modal-bg" data-a="custom_close_bg"><div role="dialog" aria-modal="true" aria-label="Customise ' + esc(m.name) + '" style="width:100%;max-width:520px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:20px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">CUSTOMISE</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">' + esc(m.name) + '</div></div>' + body + '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Every value you set is written into the script, and results from changed settings are marked as customised.</div><div style="display:flex;gap:12px;justify-content:flex-end">' + cta('Done', 'custom_close', '', 'height:44px') + '</div></div></div>';
+  return '<div class="modal-bg" data-a="custom_close_bg"><div role="dialog" aria-modal="true" aria-label="Customise ' + esc(m.name) + '" style="width:100%;max-width:520px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:20px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">CUSTOMISE</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">' + esc(m.name) + '</div></div>' + body + cmpParams(keys, sch) + '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Every value you set is written into the script, and results from changed settings are marked as customised.</div><div style="display:flex;gap:12px;justify-content:flex-end">' + cta('Done', 'custom_close', '', 'height:44px') + '</div></div></div>';
 }
 function checks() {
   const fc = S.facts || []; if (!fc.length) return [];
@@ -269,6 +337,18 @@ function scatter(pay) {
   return '<div style="overflow-x:auto;padding-bottom:4px"><svg viewBox="0 0 ' + W + ' ' + Hh + '" width="' + W + '" height="' + Hh + '" role="img" aria-label="Scatter plot of variant effects with fitted lines" style="margin-left:8px"><line x1="8" y1="' + Y(0) + '" x2="' + (W - 8) + '" y2="' + Y(0) + '" stroke="var(--line)"/><line x1="8" y1="8" x2="8" y2="' + (Hh - 8) + '" stroke="var(--mute)"/>' +
     pts.map((p) => '<circle cx="' + X(p[0]) + '" cy="' + Y(p[1]) + '" r="3.5" fill="var(--text)" opacity=".8"/>').join('') + (iv ? line(0, iv.estimate, 'stroke="var(--accent)" stroke-width="3"') : '') + (eg && ic ? line(ic.estimate, eg.estimate, 'stroke="var(--warn)" stroke-width="3" stroke-dasharray="6 5"') : '') + '</svg></div>';
 }
+function pairLevel(pay) { const e = causal(pay)[0]; return e ? e.ci_level : 0.95; }
+function cmpBanner(pay, pair) {
+  const lv = pairLevel(pay); if (Math.abs(lv - 0.95) < 1e-9) return '';
+  return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:14px 18px;border-radius:14px;background:var(--panel2);border:1px solid var(--warn)"><span class="mono" style="font-size:11px;color:var(--warn)">CUSTOMISED</span><span style="flex-grow:1">This pair was run with a ' + Math.round(lv * 100) + '% confidence level instead of the default 95%. The point estimates are the same; only the intervals differ.</span>' + ghost('Compare with default', 'compare', pair.folder, 'height:38px') + '</div>';
+}
+function cmpPanel(pair) {
+  if (!S.cmp || S.cmp.folder !== pair.folder) return '';
+  const pay = curPay(), rows = (S.cmp.rows || []).map((r) => { const e = causal(pay).find((x) => x.method === r.method); if (!e) return '';
+    const wid = (e.ci_upper - e.ci_lower), wd = (r.hi - r.lo);
+    return '<tr><td style="padding:8px 12px 8px 0">' + esc(r.method === 'ivw_mre' ? 'IVW' : 'MR-Egger') + '</td><td class="mono" style="padding:8px 12px 8px 0">' + fx(e.estimate, 3) + '</td><td class="mono" style="padding:8px 12px 8px 0">' + fx(r.lo, 3) + ' to ' + fx(r.hi, 3) + '</td><td class="mono" style="padding:8px 12px 8px 0">' + fx(e.ci_lower, 3) + ' to ' + fx(e.ci_upper, 3) + '</td><td class="mono" style="padding:8px 0;color:var(--mute)">' + (wid / wd).toFixed(2) + ' x</td></tr>'; }).join('');
+  return '<section style="box-sizing:border-box;padding:20px 24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px"><h2 style="margin:0;font-size:16px;font-weight:600">Compare with default settings</h2><button type="button" data-a="compare_close" style="border:0;background:transparent;color:var(--accent);font-weight:550">Close</button></div><div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;min-width:520px"><thead><tr style="color:var(--mute);text-align:left"><th style="padding:0 12px 8px 0;font-weight:500">Method</th><th style="padding:0 12px 8px 0;font-weight:500">Estimate</th><th style="padding:0 12px 8px 0;font-weight:500">95% interval (default)</th><th style="padding:0 12px 8px 0;font-weight:500">Your interval</th><th style="padding:0 0 8px;font-weight:500">Width</th></tr></thead><tbody>' + rows + '</tbody></table></div><div style="font-size:12px;color:var(--mute);margin-top:10px">The default interval is recomputed from the saved estimate and standard error with the same interval rule the method used. Your saved results are not changed.</div></section>';
+}
 function vResults() {
   const pair = curPair(), pay = curPay();
   if (!pair || !pay) return frame('study', 'results', '<header>' + eyebrow('STEP 6 OF 7 · RESULTS') + h1('No results yet') + sub('Run the analysis first.') + '</header>');
@@ -287,10 +367,42 @@ function vResults() {
   const ready = R.map((k) => '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:var(--panel2)"><span style="flex:none;width:8px;height:8px;border-radius:50%;background:' + (k[2] ? 'var(--accent)' : 'var(--warn)') + '"></span><span style="flex-grow:1">' + k[0] + '</span><span class="mono" style="font-size:11px;color:' + (k[2] ? 'var(--accent)' : 'var(--warn)') + '">' + k[1] + '</span></div>').join('');
   const nav = S.pairs.length > 1 ? '<div style="display:flex;flex-wrap:wrap;gap:8px">' + S.pairs.map((p, i) => '<button type="button" data-a="rpair" data-v="' + i + '" style="padding:6px 14px;border-radius:999px;font-size:13px;font-weight:550;color:' + (i === S.rp ? 'var(--accentInk)' : 'var(--text)') + ';background:' + (i === S.rp ? 'var(--accent)' : 'transparent') + ';border:1px solid ' + (i === S.rp ? 'var(--accent)' : 'var(--line)') + '">Pair ' + (i + 1) + '</button>').join('') + '</div>' : '';
   const sentence = iv ? 'The IVW estimate is ' + fx(iv.estimate, 3) + ' (' + Math.round(iv.ci_level * 100) + '% CI ' + fx(iv.ci_lower, 3) + ' to ' + fx(iv.ci_upper, 3) + ') ' + esc(pair.outName) + ' per unit of ' + esc(pair.exName) + '; ' + same + ' of ' + ce.length + ' methods agree on direction.' : '';
-  const main = '<header style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between"><div style="max-width:660px">' + eyebrow('STEP 6 OF 7 · RESULTS · PAIR ' + (S.rp + 1) + ' OF ' + S.pairs.length) + h1(esc(pair.exName + ' → ' + pair.outName)) + sub(sentence) + '</div>' + cta('Export publication package', 'to_export', '', 'height:44px;padding:0 20px') + '</header>' + nav + tiles +
+  const main = '<header style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between"><div style="max-width:660px">' + eyebrow('STEP 6 OF 7 · RESULTS · PAIR ' + (S.rp + 1) + ' OF ' + S.pairs.length) + h1(esc(pair.exName + ' → ' + pair.outName)) + sub(sentence) + '</div>' + '<div style="display:flex;flex-wrap:wrap;gap:10px">' + ghost('Review instruments', 'to_outliers') + ghost('Open in RStudio', 'open_rstudio', pair.folder) + cta('Export publication package', 'to_export', '', 'height:44px;padding:0 20px') + '</div></header>' + nav + cmpBanner(pay, pair) + cmpPanel(pair) + tiles +
     '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start"><section style="flex:1 1 440px;min-width:0;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Forest plot across methods</h2><span class="mono" style="font-size:11px;color:var(--mute)">beta per unit, linear scale</span></div>' + forest(pay) + '</section>' +
     '<section style="flex:1 1 440px;min-width:0;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Scatter plot with fitted lines</h2><span class="mono" style="font-size:11px;color:var(--mute)">IVW and MR-Egger</span></div>' + scatter(pay) + '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:14px;font-size:12px;color:var(--mute)"><span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:3px;background:var(--accent)"></span>IVW</span><span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:0;border-top:3px dashed var(--warn)"></span>MR-Egger</span><span>x: SNP effect on exposure · y: SNP effect on outcome, oriented to a positive exposure effect</span></div></section></div>' +
     '<section style="box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Publication readiness</h2><span class="mono" style="font-size:12px;color:var(--mute)">STROBE-MR: report builder not built yet</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">' + ready + '</div></section>' + DEMO_NOTE;
+  return frame('study', 'results', main);
+}
+// ---- outlier review (FR-102, FR-105, FR-106): descriptive table, manual choice, sensitivity branch by the packaged methods ------------
+const DETECTORS = [['MR-PRESSO outlier test', 'MRPRESSO', 'Needs the MRPRESSO package, which is not bundled yet.'], ['Radial IVW outliers', 'RadialMR', 'Needs the RadialMR package, which is not bundled yet.'], ['Radial Egger outliers', 'RadialMR', 'Needs the RadialMR package, which is not bundled yet.'], ['MR-Lasso', 'MendelianRandomization', 'Needs the MendelianRandomization package, which is not bundled yet.']];
+function sensFor(folder) { return S.sens.filter((x) => x.parent === folder); }
+function sumRow(label, pay, note) {
+  const iv = causal(pay).find((e) => e.method === 'ivw_mre'), eg = causal(pay).find((e) => e.method === 'egger'), q = (pay.diagnostics || []).find((d) => d.method === 'ivw_mre' && d.name === 'cochran_q');
+  const cell = (e) => e ? '<span class="mono">' + fx(e.estimate, 3) + '</span> <span class="mono" style="color:var(--mute)">(' + fx(e.ci_lower, 3) + ' to ' + fx(e.ci_upper, 3) + ')</span>' : '<span style="color:var(--mute)">not run</span>';
+  const n = iv ? iv.n_ivs_used : '';
+  return '<tr style="border-top:1px solid var(--line)"><td style="padding:10px 12px 10px 0">' + label + (note ? '<div style="font-size:11px;color:var(--mute)">' + note + '</div>' : '') + '</td><td class="mono" style="padding:10px 12px 10px 0">' + n + '</td><td style="padding:10px 12px 10px 0">' + cell(iv) + '</td><td style="padding:10px 12px 10px 0">' + cell(eg) + '</td><td class="mono" style="padding:10px 0">' + (q ? fp(q.p) : '') + '</td></tr>';
+}
+function vOutliers() {
+  const pair = curPair(), pay = curPay(); if (!pair || !pay) return vResults();
+  const rows = S.inst ? S.inst.slice().sort((a, b) => b.share - a.share) : [], top = rows[0];
+  const q = (pay.diagnostics || []).find((d) => d.method === 'ivw_mre' && d.name === 'cochran_q'), het = q && q.p < 0.05;
+  const remain = rows.length - S.sel.length, can = S.sel.length > 0 && remain >= 2 && !S.sensBusy;
+  const maxShare = top ? top.share : 1;
+  const body = rows.map((r) => { const on = S.sel.indexOf(r.id) >= 0;
+    return '<button type="button" class="row" data-a="sel_var" data-v="' + esc(r.id) + '" aria-pressed="' + on + '" style="display:flex;align-items:center;gap:12px;width:100%;box-sizing:border-box;padding:8px 12px;border-radius:10px;color:var(--text);font-size:13px;background:' + (on ? 'var(--panel2)' : 'transparent') + ';border:1px solid ' + (on ? 'var(--accent)' : 'transparent') + '"><span style="flex:none;width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;color:var(--accentInk);background:' + (on ? 'var(--accent)' : 'transparent') + ';border:1.5px solid ' + (on ? 'var(--accent)' : 'var(--mute)') + '">' + (on ? svg(IC.tick, 11, 3.5) : '') + '</span><span class="mono" style="flex:1 1 130px;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis">' + esc(r.id) + '</span><span class="mono" style="flex:0 0 64px;text-align:right">' + fx(r.bx, 3) + '</span><span class="mono" style="flex:0 0 64px;text-align:right">' + fx(r.by, 3) + '</span><span class="mono" style="flex:0 0 64px;text-align:right">' + fx(r.ratio, 3) + '</span><span style="flex:0 0 110px;display:flex;align-items:center;gap:8px"><span style="flex-grow:1;height:6px;border-radius:3px;background:var(--line)"><span style="display:block;height:6px;border-radius:3px;background:var(--accent);width:' + Math.round(r.share / maxShare * 100) + '%"></span></span><span class="mono" style="flex:0 0 38px;text-align:right;font-size:11px;color:var(--mute)">' + (r.share * 100).toFixed(1) + '%</span></span><span class="mono" style="flex:0 0 46px;text-align:right;color:' + (r.f < 10 ? 'var(--warn)' : 'var(--mute)') + '">' + r.f.toFixed(0) + '</span></button>'; }).join('');
+  const hdr = '<div style="display:flex;align-items:center;gap:12px;padding:0 12px 8px;font-size:11px;color:var(--mute)"><span style="flex:none;width:18px"></span><span style="flex:1 1 130px">Variant</span><span style="flex:0 0 64px;text-align:right">Exposure β</span><span style="flex:0 0 64px;text-align:right">Outcome β</span><span style="flex:0 0 64px;text-align:right">Ratio</span><span style="flex:0 0 110px">Share of weight</span><span style="flex:0 0 46px;text-align:right">F</span></div>';
+  const cmpRows = sumRow('All instruments', pay, 'Primary analysis, unchanged') + sensFor(pair.folder).map((x) => S.payloads[x.folder] ? sumRow('Without ' + x.remove.length + ' variant' + (x.remove.length === 1 ? '' : 's'), S.payloads[x.folder], 'Sensitivity analysis, ' + x.kept + ' kept') : '').join('');
+  const det = DETECTORS.map((d) => '<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:10px;background:var(--panel2)"><span style="flex:none;width:8px;height:8px;border-radius:50%;border:1.5px solid var(--mute);box-sizing:border-box"></span><span style="flex-grow:1"><span style="display:block;font-weight:550;font-size:13px">' + d[0] + '</span><span style="display:block;font-size:11px;color:var(--mute)">' + d[2] + '</span></span><span class="mono" style="flex:none;white-space:nowrap;font-size:11px;color:var(--mute)">NOT BUILT</span></div>').join('');
+  const main = '<header style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between"><div style="max-width:680px">' + eyebrow('STEP 6 OF 7 · RESULTS · INSTRUMENT REVIEW') + h1('Which instruments drive the result?') + sub('Look at how much each instrument contributes. You can leave some out and run the analysis again as a labelled sensitivity analysis. Your primary results stay as they are.') + '</div>' + ghost('Back to results', 'back_results') + '</header>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start"><div style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:20px">' +
+    '<section style="box-sizing:border-box;padding:20px 24px;border-radius:20px;background:var(--panel);border:1px solid ' + (het ? 'var(--warn)' : 'var(--line)') + ';display:flex;flex-wrap:wrap;gap:16px;align-items:center"><span class="mono" style="font-size:11px;color:' + (het ? 'var(--warn)' : 'var(--accent)') + '">' + (het ? 'HETEROGENEITY PRESENT' : 'NO HETEROGENEITY SIGNAL') + '</span><span style="flex:1 1 320px;color:var(--mute)">' + (q ? 'Cochran Q P = ' + fp(q.p) + '. ' : '') + (het ? 'This is a signal worth looking into, not a reason to remove anything. Valid instruments can differ in their effects for real biological reasons.' : 'The instruments agree with each other about as well as chance allows. Leaving some out is optional.') + '</span></section>' +
+    '<section style="box-sizing:border-box;padding:20px 24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:12px"><h2 style="margin:0;font-size:16px;font-weight:600">Instruments of this pair</h2><span class="mono" style="font-size:12px;color:var(--mute)">' + rows.length + ' variants, strongest first</span></div>' + (S.inst ? (top ? '<div style="font-size:13px;color:var(--mute);margin-bottom:12px">The strongest instrument carries <span class="mono" style="color:var(--text)">' + (top.share * 100).toFixed(1) + '%</span> of the total weight.</div>' : '') + hdr + '<div style="max-height:440px;overflow-y:auto;display:flex;flex-direction:column;gap:2px">' + body + '</div><div style="font-size:11px;color:var(--mute);margin-top:12px">Ratio is the outcome effect divided by the exposure effect. Share of weight is the first-order inverse-variance weight. Other-trait associations of each variant are not available yet (they need reference data that is not built).</div>' : '<div style="color:var(--mute)">Loading the instruments…</div>') + '</section>' +
+    '<section style="box-sizing:border-box;padding:20px 24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><h2 style="margin:0 0 12px;font-size:16px;font-weight:600">Comparison</h2><div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;min-width:560px;width:100%"><thead><tr style="color:var(--mute);text-align:left"><th style="padding:0 12px 8px 0;font-weight:500">Set</th><th style="padding:0 12px 8px 0;font-weight:500">Variants</th><th style="padding:0 12px 8px 0;font-weight:500">IVW (95% CI)</th><th style="padding:0 12px 8px 0;font-weight:500">MR-Egger (95% CI)</th><th style="padding:0 0 8px;font-weight:500">Q P</th></tr></thead><tbody>' + cmpRows + '</tbody></table></div></section></div>' +
+    '<aside style="flex:1 1 300px;max-width:380px;display:flex;flex-direction:column;gap:16px"><div style="box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;gap:16px"><div><div style="font-size:12px;color:var(--mute);margin-bottom:6px">Chosen to leave out</div><div style="display:flex;align-items:baseline;gap:8px"><span class="mono" style="font-size:40px;font-weight:500;letter-spacing:-0.04em">' + S.sel.length + '</span><span style="color:var(--mute)">of ' + rows.length + ' variants</span></div></div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:8px"><button type="button" data-a="sel_top" style="height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-weight:550;font-size:13px">Pick the strongest</button><button type="button" data-a="sel_clear" style="height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:550;font-size:13px">Clear</button></div>' +
+    '<button type="button" class="cta" data-a="run_sens" ' + (can ? '' : 'disabled') + ' style="height:48px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;font-size:14px;opacity:' + (can ? 1 : .5) + '">' + (S.sensBusy ? 'Running…' : 'Run without these') + '</button><div style="font-size:12px;color:var(--mute)">' + (remain < 2 ? 'At least 2 instruments must remain.' : 'MR-Egger needs 3 or more remaining instruments; with fewer, only IVW is run.') + '</div></div>' +
+    '<div style="box-sizing:border-box;padding:20px;border-radius:16px;background:var(--panel2);border:1px solid var(--line);display:flex;flex-direction:column;gap:12px"><div style="font-size:12px;color:var(--mute)">Automatic outlier detectors</div>' + det + '</div>' +
+    '<div style="font-size:12px;color:var(--mute);padding:16px;border-radius:16px;background:var(--panel2);display:flex;flex-direction:column;gap:8px"><span style="color:var(--text);font-weight:550">Read before you remove anything</span><span>Removing variants that act through other pathways than the exposure (horizontal pleiotropy) can make results more reliable. Removing variants that act through the exposure pathway itself can distort the estimate. The app cannot tell which kind a variant is, so the choice is yours.</span><span>Leaving variants out after seeing the data is a sensitivity analysis. It does not replace the primary analysis, heterogeneity can reflect real biology, and removal can shift estimates. Report it as such.</span></div></aside></div>';
   return frame('study', 'results', main);
 }
 function vExport() {
@@ -325,23 +437,34 @@ function vSettings() {
   return frame('global', 'settings', main);
 }
 
+// ---- dialogs and engine-lost state ----------------------------------------------------------------------------------------
+function vDialog() {
+  const d = S.dialog; if (!d) return '';
+  const btns = (d.buttons || []).map((b) => b.primary ? '<button type="button" class="cta" data-a="' + b.a + '" data-v="' + esc(b.v || '') + '" style="height:44px;padding:0 22px;border-radius:12px;border:0;background:' + (b.danger ? 'var(--warn)' : 'var(--accent)') + ';color:var(--accentInk);font-weight:600;font-size:14px">' + b.label + '</button>' : '<button type="button" data-a="' + b.a + '" data-v="' + esc(b.v || '') + '" style="height:44px;padding:0 20px;border-radius:12px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:550;font-size:14px">' + b.label + '</button>').join('');
+  return '<div class="modal-bg" data-a="dialog_bg"><div role="alertdialog" aria-modal="true" aria-label="' + esc(d.title) + '" style="width:100%;max-width:480px;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid ' + (d.danger ? 'var(--warn)' : 'var(--line)') + ';color:var(--text);display:flex;flex-direction:column;gap:16px"><div style="font-size:20px;font-weight:600;letter-spacing:-0.02em">' + esc(d.title) + '</div><div style="color:var(--mute);white-space:pre-wrap">' + esc(d.body) + '</div>' + (d.mono ? '<div class="mono" style="font-size:12px;padding:10px 12px;border-radius:10px;background:var(--panel2);word-break:break-all">' + esc(d.mono) + '</div>' : '') + '<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:flex-end">' + btns + '</div></div></div>';
+}
+function vLost() {
+  if (!S.lost) return '';
+  return '<div class="modal-bg" style="background:rgba(0,0,0,.7);z-index:40"><div role="alertdialog" aria-modal="true" aria-label="The engine stopped" style="width:100%;max-width:500px;box-sizing:border-box;padding:32px;border-radius:20px;background:var(--panel);border:1px solid var(--warn);color:var(--text);display:flex;flex-direction:column;gap:16px"><div class="mono" style="font-size:12px;color:var(--warn)">ENGINE STOPPED</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">The analysis engine is no longer running</div><div style="color:var(--mute)">Everything that finished is already saved in your study folder, so no finished work is lost. A pair that was being calculated at that moment is not saved and will be calculated again.\n\nClose MR Studio and open it again to continue.</div><div style="display:flex;justify-content:flex-end"><button type="button" class="cta" data-a="reload" style="height:44px;padding:0 22px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;font-size:14px">Try to reconnect</button></div></div></div>';
+}
+
 // ---- render and events -------------------------------------------------------------------------------------------------
 function view() {
   switch (S.screen) {
     case 'setup': return vSetup(); case 'home': return vHome(); case 'studies': return vStudies(); case 'library': return vLibrary(); case 'settings': return vSettings();
-    case 'question': return vQuestion(); case 'data': return vData(); case 'methods': return vMethods(); case 'check': return vCheck(); case 'run': return vRun(); case 'results': return vResults(); case 'export': return vExport();
+    case 'question': return vQuestion(); case 'data': return vData(); case 'methods': return vMethods(); case 'check': return vCheck(); case 'run': return vRun(); case 'results': return vResults(); case 'outliers': return vOutliers(); case 'import': return vImport(); case 'export': return vExport();
     default: return '<div style="padding:48px;color:var(--mute)">Starting the engine…</div>';
   }
 }
 function render() {
   const c = C(), r = $root(); if (!r) return;
   r.setAttribute('style', Object.keys(c).map((k) => '--' + k + ':' + c[k] + ';').join('') + 'display:flex;flex-wrap:wrap;min-height:100vh;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.45');
-  r.innerHTML = view();
+  r.innerHTML = view() + vDialog() + vLost();
   if (focusId) { const e = document.getElementById(focusId); if (e) { e.focus(); try { e.setSelectionRange(e.value.length, e.value.length); } catch (x) { } } }
 }
 function go(screen) {
   S.screen = screen; S.notice = null; const i = STEPS.findIndex((s) => s[1] === screen); if (i > S.maxStep) S.maxStep = i;
-  if (screen === 'settings') send('settings_info'); if (screen === 'home' || screen === 'studies') send('studies');
+  if (screen === 'settings') send('settings_info'); if (screen === 'home' || screen === 'studies') send('studies'); if (screen === 'library') send('library');
   window.scrollTo(0, 0); render();
 }
 const err = (m) => { S.notice = { kind: 'err', msg: m }; render(); };
@@ -357,13 +480,28 @@ function runNext() {
   const p = S.pairs[r.i]; r.t0 = Date.now(); r.log.push('Pair ' + (r.i + 1) + ': starting ' + p.exName + ' → ' + p.outName); render();
   send('run_pair', { i: r.i, ex: p.ex, out: p.out, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built)), ci: S.params.ci_level });
 }
+function impNext() {
+  const I = S.imp;
+  if (I.step === 2) {
+    const miss = IMP_ROLES.filter((r) => r[2] && !I.mapping[r[0]] && !(r[0] === 'snp' && I.mapping.chr && I.mapping.pos)).map((r) => r[1]);
+    if (miss.length) { S.notice = { kind: 'err', msg: 'Choose a column for: ' + miss.join(', ') + '.' }; render(); return; }
+    if (I.facts.frq === 'none' && I.mapping.eaf) I.facts.frq = 'eaf';
+    if (!I.facts.name) I.facts.name = I.head.name.replace(/\.(gz|tsv|csv|txt)+$/ig, '').replace(/\.(gz|tsv|csv|txt)+$/ig, '');
+    S.notice = null; I.step = 3; render();
+  } else if (I.step === 3) {
+    if (!I.facts.name.trim()) { S.notice = { kind: 'err', msg: 'Give the trait a name.' }; render(); return; }
+    if (I.facts.n && !(Number(I.facts.n) > 0)) { S.notice = { kind: 'err', msg: 'Sample size must be a positive number, or empty.' }; render(); return; }
+    if (I.facts.ea_ok === 'swap') { const a = I.mapping.ea; I.mapping.ea = I.mapping.oa; I.mapping.oa = a; I.facts.ea_ok = 'yes'; }
+    S.notice = null; I.step = 4; I.report = null; render(); send('import_check', { mapping: I.mapping, facts: I.facts });
+  }
+}
 function onClick(e) {
   const t = e.target.closest('[data-a]'); if (!t || t.disabled) return;
   const a = t.getAttribute('data-a'), v = t.getAttribute('data-v');
   switch (a) {
     case 'theme': S.theme = v; send('set', { key: 'theme', value: v }); render(); break;
     case 'nav': if (v === 'home' || v === 'studies' || v === 'library' || v === 'settings') go(v); else if (STEPS.findIndex((s) => s[1] === v) <= S.maxStep) { if (v === 'run' && (!S.run)) break; go(v); } break;
-    case 'new': S.study = null; S.name = ''; S.aim = ''; S.ex = []; S.out = []; S.pairs = []; S.run = null; S.payloads = {}; S.maxStep = 0; S.facts = null; S.err = null; go('question'); break;
+    case 'new': S.study = null; S.name = ''; S.aim = ''; S.ex = []; S.out = []; S.pairs = []; S.run = null; S.payloads = {}; S.sens = []; S.maxStep = 0; S.facts = null; S.err = null; go('question'); break;
     case 'open': send('study_open', { name: v, to: 'auto' }); break;
     case 'open_results': send('study_open', { name: v, to: 'results' }); break;
     case 'dismiss': S.notice = null; render(); break;
@@ -385,10 +523,36 @@ function onClick(e) {
     case 'm_next': S.maxStep = Math.max(S.maxStep, 3); go('check'); break;
     case 'c_next': startRun(); break;
     case 'run_toggle': S.run.paused = !S.run.paused; if (!S.run.paused) runNext(); else render(); break;
-    case 'run_stop': S.run.i = S.run.total; S.run.stopped = true; if (!S.run.busy) { S.run.state = 'done'; } render(); break;
+    case 'run_stop': S.dialog = { title: 'Stop the analysis?', body: 'Pairs that are already saved stay saved. The pair being calculated right now finishes first. The remaining pairs are not run, and you can run them later from the Data step.', danger: true, buttons: [{ label: 'Keep running', a: 'dialog_close' }, { label: 'Stop and keep results', a: 'run_stop_yes', primary: true, danger: true }] }; render(); break;
+    case 'run_stop_yes': S.dialog = null; S.run.stopped = true; S.run.i = S.run.total; if (S.run.results.length >= S.pairs.length || S.run.paused) S.run.state = 'done'; render(); break;
+    case 'dialog_close': S.dialog = null; render(); break;
+    case 'dialog_bg': if (e.target === t) { S.dialog = null; render(); } break;
+    case 'reload': location.reload(); break;
+    case 'open_rstudio': send('open_rstudio', { folder: v }); break;
+    case 'open_script': S.dialog = null; send('open_script', { folder: v }); render(); break;
+    case 'compare': S.cmp = null; send('compare_default', { folder: v }); break;
+    case 'compare_close': S.cmp = null; render(); break;
     case 'to_results': S.rp = 0; go('results'); break;
     case 'rpair': S.rp = Number(v); render(); break;
     case 'to_export': go('export'); break;
+    case 'imp_new': S.imp = impNew(); go('import'); break;
+    case 'imp_choose': { const f = document.getElementById('impfile'); if (f) { f.value = ''; f.click(); } break; }
+    case 'imp_done': S.imp = null; go('library'); send('library'); break;
+    case 'imp_back': S.imp.step = Math.max(1, S.imp.step - 1); S.imp.report = null; render(); break;
+    case 'imp_fact': { const k = t.getAttribute('data-k'); if (k === 'ukb') S.imp.facts.ukb = v === 'yes'; else S.imp.facts[k] = v; render(); break; }
+    case 'imp_apply_tmpl': { const tm = S.imp.tmpl; S.imp.mapping = Object.assign({}, tm.mapping); Object.keys(S.imp.conf).forEach((k) => { S.imp.conf[k] = S.imp.mapping[k] ? 'high' : undefined; S.imp.why[k] = 'From your template'; }); S.imp.facts = Object.assign({}, S.imp.facts, tm.facts, { name: S.imp.facts.name }); render(); break; }
+    case 'imp_next': impNext(); break;
+    case 'imp_tmpl_toggle': S.imp.saveTmpl = !S.imp.saveTmpl; render(); break;
+    case 'imp_save': { const I = S.imp; I.saving = true; render(); const m = Object.assign({}, I.mapping), f = Object.assign({}, I.facts); send('import_save', { mapping: m, facts: f, template: I.saveTmpl ? I.tmplName : '' }); break; }
+    case 'library_folder': send('library_folder'); break;
+    case 'tmpl_delete': S.dialog = { title: 'Remove this template?', body: 'The template "' + v + '" is deleted. Datasets you imported with it are not affected.', danger: true, buttons: [{ label: 'Keep it', a: 'dialog_close' }, { label: 'Remove', a: 'tmpl_delete_yes', v: v, primary: true, danger: true }] }; render(); break;
+    case 'tmpl_delete_yes': S.dialog = null; send('template_delete', { name: v }); render(); break;
+    case 'to_outliers': { const p = curPair(); S.inst = null; S.sel = []; go('outliers'); send('instruments', { folder: p.folder, ex: p.ex, out: p.out }); break; }
+    case 'back_results': go('results'); break;
+    case 'sel_var': S.sel = S.sel.indexOf(v) >= 0 ? S.sel.filter((x) => x !== v) : S.sel.concat([v]); render(); break;
+    case 'sel_top': if (S.inst && S.inst.length) { const t0 = S.inst.slice().sort((a, b) => b.share - a.share)[0]; S.sel = [t0.id]; render(); } break;
+    case 'sel_clear': S.sel = []; render(); break;
+    case 'run_sens': { const p = curPair(); S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, remove: S.sel, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built)), ci: S.params.ci_level }); break; }
     case 'xpick': S.xsel = S.xsel.indexOf(v) >= 0 ? S.xsel.filter((x) => x !== v) : S.xsel.concat([v]); render(); break;
     case 'size': S.size = v; render(); break;
     case 'pub': S.pub = S.pub === v ? null : v; render(); break;
@@ -402,23 +566,25 @@ function onClick(e) {
 }
 function onInput(e) {
   const t = e.target;
+  if (t.id === 'f_name') S.imp.facts.name = t.value; else if (t.id === 'f_n') S.imp.facts.n = t.value; else if (t.id === 'f_tmpl') S.imp.tmplName = t.value;
+
   if (t.id === 'nm') S.name = t.value; else if (t.id === 'aim') S.aim = t.value;
   else if (t.id === 'q') { S.q = t.value; focusId = 'q'; render(); focusId = null; }
   else if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = (S.schemas[S.custom] || {})[k], val = parseFloat(t.value); if (sch && isFinite(val) && val >= sch.min && val <= sch.max) { S.params[k] = val; } }
 }
-function onChange(e) { const t = e.target; if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = (S.schemas[S.custom] || {})[k], val = parseFloat(t.value); if (sch && !(isFinite(val) && val >= sch.min && val <= sch.max)) { S.notice = { kind: 'err', msg: sch.label + ' must be between ' + sch.min + ' and ' + sch.max + '. The previous value was kept.' }; } render(); } }
+function onChange(e) { const t = e.target; if (t.getAttribute && t.getAttribute('data-map')) { const r = t.getAttribute('data-map'); S.imp.mapping[r] = t.value; S.imp.conf[r] = undefined; render(); return; } if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = (S.schemas[S.custom] || {})[k], val = parseFloat(t.value); if (sch && !(isFinite(val) && val >= sch.min && val <= sch.max)) { S.notice = { kind: 'err', msg: sch.label + ' must be between ' + sch.min + ' and ' + sch.max + '. The previous value was kept.' }; } render(); } }
 function applyStudy(m) {
   S.study = { name: m.name, dir: m.dir }; S.root = m.root || S.root;
   const plan = m.plan || {}; S.name = m.name; S.aim = plan.aim || ''; S.prereg = !!plan.prereg; S.kind = plan.kind || 'basic';
   const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder }));
   S.ex = Array.from(new Set(S.pairs.map((p) => p.ex))); S.out = Array.from(new Set(S.pairs.map((p) => p.out)));
   if (pairs.length && pairs[0].methods) S.methods = pairs[0].methods; if (pairs.length && pairs[0].ci) S.params.ci_level = pairs[0].ci;
-  S.payloads = m.payloads || {}; S.facts = null; S.run = null;
+  S.payloads = m.payloads || {}; S.sens = m.sens || []; S.inst = null; S.sel = []; S.facts = null; S.run = null;
   S.maxStep = pairs.length ? (Object.keys(S.payloads).length ? 5 : 1) : 0;
 }
 function handle(m) {
   switch (m.t) {
-    case 'init': S.settings = m.settings; S.theme = m.settings.theme; S.studies = m.studies; S.cat = m.catalogue; S.schemas = m.schemas; S.root = m.root; S.diag = m.diag; go(m.settings.setup_done ? 'home' : 'setup'); break;
+    case 'init': S.lib = m.library || []; S.tmpls = m.templates || []; S.settings = m.settings; S.theme = m.settings.theme; S.studies = m.studies; S.cat = m.catalogue; S.schemas = m.schemas; S.root = m.root; S.diag = m.diag; go(m.settings.setup_done ? 'home' : 'setup'); break;
     case 'studies': S.studies = m.studies; S.root = m.root || S.root; if (S.screen === 'home' || S.screen === 'studies') render(); break;
     case 'study_created': applyStudy(m); S.studies = m.studies || S.studies; go('data'); break;
     case 'study_opened': applyStudy(m); if (m.to === 'results' || (m.to === 'auto' && Object.keys(S.payloads).length)) { S.rp = 0; go('results'); } else if (m.to === 'auto' && S.pairs.length) go('data'); else go(S.pairs.length ? 'data' : 'question'); break;
@@ -426,7 +592,18 @@ function handle(m) {
     case 'pair_done': { const r = S.run; if (!r) break; const p = S.pairs[m.i]; r.times.push((Date.now() - r.t0) / 1000); r.results[m.i] = { ok: m.ok };
       if (m.ok) { p.folder = m.folder; S.payloads[m.folder] = m.payload; r.log.push('Pair ' + (m.i + 1) + ': ' + (m.reused ? 'nothing changed, saved results reused' : 'done') + (m.payload.replay ? ', replay ' + m.payload.replay.status : '')); } else { r.failed++; r.log.push('Pair ' + (m.i + 1) + ' failed: ' + String(m.msg).replace(/\s+/g, ' ').slice(0, 220)); }
       r.done = r.results.filter((x) => x && x.ok).length; r.i = r.stopped ? r.total : m.i + 1; if (r.stopped) r.state = 'done'; S.maxStep = Math.max(S.maxStep, 5); runNext(); break; }
-    case 'error': err(m.msg); break;
+    case 'rstudio': if (!m.opened) { S.dialog = { title: 'RStudio was not found', body: 'MR Studio looked in the usual places and did not find RStudio. The script is a normal R file, so you can open it in any editor. If you edit it and run it again yourself, the new results are your own and are not part of this study\'s saved results. Marking edited runs as user-modified is planned.', mono: m.script, buttons: [{ label: 'Close', a: 'dialog_close' }, { label: 'Open the script with another app', a: 'open_script', v: (curPair() || {}).folder, primary: true }] }; render(); } break;
+    case 'compare': S.cmp = m; render(); break;
+    case 'instruments': if (curPair() && m.folder === curPair().folder) { S.inst = m.rows; if (S.screen === 'outliers') render(); } break;
+    case 'sens_done': S.sensBusy = false; if (m.ok) { S.sens = S.sens.filter((x) => !(x.parent === m.rec.parent && JSON.stringify(x.remove) === JSON.stringify(m.rec.remove))).concat([m.rec]); S.payloads[m.rec.folder] = m.payload; S.notice = { kind: 'ok', msg: 'Done. The sensitivity analysis is saved in its own folder, with its scripts and replay check. The comparison below includes it.' }; } else { S.notice = { kind: 'err', msg: m.msg }; } render(); break;
+    case 'library': S.lib = m.items || []; S.tmpls = m.templates || []; if (S.screen === 'library') render(); break;
+    case 'import_head': { if (!S.imp) S.imp = impNew(); const I = S.imp; I.busy = false; I.head = { name: m.name, size: m.size, sep: m.sep, columns: m.columns, rows: m.rows }; I.mapping = {}; I.conf = {}; I.why = {};
+      Object.keys(m.suggest || {}).forEach((k) => { I.mapping[k] = m.suggest[k].column; I.conf[k] = m.suggest[k].confidence; I.why[k] = m.suggest[k].why; });
+      I.facts.frq = I.mapping.eaf ? 'eaf' : 'none'; I.tmpl = m.template || null; S.notice = null; I.step = 2; render(); break; }
+    case 'import_error': if (S.imp) S.imp.busy = false; S.notice = { kind: 'err', msg: m.msg }; render(); break;
+    case 'import_report': if (S.imp) { S.imp.report = { ok: m.ok, errors: [].concat(m.errors || []), warnings: [].concat(m.warnings || []), stats: m.stats || {} }; render(); } break;
+    case 'import_saved': if (S.imp) { S.imp.saving = false; S.imp.saved = { rec: m.rec, template: m.template }; } S.lib = m.items || []; S.tmpls = m.templates || []; render(); break;
+    case 'error': S.sensBusy = false; if (S.imp) S.imp.saving = false; err(m.msg); break;
     case 'name_error': S.err = m.msg; render(); break;
     case 'settings_info': S.info = m.info; if (S.screen === 'settings') render(); break;
     case 'diagnostics': S.diagRun = m.items; if (S.screen === 'settings') render(); break;
@@ -436,8 +613,10 @@ function handle(m) {
 }
 document.addEventListener('DOMContentLoaded', function () {
   const r = $root(); r.addEventListener('click', onClick); r.addEventListener('input', onInput); r.addEventListener('change', onChange);
+  document.addEventListener('change', function (e) { if (e.target && e.target.id === 'impfile' && S.imp) { S.imp.busy = true; S.notice = null; render(); } });
   jQuery(document).on('shiny:connected', function () { send('init'); });
   Shiny.addCustomMessageHandler('ev', handle);
+  jQuery(document).on('shiny:disconnected', function () { S.lost = true; render(); });
   render();
 });
 window.__MRS = { S: S, go: go, render: render };

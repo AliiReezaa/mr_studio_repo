@@ -167,7 +167,7 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
   if (!nzchar(exposure_label) || !nzchar(outcome_label)) stop("Give the exposure and the outcome a name.")
   ad <- list(ivw_mre = ADAPTER_IVW_MRE_V11, egger = ADAPTER_EGGER_V11)
   spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = input,
-                                           params = if (m == "ivw_mre") list(ci_level = ci_level) else list()))
+                                           params = list(ci_level = ci_level)))
   if (is.null(idx)) idx <- studio_pair_index(h$dir, exposure_label, outcome_label)
   r <- run_script_task(h$con, h$dir, idx, exposure_label, outcome_label, spec)
   r$pair_folder <- basename(r$pair_dir)
@@ -284,7 +284,7 @@ pair_payload <- function(study, pair_folder) {
     if (!is.null(g)) dg[[m]] <- lapply(seq_len(nrow(g)), function(i) c(list(method = m), as.list(g[i, , drop = FALSE])))
   }
   v <- rd(Sys.glob(file.path(pd, "01_data", "analysis_data_*.csv"))[1])
-  vars <- if (!is.null(v)) lapply(seq_len(nrow(v)), function(i) list(bx = v$beta_x[i], by = v$beta_y[i], sx = v$se_x[i], sy = v$se_y[i], keep = isTRUE(as.logical(v$mr_keep[i])))) else list()
+  vars <- if (!is.null(v)) lapply(seq_len(nrow(v)), function(i) list(id = v$variant_id[i], bx = v$beta_x[i], by = v$beta_y[i], sx = v$se_x[i], sy = v$se_y[i], keep = isTRUE(as.logical(v$mr_keep[i])))) else list()
   list(folder = pair_folder, estimates = unname(unlist(est, recursive = FALSE)), diagnostics = unname(unlist(dg, recursive = FALSE)), variants = vars,
        replay = pair_replay(study, pair_folder))
 }
@@ -304,4 +304,63 @@ run_diagnostics <- function(root = studies_root()) {
     chk("Studies folder is writable", { dir.create(root, recursive = TRUE, showWarnings = FALSE); f <- tempfile(".mrstudio-check-", root); ok <- tryCatch({ writeLines("x", f); TRUE }, error = function(e) FALSE, warning = function(w) FALSE); unlink(f); list(ok = ok, detail = root) }),
     chk("Studies folder is not synchronised", { p <- study_path_problem(root); list(ok = is.null(p), detail = if (is.null(p)) "local folder" else p) })
   )
+}
+
+# ---- Open in RStudio (FR-86) and Compare with default (FR-66) ------------------------------------------------------------
+#' Where RStudio is installed, or NA. Checked in the usual places only.
+rstudio_path <- function() {
+  sys <- Sys.info()[["sysname"]]
+  cand <- if (sys == "Darwin") c("/Applications/RStudio.app", "/Applications/Posit/RStudio.app", file.path(Sys.getenv("HOME"), "Applications", "RStudio.app"))
+          else if (sys == "Windows") c(file.path(Sys.getenv("ProgramFiles"), "RStudio", "rstudio.exe"), file.path(Sys.getenv("ProgramFiles"), "Posit", "RStudio", "rstudio.exe"), file.path(Sys.getenv("LOCALAPPDATA"), "Programs", "RStudio", "rstudio.exe"))
+          else unname(Sys.which("rstudio"))
+  hit <- cand[nzchar(cand) & file.exists(cand)]
+  if (length(hit)) hit[[1]] else NA_character_
+}
+
+#' Open the main script of a pair in RStudio. The script is opened as it is; nothing is copied or changed.
+open_in_rstudio <- function(study, pair_folder, root = studies_root()) {
+  script <- file.path(study, "03_pairs", pair_folder, "02_scripts", "00_run_all.R")
+  if (!file.exists(script)) stop("This pair has no script yet. Run the analysis first.")
+  p <- normalizePath(script, winslash = "/", mustWork = TRUE); r <- normalizePath(root, winslash = "/", mustWork = FALSE)
+  if (!startsWith(p, paste0(r, "/"))) stop("Only scripts inside the studies folder can be opened from here.")
+  rs <- rstudio_path()
+  if (is.na(rs)) return(list(opened = FALSE, script = p))
+  if (Sys.info()[["sysname"]] == "Darwin") system2("open", c("-a", shQuote(rs), shQuote(p)), wait = FALSE)
+  else system2(rs, shQuote(p), wait = FALSE)
+  list(opened = TRUE, script = p)
+}
+
+#' The interval a result would have had at the default level (95%), recomputed from the saved estimate and standard error with the
+#' same interval rule the method used. Only used for the Compare with default panel; the saved results are never changed.
+ci_default_rows <- function(estimates, level = 0.95) {
+  out <- list()
+  for (e in estimates) {
+    if (!identical(e$estimand, "causal_effect") || is.na(e$se)) next
+    q <- if (identical(e$ci_method, "wald_t")) stats::qt(1 - (1 - level) / 2, df = max(1, e$n_ivs_used - 2)) else stats::qnorm(1 - (1 - level) / 2)
+    out[[length(out) + 1L]] <- list(method = e$method, lo = e$estimate - q * e$se, hi = e$estimate + q * e$se, level = level)
+  }
+  out
+}
+
+#' Descriptive table of the instruments of a pair for the outlier review. Nothing here is an estimator: the single-variant ratio is
+#' beta_y / beta_x, the weight share is the first-order inverse-variance weight (beta_x^2 / se_y^2) as a share of the total, and F is
+#' (beta_x / se_x)^2. Detection of outliers is left to the packages named in the spec (not built yet).
+instrument_table <- function(exp_id, out_id) {
+  d <- demo_input(exp_id, out_id)$input$data; d <- d[d$mr_keep, ]
+  w <- d$beta_x^2 / d$se_y^2
+  data.frame(id = d$variant_id, bx = d$beta_x, by = d$beta_y, ratio = d$beta_y / d$beta_x, share = w / sum(w), f = (d$beta_x / d$se_x)^2, stringsAsFactors = FALSE)
+}
+
+#' Sensitivity branch: the same pair analysed again without the chosen variants, as its own pair folder (the primary results stay as they are).
+studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx) {
+  inp <- demo_input(exp_id, out_id)
+  d <- inp$input$data; hit <- d$variant_id %in% remove
+  if (!all(remove %in% d$variant_id)) stop("Some of the chosen variants are not instruments of this pair.")
+  d$mr_keep[hit] <- FALSE; inp$input$data <- d
+  kept <- sum(d$mr_keep)
+  if (kept < 2L) stop("At least 2 instruments must remain.")
+  if (kept < 3L) methods <- setdiff(methods, "egger")
+  lab <- sprintf("%s [without %d]", inp$exposure_label, length(remove))
+  r <- studio_run(h, lab, inp$outcome_label, inp$input, methods, ci_level, idx = idx)
+  r$kept <- kept; r$label <- lab; r
 }

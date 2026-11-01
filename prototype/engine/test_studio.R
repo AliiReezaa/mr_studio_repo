@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -77,6 +77,63 @@ dg <- run_diagnostics(root); expect("diagnostics: every item has a name, ok and 
 expect("diagnostics: the studies folder is writable", dg[[4]]$ok)
 expect("folder size is counted", folder_size_bytes(hh$dir) > 1000)
 DBI::dbDisconnect(hh$con)
+
+# ---- instrument review, sensitivity branch, RStudio lookup, compare with default --------------------------------------------
+it <- instrument_table("expA", "outA")
+expect("instrument table: 40 rows, weight shares add up to 1, ratio is beta_y / beta_x", nrow(it) == 40L && abs(sum(it$share) - 1) < 1e-9 && all.equal(it$ratio, it$by / it$bx))
+h3 <- studio_new("Sensitivity study"); base <- studio_run(h3, "Simulated exposure A", "Simulated outcome A", demo_input("expA", "outA")$input, idx = 1L)
+top <- it$id[which.max(it$share)]
+sens <- studio_run_without(h3, "expA", "outA", top, idx = 2L)
+pb <- pair_payload(h3$dir, base$pair_folder); ps <- pair_payload(h3$dir, sens$pair_folder)
+expect("sensitivity branch: own folder, one variant fewer, primary results untouched", grepl("^P02_", sens$pair_folder) && sens$kept == 39L &&
+         pb$estimates[[1]]$n_ivs_used == 40L && ps$estimates[[1]]$n_ivs_used == 39L && identical(ps$replay$status, "identical"))
+expect("sensitivity branch with an unknown variant is refused", grepl("not instruments", err_of(studio_run_without(h3, "expA", "outA", "rs0", idx = 3L))))
+expect("sensitivity branch must leave at least 2 instruments", grepl("At least 2", err_of(studio_run_without(h3, "expA", "outA", it$id[1:39], idx = 3L))))
+cd <- ci_default_rows(pb$estimates)
+expect("compare with default: the 95% interval recomputed from the saved result equals the saved 95% interval", abs(cd[[1]]$lo - pb$estimates[[1]]$ci_lower) < 1e-9 && abs(cd[[1]]$hi - pb$estimates[[1]]$ci_upper) < 1e-9)
+expect("compare with default: Egger uses the t quantile", abs(cd[[2]]$lo - pb$estimates[[2]]$ci_lower) < 1e-9)
+h4 <- studio_new("Egger level"); r90 <- studio_run(h4, "A", "B", demo_input("expA", "outA")$input, ci_level = 0.9, idx = 1L); p90 <- pair_payload(h4$dir, r90$pair_folder)
+expect("a changed confidence level reaches both methods", all(vapply(Filter(function(e) e$estimand == "causal_effect", p90$estimates), function(e) abs(e$ci_level - 0.9) < 1e-12, TRUE)))
+DBI::dbDisconnect(h4$con)
+expect("RStudio lookup returns a path or NA", is.character(rstudio_path()) && length(rstudio_path()) == 1L)
+expect("open in RStudio refuses a pair without scripts", grepl("no script", err_of(open_in_rstudio(h3$dir, "P99_none"))))
+expect("customise panel schema comes from the adapters", identical(names(param_schemas()$ivw_mre$ci_level), c("label", "hint", "min", "max", "default", "type")) && identical(names(param_schemas()$egger), "ci_level"))
+DBI::dbDisconnect(h3$con)
+
+# ---- data import ----------------------------------------------------------------------------------------------------------------
+set.seed(1); ni <- 3000
+g <- data.frame(MarkerName = paste0("rs", 100000 + seq_len(ni)), Chromosome = 1, BP_pos = 1e6 + seq_len(ni) * 100, Tested_Allele = sample(c("A", "C"), ni, TRUE), Other_Allele = sample(c("G", "T"), ni, TRUE),
+                Frq = runif(ni, .05, .95), Effect = rnorm(ni, 0, .05), StdErr = runif(ni, .01, .03), `P-value` = runif(ni), Neff = 1e5, check.names = FALSE)
+fi <- tempfile(fileext = ".tsv"); utils::write.table(g, fi, sep = "\t", quote = FALSE, row.names = FALSE)
+hd <- import_read_head(fi, "bolt.tsv"); sg <- import_suggest(hd$columns, hd$rows); mp <- lapply(sg, `[[`, "column")
+expect("import: headings in another spelling and order are all recognised", all(c("snp", "chr", "pos", "ea", "oa", "eaf", "beta", "se", "p", "n") %in% names(mp)) && identical(mp$p, "P-value") && identical(mp$beta, "Effect"))
+g2 <- g; names(g2)[names(g2) == "StdErr"] <- "Stderrr"; fz <- tempfile(fileext = ".csv"); utils::write.csv(g2[, c(5:1, 6:10)], fz, row.names = FALSE)
+h2i <- import_read_head(fz); s2 <- import_suggest(h2i$columns, h2i$rows)
+expect("import: a misspelled heading gets a medium-confidence suggestion, and column order does not matter", identical(s2$se$column, "Stderrr") && identical(s2$se$confidence, "medium") && identical(s2$snp$column, "MarkerName"))
+expect("import: the separator is detected (tab and comma)", identical(hd$sep, "\t") && identical(h2i$sep, ","))
+fl <- list(frq = "eaf", scope = "selected", scale = "beta", n = "")
+v <- import_validate(fi, hd$sep, hd$columns, mp, fl)
+expect("import: a clean file passes with its counts", v$ok && v$stats$rows == ni && v$stats$kept == ni)
+mpx <- mp; mpx$se <- NULL; vx <- import_validate(fi, hd$sep, hd$columns, mpx, fl)
+expect("import: a missing required column blocks the import and names it", !vx$ok && any(grepl("Standard error", vx$errors)))
+fm <- tempfile(fileext = ".tsv"); gm <- g; gm$Frq <- pmin(gm$Frq, 0.5); utils::write.table(gm, fm, sep = "\t", quote = FALSE, row.names = FALSE)
+vm <- import_validate(fm, hd$sep, hd$columns, mp, list(frq = "eaf", scope = "selected", scale = "beta", n = ""))
+expect("import: frequencies that look like MAF are flagged when the user says they are effect allele frequencies", any(grepl("minor allele frequency", vm$warnings)))
+expect("import: z-scores are refused for now", !import_validate(fi, hd$sep, hd$columns, mp, list(frq = "eaf", scope = "selected", scale = "z", n = ""))$ok)
+fx_ <- tempfile(fileext = ".txt"); utils::write.table(data.frame(FID = 1, IID = 2, PHENO = 1, rs1 = 0, rs2 = 1), fx_, quote = FALSE, row.names = FALSE)
+expect("import: individual-level data is refused before anything is read", grepl("individual-level", err_of(import_read_head(fx_))))
+expect("import: VCF and zip files are refused with a clear message", grepl("not supported yet", err_of(import_read_head(fi, "x.vcf.gz"))))
+rec <- import_save(fi, "bolt.tsv", hd$sep, hd$columns, mp, list(name = "Import test", role = "exposure", frq = "eaf", scale = "beta", scope = "selected", n = ""))
+sd <- file.path(library_dir(), "Import test")
+expect("import: standard copy and recipe are saved, with the checksum of the original", file.exists(file.path(sd, "standardised.csv")) && identical(rec$original$sha256, sha256_file(fi)) && identical(rec$usable_in_runs, FALSE))
+expect("import: the original file is unchanged", identical(sha256_file(fi), rec$original$sha256))
+expect("import: saving the same name twice is refused", grepl("already exists", err_of(import_save(fi, "bolt.tsv", hd$sep, hd$columns, mp, list(name = "Import test", frq = "eaf", scale = "beta", scope = "selected", n = "")))))
+expect("import: the library lists the dataset", length(library_list()) == 1L && identical(library_list()[[1]]$trait, "Import test"))
+std <- utils::read.csv(file.path(sd, "standardised.csv")); expect("import: the standard copy has the standard columns", all(c("snp", "ea", "oa", "beta", "se") %in% names(std)) && nrow(std) == ni)
+template_save("Lab layout", hd$fingerprint, mp, list(role = "exposure"))
+expect("template: the same headings propose the template, a different layout does not", identical(template_match(hd$fingerprint)$name, "Lab layout") && is.null(template_match(c("a", "b", "c"))))
+expect("template: a near-identical set of headings still matches", !is.null(template_match(c(hd$fingerprint[-1], "extra"))) == (length(hd$fingerprint) / (length(hd$fingerprint) + 1) >= 0.8))
+template_delete("Lab layout"); expect("template: deleting removes it", length(template_list()) == 0L)
 
 # ---- the page and the Shiny server ---------------------------------------------------------------------------------------
 html <- as.character(mr_ui_for(args_dir)(NULL))
