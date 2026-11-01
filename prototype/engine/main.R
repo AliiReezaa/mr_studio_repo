@@ -29,8 +29,12 @@ watch_parent <- function() {
   later::later(watch_parent, 2)
 }
 
-ui <- shiny::fluidPage(shiny::tags$h3("MR GUI engine prototype"), shiny::textOutput("hello"))
-server <- function(input, output, session) output$hello <- shiny::renderText("connected")
+# The screen (see studio_core.R and app.R). Contracts v1.1 code is loaded once at start-up.
+source(file.path(args_dir, "studio_core.R"))
+load_contracts(find_contracts_dir(args_dir))
+source(file.path(args_dir, "app.R"))
+ui <- mr_ui
+server <- mr_server(args_dir)
 
 app <- shiny::shinyApp(ui, server, onStart = function() {
   later::later(watch_parent, 2)

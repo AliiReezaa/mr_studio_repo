@@ -250,6 +250,10 @@ jobs:
           cp -R "$CTDIR"/run11-*/P01_pair/. "$GITHUB_WORKSPACE/results-${{ matrix.id }}/script-pair/" || true
           exit $RC
 
+      - name: Screen logic and server tests (study, pair, run, results)
+        run: |
+          "$RBIN" --no-echo --no-restore --vanilla --file=prototype/engine/test_studio.R
+
       - name: Collect installer sizes
         if: always()
         run: |
