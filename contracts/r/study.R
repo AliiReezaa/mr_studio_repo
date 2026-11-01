@@ -51,7 +51,7 @@ study_create <- function(study_dir) {
 }
 
 pair_folder_name <- function(index, exposure_label, outcome_label) {
-  sprintf("P%02d_%s__to__%s", as.integer(index), slugify(exposure_label, 18L), slugify(outcome_label, 18L))
+  sprintf("P%02d_%s__to__%s", as.integer(index), slugify(exposure_label, 30L), slugify(outcome_label, 30L))
 }
 
 # ---- atomic writes and the manifest (C9, FR-56) --------------------------------

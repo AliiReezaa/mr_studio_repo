@@ -69,7 +69,7 @@ ov <- studies_overview(); expect("overview: a study without results is a DRAFT",
 # two different traits whose labels slug to the same folder name must not share a pair folder
 ra <- studio_run(hh, "Simulated exposure A", "Simulated outcome A", demo_input("expA", "outA")$input, idx = 1L)
 rb <- studio_run(hh, "Simulated exposure B", "Simulated outcome A", demo_input("expB", "outA")$input, idx = 2L)
-expect("two traits with the same 18-character slug get separate pair folders", !identical(ra$pair_folder, rb$pair_folder) && grepl("^P01_", ra$pair_folder) && grepl("^P02_", rb$pair_folder))
+expect("two traits with the same 30-character slug get separate pair folders", !identical(ra$pair_folder, rb$pair_folder) && grepl("^P01_", ra$pair_folder) && grepl("^P02_", rb$pair_folder))
 pl <- pair_payload(hh$dir, ra$pair_folder)
 expect("payload: estimates and diagnostics are arrays, variants and replay present", is.null(names(pl$estimates)) && is.null(names(pl$diagnostics)) && length(pl$variants) == 40L && identical(pl$replay$status, "identical"))
 ov <- studies_overview(); expect("overview: a study with results is COMPLETE", ov[[which(vapply(ov, function(x) x$name, "") == "Overview study")]]$status == "COMPLETE")

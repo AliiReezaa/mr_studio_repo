@@ -114,7 +114,7 @@ mr_server <- function(engine_dir) {
           req(rv$h)
           inp <- demo_input(a$ex, a$out)
           meths <- unlist(a$methods); ci <- as.numeric(a$ci %||% 0.95)
-          # The contract slugs labels to 18 characters, so two different traits can share a folder name. The pair number keeps them apart.
+          # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
           old <- Filter(function(p) identical(p$ex, a$ex) && identical(p$out, a$out), ui_state_get(rv$h$con, "pairs") %||% list())
           idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
           r <- tryCatch(studio_run(rv$h, inp$exposure_label, inp$outcome_label, inp$input, meths, ci, idx = idx), error = function(e) e)
