@@ -142,6 +142,11 @@ jobs:
             -o -path '*/share/man' -o -path '*/R/doc' -o -path "$RT/include" -o -path "$RT/man" \) \
             -type d -prune -exec rm -rf {} + 2>/dev/null || true
           find $RT -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+          # Trimming can leave shortcuts (symbolic links) that point at deleted files, for example
+          # lib/clang/*/include/omp.h -> include/omp.h. The installer builder stops on those, so remove them.
+          # (find -L lists only broken links when combined with -type l; works with GNU and BSD find.)
+          echo "== broken links removed: $(find -L $RT -type l 2>/dev/null | wc -l)" | tee -a "size-breakdown-${{ matrix.id }}.txt"
+          find -L $RT -type l -exec rm -f {} + 2>/dev/null || true
           echo "== runtime after trimming: $(du -sm $RT | cut -f1) MB" | tee -a "size-breakdown-${{ matrix.id }}.txt"
           cat "size-breakdown-${{ matrix.id }}.txt" | head -30
 
