@@ -55,6 +55,7 @@ const S = { screen: 'boot', theme: 'aurora', settings: {}, studies: [], cat: { e
   params: { ci_level: 0.95 }, custom: null, facts: null, pairs: [], run: null, payloads: {}, rp: 0, size: 'Double column', pub: null, xsel: ['scripts'],
   info: null, diag: null, editFolder: false, folderErr: null, root: '', dialog: null, lost: false, cmp: null, inst: null, sel: [], sens: [], sensBusy: false, lib: [], tmpls: [], imp: null, sq: '', sf: 'all' };
 let focusId = null;
+let modalOpen = false, lastTrig = null;
 const $root = () => document.getElementById('root');
 const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const send = (t, p) => { Shiny.setInputValue('act', Object.assign({ t: t, nonce: Math.random() }, p || {}), { priority: 'event' }); };
@@ -76,7 +77,7 @@ function swatches() {
 }
 function sidebar(mode, active) {
   let nav = '', top = '';
-  const item = (label, d, a, v, on, done, numtxt, dis) => '<button type="button" class="nav" data-a="' + a + '" data-v="' + v + '" ' + (dis ? 'disabled' : '') + ' style="display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border:0;border-radius:10px;font-size:14px;font-weight:' + (on ? 600 : 500) + ';color:' + (on || done ? 'var(--text)' : 'var(--mute)') + ';background:' + (on ? 'var(--panel2)' : 'transparent') + ';opacity:' + (dis ? .5 : 1) + '">' + svg(d) + '<span style="flex-grow:1;text-align:left">' + label + '</span>' + (numtxt ? '<span class="mono" style="font-size:11px;color:var(--mute)">' + numtxt + '</span>' : '') + '</button>';
+  const item = (label, d, a, v, on, done, numtxt, dis) => '<button type="button" class="nav" data-a="' + a + '" data-v="' + v + '" ' + (dis ? 'disabled' : '') + ' ' + (on ? 'aria-current="page" ' : '') + 'style="display:flex;align-items:center;gap:12px;height:40px;padding:0 12px;border:0;border-radius:10px;font-size:14px;font-weight:' + (on ? 600 : 500) + ';color:' + (on || done ? 'var(--text)' : 'var(--mute)') + ';background:' + (on ? 'var(--panel2)' : 'transparent') + ';opacity:' + (dis ? .5 : 1) + '">' + svg(d) + '<span style="flex-grow:1;text-align:left">' + label + '</span>' + (numtxt ? '<span class="mono" style="font-size:11px;color:var(--mute)">' + numtxt + '</span>' : '') + '</button>';
   if (mode === 'study') {
     const ai = STEPS.findIndex((s) => s[1] === active);
     nav = STEPS.map((s, i) => item(s[0], IC[s[1]], 'nav', s[1], i === ai, i < ai, '0' + (i + 1), i > S.maxStep)).join('');
@@ -470,6 +471,9 @@ function render() {
   const c = C(), r = $root(); if (!r) return;
   r.setAttribute('style', Object.keys(c).map((k) => '--' + k + ':' + c[k] + ';').join('') + 'display:flex;flex-wrap:wrap;min-height:100vh;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.45');
   r.innerHTML = view() + vDialog() + vLost();
+  const modal = r.querySelector('[aria-modal="true"]');
+  if (modal && !focusId) { if (!modal.contains(document.activeElement)) { const f = modal.querySelector('.cta') || modal.querySelector('button,[href],input,select,textarea,[tabindex="0"]'); if (f) f.focus(); } modalOpen = true; }
+  else if (!modal && modalOpen) { modalOpen = false; if (lastTrig) { const q = '[data-a="' + lastTrig.a + '"]' + (lastTrig.v ? '[data-v="' + String(lastTrig.v).replace(/"/g, '\\"') + '"]' : ''); const b = r.querySelector(q); if (b) b.focus(); } }
   if (focusId) { const e = document.getElementById(focusId); if (e) { e.focus(); try { e.setSelectionRange(e.value.length, e.value.length); } catch (x) { } } }
 }
 function go(screen) {
@@ -508,6 +512,7 @@ function impNext() {
 function onClick(e) {
   const t = e.target.closest('[data-a]'); if (!t || t.disabled) return;
   const a = t.getAttribute('data-a'), v = t.getAttribute('data-v');
+  if (!t.closest('[aria-modal]')) lastTrig = { a: a, v: v };
   switch (a) {
     case 'theme': S.theme = v; send('set', { key: 'theme', value: v }); render(); break;
     case 'nav': if (v === 'home' || v === 'studies' || v === 'library' || v === 'settings') go(v); else if (STEPS.findIndex((s) => s[1] === v) <= S.maxStep) { if (v === 'run' && (!S.run)) break; go(v); } break;
@@ -628,6 +633,19 @@ function handle(m) {
 document.addEventListener('DOMContentLoaded', function () {
   const r = $root(); r.addEventListener('click', onClick); r.addEventListener('input', onInput); r.addEventListener('change', onChange);
   document.addEventListener('change', function (e) { if (e.target && e.target.id === 'impfile' && S.imp) { S.imp.busy = true; S.notice = null; render(); } });
+  document.addEventListener('keydown', function (e) {
+    const modal = $root().querySelector('[aria-modal="true"]');
+    if (e.key === 'Escape' && modal && !S.lost) { if (S.dialog) S.dialog = null; else if (S.custom) S.custom = null; else return; e.preventDefault(); render(); return; }
+    if (e.key === 'Tab' && modal) {
+      const f = Array.prototype.filter.call(modal.querySelectorAll('button,[href],input,select,textarea,[tabindex="0"]'), function (x) { return !x.disabled && x.offsetParent !== null; });
+      if (!f.length) return; const first = f[0], last = f[f.length - 1];
+      if (!modal.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+      else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      return;
+    }
+    if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button' && e.target.tagName !== 'BUTTON') { e.preventDefault(); e.target.click(); }
+  });
   jQuery(document).on('shiny:connected', function () { send('init'); });
   Shiny.addCustomMessageHandler('ev', handle);
   jQuery(document).on('shiny:disconnected', function () { S.lost = true; render(); });
