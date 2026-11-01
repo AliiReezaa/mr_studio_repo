@@ -36,7 +36,7 @@ import_suggest <- function(cols, rows) {
     for (col in free) {
       v <- vals(col); if (length(v) < 3) next; num <- suppressWarnings(as.numeric(v))
       ok <- switch(role, snp = all(grepl("^rs[0-9]+$", v)), ea = , oa = all(grepl("^[ACGTacgt]$", v)),
-                   pos = all(!is.na(num)) && all(num == round(num)) && all(num > 1000), p = all(!is.na(num)) && all(num >= 0 & num <= 1) && any(num < 0.01),
+                   pos = all(!is.na(num)) && all(num == round(num)) && all(num > 1000), p = all(!is.na(num)) && all(num >= 0 & num <= 1) && any(num < 0.01) && stats::median(num) > 0.1,
                    eaf = all(!is.na(num)) && all(num > 0 & num < 1), FALSE)
       if (ok) { pick(role, col, "low", "Guessed from the values, please confirm"); free <- setdiff(free, col); break }
     }
@@ -94,9 +94,11 @@ import_validate <- function(path, sep, columns, mapping, facts, max_rows = 5e6) 
     if (length(f) > 100 && max(f) <= 0.5 + 1e-9 && identical(facts$frq, "eaf")) warn <- c(warn, "All frequencies are 0.5 or less, which suggests a minor allele frequency, but you said it is the effect allele frequency. A minor allele frequency cannot be used as effect allele frequency. Please check.")
     if (identical(facts$frq, "maf")) warn <- c(warn, "You said the frequency column is a minor allele frequency. It will not be used as an effect allele frequency.")
   }
+  if (pal > 0 && !("eaf" %in% names(d) && identical(facts$frq, "eaf"))) warn <- c(warn, sprintf("%s palindromic variants (A/T or C/G) and no usable effect allele frequency. Palindromic variants cannot be aligned to another dataset by alleles alone, so they will have to be left out when the datasets are harmonised.", format(pal, big.mark = ",")))
   if (!("n" %in% names(d)) && !(is.finite(num(facts$n)) && num(facts$n) > 0)) warn <- c(warn, "No sample size column and no total sample size given. Methods that need N (for example the Steiger test) will not be offered.")
   if (identical(facts$scope, "genomewide") && nr < 100000) warn <- c(warn, sprintf("You said the file is genome-wide but it has only %s rows. If it holds only selected variants, change that answer.", format(nr, big.mark = ",")))
   if (identical(facts$scale, "z")) err <- c(err, "Z-scores are not supported yet. Please supply the effect size and its standard error.")
+  if (identical(facts$scale, "or") && any(d$beta <= 0, na.rm = TRUE)) err <- c(err, "Odds ratios must be positive, but zero or negative values were found. If the column holds log odds ratios, choose \"Beta or log odds\" instead.")
   keep <- ok_al & !is.na(d$beta) & !is.na(d$se) & d$se > 0 & !duplicated(key)
   list(ok = !length(err), errors = err, warnings = warn, stats = list(rows = nr, kept = sum(keep), palindromic = pal, snps = if ("snp" %in% names(d)) sum(grepl("^rs[0-9]+$", d$snp)) else 0L, has_eaf = "eaf" %in% names(d) && identical(facts$frq, "eaf")))
 }

@@ -70,6 +70,24 @@ ov <- studies_overview(); expect("overview: a study without results is a DRAFT",
 ra <- studio_run(hh, "Simulated exposure A", "Simulated outcome A", demo_input("expA", "outA")$input, idx = 1L)
 rb <- studio_run(hh, "Simulated exposure B", "Simulated outcome A", demo_input("expB", "outA")$input, idx = 2L)
 expect("two traits with the same 30-character slug get separate pair folders", !identical(ra$pair_folder, rb$pair_folder) && grepl("^P01_", ra$pair_folder) && grepl("^P02_", rb$pair_folder))
+# method settings: each choice must give exactly what the TwoSampleMR function gives, and the label must say which was run
+di <- demo_input("expA", "outA"); dd <- di$input$data; dd <- dd[dd$mr_keep, ]
+ref <- function(f) suppressWarnings(f(dd$beta_x, dd$beta_y, dd$se_x, dd$se_y, TwoSampleMR::default_parameters()))
+for (md in c("mre", "mre_floor", "fixed")) {
+  rr <- studio_run(hh, paste("Model", md), "Simulated outcome A", di$input, "ivw_mre", params = list(ivw_model = md, ci_level = 0.9), idx = 10L + match(md, c("mre", "mre_floor", "fixed")))
+  fn <- c(mre = TwoSampleMR::mr_ivw_mre, mre_floor = TwoSampleMR::mr_ivw, fixed = TwoSampleMR::mr_ivw_fe)[[md]]
+  pe <- pair_payload(hh$dir, rr$pair_folder)$estimates[[1]]; fr <- ref(fn)
+  expect(paste("IVW model", md, "matches the TwoSampleMR function and the 90% level"), abs(pe$se - fr$se) < 1e-9 && abs(pe$estimate - fr$b) < 1e-9 && abs(pe$ci_level - 0.9) < 1e-12 && identical(pe$method_name, IVW_MODEL_NAMES[[md]]))
+}
+pst <- pair_payload(hh$dir, rr$pair_folder)$settings
+expect("the payload reports the settings the pair was run with, read from its scripts", identical(pst$ivw_model, "fixed") && abs(pst$ci_level - 0.9) < 1e-12 && pst$min_f == 0)
+big <- studio_run(hh, "F filter", "Simulated outcome A", di$input, c("ivw_mre", "egger"), params = list(min_f = 30), idx = 20L)
+fk <- sum((dd$beta_x / dd$se_x)^2 >= 30); ps <- pair_payload(hh$dir, big$pair_folder)
+expect("minimum F leaves out weak variants in both methods", fk < nrow(dd) && all(vapply(ps$estimates, function(e) e$n_ivs_used == fk, TRUE)))
+weak <- di$input; weak$data$se_x <- weak$data$se_x * 100   # every variant now has F below 10
+tooHigh <- tryCatch(studio_run(hh, "F too high", "Simulated outcome A", weak, "ivw_mre", params = list(min_f = 10), idx = 21L), error = function(e) e)
+expect("a minimum F that leaves too few variants stops with a clear message", inherits(tooHigh, "error") || any(vapply(tooHigh$results, function(x) !identical(x$status, "ok"), TRUE)))
+expect("an unknown model value is refused", inherits(tryCatch(studio_run(hh, "Bad", "Simulated outcome A", di$input, "ivw_mre", params = list(ivw_model = "nonsense"), idx = 22L), error = function(e) e), "error"))
 pl <- pair_payload(hh$dir, ra$pair_folder)
 expect("payload: estimates and diagnostics are arrays, variants and replay present", is.null(names(pl$estimates)) && is.null(names(pl$diagnostics)) && length(pl$variants) == 40L && identical(pl$replay$status, "identical"))
 ov <- studies_overview(); expect("overview: a study with results is COMPLETE", ov[[which(vapply(ov, function(x) x$name, "") == "Overview study")]]$status == "COMPLETE")
@@ -97,7 +115,7 @@ expect("a changed confidence level reaches both methods", all(vapply(Filter(func
 DBI::dbDisconnect(h4$con)
 expect("RStudio lookup returns a path or NA", is.character(rstudio_path()) && length(rstudio_path()) == 1L)
 expect("open in RStudio refuses a pair without scripts", grepl("no script", err_of(open_in_rstudio(h3$dir, "P99_none"))))
-expect("customise panel schema comes from the adapters", identical(names(param_schemas()$ivw_mre$ci_level), c("label", "hint", "min", "max", "default", "type")) && identical(names(param_schemas()$egger), "ci_level"))
+expect("customise panel schema comes from the adapters", all(c("label", "hint", "min", "max", "default", "type") %in% names(param_schemas()$ivw_mre$ci_level)) && identical(names(param_schemas()$ivw_mre), c("ci_level", "ivw_model", "min_f")) && identical(names(param_schemas()$egger), c("ci_level", "min_f")) && identical(unlist(param_schemas()$ivw_mre$ivw_model$values), c("mre", "mre_floor", "fixed")))
 DBI::dbDisconnect(h3$con)
 
 # ---- data import ----------------------------------------------------------------------------------------------------------------
@@ -119,6 +137,17 @@ expect("import: a missing required column blocks the import and names it", !vx$o
 fm <- tempfile(fileext = ".tsv"); gm <- g; gm$Frq <- pmin(gm$Frq, 0.5); utils::write.table(gm, fm, sep = "\t", quote = FALSE, row.names = FALSE)
 vm <- import_validate(fm, hd$sep, hd$columns, mp, list(frq = "eaf", scope = "selected", scale = "beta", n = ""))
 expect("import: frequencies that look like MAF are flagged when the user says they are effect allele frequencies", any(grepl("minor allele frequency", vm$warnings)))
+f_or <- tempfile(fileext = ".csv"); writeLines(c("SNP,A1,A2,OR,SE,P", "rs1,A,G,1.1,0.02,0.01", "rs2,C,T,-0.2,0.02,0.2", "rs3,A,C,0.9,0.03,0.4"), f_or)
+h_or <- import_read_head(f_or, "or.csv"); mp_or <- lapply(import_suggest(h_or$columns, h_or$rows), `[[`, "column")
+v_or <- import_validate(f_or, h_or$sep, h_or$columns, mp_or, list(frq = "none", scope = "selected", scale = "or", n = ""))
+expect("import: odds ratios that are zero or negative are refused with a hint about log odds", !v_or$ok && any(grepl("log odds", v_or$errors)))
+f_pal <- tempfile(fileext = ".csv"); writeLines(c("rsid,effect_allele,other_allele,beta,se", "rs1,A,T,0.1,0.02", "rs2,C,G,0.2,0.02", "rs3,A,G,0.1,0.03"), f_pal)
+h_pal <- import_read_head(f_pal, "pal.csv"); mp_pal <- lapply(import_suggest(h_pal$columns, h_pal$rows), `[[`, "column")
+v_pal <- import_validate(f_pal, h_pal$sep, h_pal$columns, mp_pal, list(frq = "none", scope = "selected", scale = "beta", n = ""))
+expect("import: palindromic variants without a frequency column are reported", v_pal$ok && any(grepl("2 palindromic variants", v_pal$warnings)))
+set.seed(5); f_un <- tempfile(fileext = ".csv"); writeLines(c("a,b,c,d,e", paste("rs", 1000 + 1:20, ",A,G,", round(runif(20, 0.005, 0.02), 4), ",", signif(runif(20, 0.2, 0.9), 3), sep = "")), f_un)
+h_un <- import_read_head(f_un, "un.csv"); sg_un <- import_suggest(h_un$columns, h_un$rows)
+expect("import: a column of small standard errors is not guessed to be the P value", !identical(sg_un$p$column, "d"))
 expect("import: z-scores are refused for now", !import_validate(fi, hd$sep, hd$columns, mp, list(frq = "eaf", scope = "selected", scale = "z", n = ""))$ok)
 fx_ <- tempfile(fileext = ".txt"); utils::write.table(data.frame(FID = 1, IID = 2, PHENO = 1, rs1 = 0, rs2 = 1), fx_, quote = FALSE, row.names = FALSE)
 expect("import: individual-level data is refused before anything is read", grepl("individual-level", err_of(import_read_head(fx_))))

@@ -19,8 +19,19 @@ mr_ui_for <- function(engine_dir) {
 }
 
 # The Customise panel is generated from the adapters' own parameter schemas (FR-62), so a label or hint is written once.
+#' Settings sent by the screen, checked against the adapters before anything runs (unknown names are dropped, bad values are refused later by the adapter).
+run_params <- function(x) {
+  out <- list(ci_level = 0.95)
+  x <- as.list(x)
+  if (!is.null(x$ci_level)) out$ci_level <- as.numeric(x$ci_level)
+  if (!is.null(x$min_f)) out$min_f <- as.numeric(x$min_f)
+  if (!is.null(x$ivw_model)) out$ivw_model <- as.character(x$ivw_model)
+  out
+}
+
 param_schemas <- function() {
-  one <- function(ad) lapply(ad$params, function(p) list(label = p$label, hint = p$hint, min = p$min, max = p$max, default = p$default, type = p$type))
+  one <- function(ad) lapply(ad$params, function(p) list(label = p$label, hint = p$hint, min = p$min, max = p$max, default = p$default, type = p$type,
+                                                         values = if (!is.null(p$values)) as.list(p$values), value_labels = if (!is.null(p$value_labels)) as.list(p$value_labels), value_hints = if (!is.null(p$value_hints)) as.list(p$value_hints)))
   list(ivw_mre = one(ADAPTER_IVW_MRE_V11), egger = one(ADAPTER_EGGER_V11))
 }
 
@@ -113,17 +124,17 @@ mr_server <- function(engine_dir) {
         run_pair = {
           req(rv$h)
           inp <- demo_input(a$ex, a$out)
-          meths <- unlist(a$methods); ci <- as.numeric(a$ci %||% 0.95)
+          meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
           # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
           old <- Filter(function(p) identical(p$ex, a$ex) && identical(p$out, a$out), ui_state_get(rv$h$con, "pairs") %||% list())
           idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-          r <- tryCatch(studio_run(rv$h, inp$exposure_label, inp$outcome_label, inp$input, meths, ci, idx = idx), error = function(e) e)
+          r <- tryCatch(studio_run(rv$h, inp$exposure_label, inp$outcome_label, inp$input, meths, ci, idx = idx, params = prm), error = function(e) e)
           if (inherits(r, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(r)); return() }
           bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
           if (length(bad)) { ev("pair_done", i = a$i, ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
           pl <- ui_state_get(rv$h$con, "pairs") %||% list()
           pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
-          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci)
+          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm))
           ui_state_set(rv$h$con, "pairs", pl)
           ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder))
         },
@@ -135,7 +146,7 @@ mr_server <- function(engine_dir) {
           sens <- ui_state_get(rv$h$con, "sens") %||% list()
           old <- Filter(function(x) identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem), sens)
           idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-          r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, unlist(a$methods), as.numeric(a$ci %||% 0.95), idx), error = function(e) e)
+          r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params)), error = function(e) e)
           if (inherits(r, "error")) { ev("sens_done", ok = FALSE, msg = conditionMessage(r)); return() }
           bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
           if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }

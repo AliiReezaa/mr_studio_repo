@@ -12,6 +12,35 @@
   evidence = "Reporting convention (95% interval); changes only the interval limits.",
   affects = c("ci")))
 
+.minf_param_v11 <- list(min_f = list(
+  type = "double", default = 0, min = 0, max = 100,
+  label = "Minimum instrument strength (F)",
+  hint = "Variants whose single-variant F statistic, (beta_x / se_x)^2, is below this value are left out before the analysis. 10 is the usual rule of thumb for weak instruments. 0 keeps every variant.",
+  package_arg = NA_character_, kind = "float", conventional = FALSE, advanced = FALSE,
+  evidence = NA_character_, affects = c("estimate", "ci", "p")))
+
+.ivw_model_param_v11 <- list(ivw_model = list(
+  type = "enum", default = "mre", values = c("mre", "mre_floor", "fixed"),
+  value_labels = c(mre = "Multiplicative random effects", mre_floor = "Random effects when the variants are over-dispersed", fixed = "Fixed effect"),
+  value_hints = c(mre = "The standard error grows with heterogeneity and may also shrink when the variants agree better than chance. TwoSampleMR function mr_ivw_mre. The usual default.",
+                  mre_floor = "Random-effects standard error when heterogeneity is present, the fixed-effect standard error otherwise. TwoSampleMR function mr_ivw.",
+                  fixed = "Assumes every variant estimates the same effect, so heterogeneity does not widen the interval. TwoSampleMR function mr_ivw_fe."),
+  label = "Effects model",
+  hint = "How between-variant heterogeneity enters the standard error. The estimate is the same in all three; only its standard error, interval and P value change.",
+  package_arg = NA_character_, kind = "enum", conventional = TRUE, advanced = FALSE,
+  evidence = "Multiplicative random effects is the default of TwoSampleMR::mr_ivw_mre and the usual choice when variants may differ in effect.",
+  affects = c("se", "ci", "p")))
+
+# Single-variant F filter, written into the script as plain base R (no estimator).
+.script_lines_minf <- function(min_ivs) c(
+  "# ---- 4b. Instrument strength filter (setting: min_f) ---------------------------",
+  "f_stat <- (dat$beta_x / dat$se_x)^2   # single-variant F statistic",
+  "n_before <- nrow(dat)",
+  "dat <- dat[f_stat >= min_f, , drop = FALSE]",
+  "if (n_before > nrow(dat)) cat(sprintf(\"Left out %d variant(s) with F below %g.\\n\", n_before - nrow(dat), min_f))",
+  sprintf("if (nrow(dat) < %dL) stop(\"Too few variants remain after the F filter (%d needed). Lower the minimum F.\")", as.integer(min_ivs), as.integer(min_ivs)),
+  "")
+
 .colreq_basic <- list(
   list(column = "beta_x", level = "required", why = "Effect of each variant on the exposure.", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
   list(column = "se_x", level = "required", why = "Standard error of the exposure effect (needed for instrument strength).", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
@@ -19,11 +48,11 @@
   list(column = "se_y", level = "required", why = "Standard error of the outcome effect (gives each variant its weight).", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
   list(column = "eaf_x", level = "optional", why = "Not used by this method; helps allele checks upstream.", if_missing = list(action = "ignore", code = NA_character_)))
 
-.upgrade_adapter <- function(a, emit) {
+.upgrade_adapter <- function(a, emit, extra = list()) {
   mrgui_adapter(id = a$id, adapter_version = "1.1.0", label = a$label, input_kind = a$input_kind,
                 estimands = a$estimands, requires = a$requires, packages = a$packages,
                 stochastic = a$stochastic, supports_checkpoint = a$supports_checkpoint,
-                runtime_class = a$runtime_class, params = .ci_param_v11, check = a$check, run = a$run,
+                runtime_class = a$runtime_class, params = c(.ci_param_v11, extra, .minf_param_v11), check = a$check, run = a$run,
                 emit_script = emit, column_requirements = .colreq_basic)
 }
 
@@ -38,9 +67,13 @@
     .param_comment_lines(a, params),
     sprintf("seed <- %d   # fixed seed (this method is deterministic; kept for the record)", as.integer(seed)),
     "",
-    .script_lines_repro(seed), .script_lines_data,
-    "# ---- 5. Analysis: TwoSampleMR::mr_ivw_mre (multiplicative random effects IVW) ---",
-    "fit <- TwoSampleMR::mr_ivw_mre(",
+    .script_lines_repro(seed), .script_lines_data, .script_lines_minf(a$requires$min_ivs),
+    "# ---- 5. Analysis: inverse-variance weighted estimate (TwoSampleMR) ----------------",
+    "fit_fun <- switch(ivw_model,",
+    "  mre = TwoSampleMR::mr_ivw_mre,         # multiplicative random effects",
+    "  mre_floor = TwoSampleMR::mr_ivw,       # random effects when over-dispersed, fixed effect otherwise",
+    "  fixed = TwoSampleMR::mr_ivw_fe)        # fixed effect",
+    "fit <- fit_fun(",
     "  b_exp = dat$beta_x, b_out = dat$beta_y,",
     "  se_exp = dat$se_x, se_out = dat$se_y,",
     "  parameters = TwoSampleMR::default_parameters())",
@@ -70,7 +103,7 @@
     .param_comment_lines(a, params),
     sprintf("seed <- %d   # fixed seed (this method is deterministic; kept for the record)", as.integer(seed)),
     "",
-    .script_lines_repro(seed), .script_lines_data,
+    .script_lines_repro(seed), .script_lines_data, .script_lines_minf(a$requires$min_ivs),
     "# ---- 5. Analysis: TwoSampleMR::mr_egger_regression (orients variants internally) -",
     "fit <- TwoSampleMR::mr_egger_regression(",
     "  b_exp = dat$beta_x, b_out = dat$beta_y,",
@@ -98,7 +131,7 @@
                 seed, spec$data_file)
 }
 
-ADAPTER_IVW_MRE_V11 <- .upgrade_adapter(ADAPTER_IVW_MRE, function(spec, params, seed) .emit_ivw_mre(spec, params, seed))
+ADAPTER_IVW_MRE_V11 <- .upgrade_adapter(ADAPTER_IVW_MRE, function(spec, params, seed) .emit_ivw_mre(spec, params, seed), .ivw_model_param_v11)
 ADAPTER_EGGER_V11 <- .upgrade_adapter(ADAPTER_EGGER, function(spec, params, seed) .emit_egger(spec, params, seed))
 
 #' C13 conformance 1: parameter schema is complete and every default is valid.

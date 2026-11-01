@@ -52,7 +52,7 @@ const EXPORT_ITEMS = [['scripts', 'Scripts and data tables', 'The R scripts, the
 
 const S = { screen: 'boot', theme: 'aurora', settings: {}, studies: [], cat: { exposures: [], outcomes: [] }, schemas: {}, study: null, maxStep: 0,
   kind: 'basic', name: '', aim: '', prereg: false, err: null, notice: null, q: '', ex: [], out: [], pop: 'EUR', methods: ['ivw_mre', 'egger'], mfilter: 'all',
-  params: { ci_level: 0.95 }, custom: null, facts: null, pairs: [], run: null, payloads: {}, rp: 0, size: 'Double column', pub: null, xsel: ['scripts'],
+  params: { ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, custom: null, facts: null, pairs: [], run: null, payloads: {}, rp: 0, size: 'Double column', pub: null, xsel: ['scripts'],
   info: null, diag: null, editFolder: false, folderErr: null, root: '', dialog: null, lost: false, cmp: null, inst: null, sel: [], sens: [], sensBusy: false, lib: [], tmpls: [], imp: null, sq: '', sf: 'all' };
 let focusId = null;
 let modalOpen = false, lastTrig = null;
@@ -273,18 +273,42 @@ function vMethods() {
     '<button type="button" class="cta" data-a="m_next" ' + (sel.length ? '' : 'disabled') + ' style="display:flex;align-items:center;justify-content:center;gap:8px;height:48px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;font-size:14px;opacity:' + (sel.length ? 1 : .5) + '">Continue to check' + svg(IC.arrow, 16, 2.2) + '</button></aside></div>' + DEMO_NOTE;
   return frame('study', 'methods', main) + (S.custom ? vCustomise() : '');
 }
+const PRESETS = { ci_level: [[0.9, '90%'], [0.95, '95%'], [0.99, '99%']], min_f: [[0, 'Off'], [10, '10']] };
+const pcur = (k, p) => (S.params[k] == null ? p.default : S.params[k]);
+const pisdef = (k, p) => (p.type === 'double' ? Number(pcur(k, p)) === Number(p.default) : String(pcur(k, p)) === String(p.default));
+function pshow(k, p, v) {
+  if (p.type === 'enum') { const i = (p.values || []).indexOf(v); return i >= 0 && p.value_labels ? p.value_labels[v] : String(v); }
+  return k === 'ci_level' ? (Math.round(Number(v) * 1000) / 10) + '%' : (k === 'min_f' && Number(v) === 0 ? 'Off' : String(v));
+}
 function cmpParams(keys, sch) {
-  const ch = keys.filter((k) => Number(S.params[k] == null ? sch[k].default : S.params[k]) !== Number(sch[k].default));
+  const ch = keys.filter((k) => !pisdef(k, sch[k]));
   if (!keys.length) return '';
   if (!ch.length) return '<div style="font-size:12px;color:var(--accent)">All settings are at their defaults.</div>';
-  return '<div><div style="font-size:12px;color:var(--mute);margin-bottom:8px">Compared with default</div><table style="width:100%;border-collapse:collapse;font-size:13px">' + ch.map((k) => '<tr><td style="padding:6px 0">' + esc(sch[k].label) + '</td><td class="mono" style="padding:6px 0;color:var(--mute)">' + esc(sch[k].default) + '</td><td class="mono" style="padding:6px 0 6px 8px">→ ' + esc(S.params[k]) + '</td></tr>').join('') + '</table><div style="font-size:12px;color:var(--mute);margin-top:6px">After the run, the Results screen offers a side-by-side comparison with the default.</div></div>';
+  return '<div><div style="font-size:12px;color:var(--mute);margin-bottom:8px">Compared with default</div><table style="width:100%;border-collapse:collapse;font-size:13px">' + ch.map((k) => '<tr><td style="padding:6px 0">' + esc(sch[k].label) + '</td><td class="mono" style="padding:6px 0;color:var(--mute)">' + esc(pshow(k, sch[k], sch[k].default)) + '</td><td class="mono" style="padding:6px 0 6px 8px">→ ' + esc(pshow(k, sch[k], pcur(k, sch[k]))) + '</td></tr>').join('') + '</table><div style="font-size:12px;color:var(--mute);margin-top:6px">After the run, the Results screen offers a side-by-side comparison with the default where that can be calculated from the saved results.</div></div>';
 }
+function paramCtl(k, p) {
+  const v = pcur(k, p), dflt = pisdef(k, p);
+  const tag = '<span class="mono" style="font-size:12px;color:' + (dflt ? 'var(--accent)' : 'var(--warn)') + '">' + (dflt ? 'DEFAULT' : 'CHANGED') + '</span><button type="button" data-a="param_reset" data-v="' + k + '" style="border:0;background:transparent;color:var(--accent);font-weight:550">Reset to default</button>';
+  let ctl = '';
+  if (p.type === 'enum') {
+    ctl = '<div role="radiogroup" aria-label="' + esc(p.label) + '" style="display:flex;flex-direction:column;gap:8px">' + (p.values || []).map((o) => { const on = String(v) === String(o);
+      return '<button type="button" role="radio" aria-checked="' + on + '" data-a="param_set" data-v="' + k + '|' + o + '" style="text-align:left;display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:12px;border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + ';background:' + (on ? 'var(--panel2)' : 'transparent') + ';color:var(--text)"><span style="flex:none;margin-top:3px;width:14px;height:14px;border-radius:50%;box-sizing:border-box;border:2px solid ' + (on ? 'var(--accent)' : 'var(--mute)') + ';background:' + (on ? 'var(--accent)' : 'transparent') + '"></span><span><span style="display:block;font-weight:550">' + esc(p.value_labels ? p.value_labels[o] : o) + (String(o) === String(p.default) ? ' <span class="mono" style="font-size:11px;color:var(--accent)">DEFAULT</span>' : '') + '</span><span style="display:block;font-size:12px;color:var(--mute);margin-top:2px">' + esc(p.value_hints ? p.value_hints[o] : '') + '</span></span></button>'; }).join('') + '</div><div style="display:flex;align-items:center;gap:12px">' + tag + '</div>';
+  } else {
+    const pct = k === 'ci_level', shown = pct ? Math.round(Number(v) * 1000) / 10 : v, lo = pct ? p.min * 100 : p.min, hi = pct ? p.max * 100 : p.max;
+    const chips = (PRESETS[k] || []).map((c) => { const on = Number(v) === c[0]; return '<button type="button" data-a="param_set" data-v="' + k + '|' + c[0] + '" aria-pressed="' + on + '" style="padding:8px 16px;border-radius:999px;font-size:13px;font-weight:550;color:' + (on ? 'var(--accentInk)' : 'var(--text)') + ';background:' + (on ? 'var(--accent)' : 'transparent') + ';border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + '">' + c[1] + '</button>'; }).join('');
+    ctl = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px">' + chips + '<span style="display:flex;align-items:center;gap:8px"><input id="p_' + k + '" data-param="' + k + '"' + (pct ? ' data-pct="1"' : '') + ' type="number" step="' + (pct ? '0.1' : '1') + '" min="' + lo + '" max="' + hi + '" value="' + esc(shown) + '" aria-label="' + esc(p.label) + (pct ? ' in percent' : '') + '" style="width:110px;box-sizing:border-box;height:40px;padding:0 12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit"><span style="color:var(--mute)">' + (pct ? '%' : '') + '</span></span></div><div style="display:flex;align-items:center;gap:12px">' + tag + '</div><div class="mono" style="font-size:11px;color:var(--mute)">Allowed ' + lo + (pct ? '%' : '') + ' to ' + hi + (pct ? '%' : '') + ' · default ' + pshow(k, p, p.default) + '</div>';
+  }
+  return '<div style="display:flex;flex-direction:column;gap:10px"><div><div style="font-weight:550;margin-bottom:4px">' + esc(p.label) + '</div><div style="font-size:12px;color:var(--mute)">' + esc(p.hint) + '</div></div>' + ctl + '</div>';
+}
+const NOT_ADJUSTABLE = {
+  ivw_mre: 'Not adjustable here yet: instrument P-value threshold, clumping (r² and window), handling of palindromic variants and Steiger filtering. They belong to data preparation, need real GWAS data and are planned for the data download step.',
+  egger: 'MR-Egger regression in TwoSampleMR has no other adjustable arguments: variants are oriented to a positive exposure effect and the standard error is not allowed below the fixed-effect value, as the package defines it. Instrument P-value, clumping, palindromic handling and Steiger filtering are planned for the data download step.'
+};
 function vCustomise() {
   const m = METHODS.find((x) => x.id === S.custom), sch = (S.schemas[S.custom] || {});
   const keys = Object.keys(sch);
-  const body = keys.length ? keys.map((k) => { const p = sch[k], v = S.params[k] == null ? p.default : S.params[k], dflt = Number(v) === Number(p.default);
-    return '<div><label for="p_' + k + '" style="display:block;font-weight:550;margin-bottom:4px">' + esc(p.label) + '</label><div style="font-size:12px;color:var(--mute);margin-bottom:10px">' + esc(p.hint) + '</div><div style="display:flex;align-items:center;gap:12px"><input id="p_' + k + '" data-param="' + k + '" type="number" step="0.01" min="' + p.min + '" max="' + p.max + '" value="' + esc(v) + '" style="width:140px;box-sizing:border-box;height:44px;padding:0 14px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit"><span class="mono" style="font-size:12px;color:' + (dflt ? 'var(--accent)' : 'var(--warn)') + '">' + (dflt ? 'DEFAULT' : 'CHANGED') + '</span><button type="button" data-a="param_reset" data-v="' + k + '" style="border:0;background:transparent;color:var(--accent);font-weight:550">Reset to default</button></div><div class="mono" style="font-size:11px;color:var(--mute);margin-top:8px">Allowed ' + p.min + ' to ' + p.max + ' · default ' + p.default + '</div></div>'; }).join('') : '<div style="color:var(--mute)">This method has no adjustable settings. It is run exactly as the package defines it, and the script says so.</div>';
-  return '<div class="modal-bg" data-a="custom_close_bg"><div role="dialog" aria-modal="true" aria-label="Customise ' + esc(m.name) + '" style="width:100%;max-width:520px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:20px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">CUSTOMISE</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">' + esc(m.name) + '</div></div>' + body + cmpParams(keys, sch) + '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Every value you set is written into the script, and results from changed settings are marked as customised.</div><div style="display:flex;gap:12px;justify-content:flex-end">' + cta('Done', 'custom_close', '', 'height:44px') + '</div></div></div>';
+  const body = keys.length ? keys.map((k) => paramCtl(k, sch[k])).join('') : '<div style="color:var(--mute)">This method has no adjustable settings. It is run exactly as the package defines it, and the script says so.</div>';
+  return '<div class="modal-bg" data-a="custom_close_bg"><div role="dialog" aria-modal="true" aria-label="Customise ' + esc(m.name) + '" style="width:100%;max-width:520px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:20px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">CUSTOMISE</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">' + esc(m.name) + '</div></div>' + body + cmpParams(keys, sch) + (NOT_ADJUSTABLE[S.custom] ? '<div style="font-size:12px;color:var(--mute)">' + esc(NOT_ADJUSTABLE[S.custom]) + '</div>' : '') + '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Every value you set is written into the script, and results from changed settings are marked as customised.</div><div style="display:flex;gap:12px;justify-content:flex-end">' + cta('Done', 'custom_close', '', 'height:44px') + '</div></div></div>';
 }
 function checks() {
   const fc = S.facts || []; if (!fc.length) return [];
@@ -350,8 +374,14 @@ function scatter(pay) {
 }
 function pairLevel(pay) { const e = causal(pay)[0]; return e ? e.ci_level : 0.95; }
 function cmpBanner(pay, pair) {
-  const lv = pairLevel(pay); if (Math.abs(lv - 0.95) < 1e-9) return '';
-  return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:14px 18px;border-radius:14px;background:var(--panel2);border:1px solid var(--warn)"><span class="mono" style="font-size:11px;color:var(--warn)">CUSTOMISED</span><span style="flex-grow:1">This pair was run with a ' + Math.round(lv * 100) + '% confidence level instead of the default 95%. The point estimates are the same; only the intervals differ.</span>' + ghost('Compare with default', 'compare', pair.folder, 'height:38px') + '</div>';
+  const st = pay.settings || { ci_level: pairLevel(pay), min_f: 0, ivw_model: 'mre' }, ph = [];
+  const ciOff = Math.abs(st.ci_level - 0.95) > 1e-9, fOff = Number(st.min_f) > 0, mOff = st.ivw_model && st.ivw_model !== 'mre';
+  if (ciOff) ph.push('a ' + (Math.round(st.ci_level * 1000) / 10) + '% confidence level (default 95%)');
+  if (mOff) ph.push('the ' + (st.ivw_model === 'fixed' ? 'fixed-effect' : 'over-dispersion-only random-effects') + ' IVW model (default multiplicative random effects)');
+  if (fOff) ph.push('variants with F below ' + st.min_f + ' left out (default: none)');
+  if (!ph.length) return '';
+  const onlyCi = ciOff && !mOff && !fOff;
+  return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:14px;padding:14px 18px;border-radius:14px;background:var(--panel2);border:1px solid var(--warn)"><span class="mono" style="font-size:11px;color:var(--warn)">CUSTOMISED</span><span style="flex-grow:1">This pair was run with ' + ph.join(', ') + '. ' + (onlyCi ? 'The point estimates are the same; only the intervals differ.' : 'These settings can change the estimates, not only the intervals. The script in the pair folder records every setting.') + '</span>' + (onlyCi ? ghost('Compare with default', 'compare', pair.folder, 'height:38px') : '') + '</div>';
 }
 function cmpPanel(pair) {
   if (!S.cmp || S.cmp.folder !== pair.folder) return '';
@@ -369,7 +399,7 @@ function vResults() {
   const het = dg && dg.p < 0.05, tile = (a, b, c, d, border) => '<div style="padding:20px;border-radius:16px;background:var(--panel);border:1px solid ' + (border || 'var(--line)') + '"><div style="font-size:12px;color:var(--mute)">' + a + '</div>' + b + c + (d || '') + '</div>';
   const big = (t) => '<div class="mono" style="font-size:34px;font-weight:500;letter-spacing:-0.04em;margin:6px 0 2px">' + t + '</div>';
   const tiles = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">' +
-    tile('Effect on ' + esc(pair.outName) + ', IVW (beta per unit)', big(iv ? fx(iv.estimate, 3) : ''), iv ? '<div class="mono" style="font-size:12px;color:var(--mute)">' + Math.round(iv.ci_level * 100) + '% CI ' + fx(iv.ci_lower, 3) + ' to ' + fx(iv.ci_upper, 3) + '</div>' : '') +
+    tile('Effect on ' + esc(pair.outName) + ', IVW (beta per unit)', big(iv ? fx(iv.estimate, 3) : ''), iv ? '<div class="mono" style="font-size:12px;color:var(--mute)">' + (Math.round(iv.ci_level * 1000) / 10) + '% CI ' + fx(iv.ci_lower, 3) + ' to ' + fx(iv.ci_upper, 3) + '</div>' : '') +
     tile('Method agreement', big(same + ' / ' + ce.length), '<div style="font-size:12px;color:' + (same === ce.length ? 'var(--accent)' : 'var(--warn)') + '">' + (same === ce.length ? 'same direction' : 'mixed direction') + '</div>') +
     tile('Instruments', big(kept.length), '<div class="mono" style="font-size:12px;color:var(--mute)">mean F ' + (mf == null ? '' : mf.toFixed(1)) + '</div>') +
     tile('Heterogeneity', '<div style="font-size:20px;font-weight:600;margin:12px 0 2px;color:' + (het ? 'var(--warn)' : 'var(--accent)') + '">' + (dg ? (het ? 'Present' : 'Not detected') : 'Not reported') + '</div>', '<div style="font-size:12px;color:var(--mute)">' + (dg ? 'Cochran Q P = ' + fp(dg.p) + '. ' : '') + (ic ? 'Egger intercept P = ' + fp(ic.p) + (ic.p < 0.05 ? ': directional pleiotropy suggested.' : ': no directional pleiotropy suggested.') : '') + '</div>', '', het ? 'var(--warn)' : '') + '</div>';
@@ -377,7 +407,7 @@ function vResults() {
   const R = [['Scripts that reproduce the run', 'READY', 1], ['Analysis data tables (CSV)', 'READY', 1], ['Replay check', rpOK ? 'IDENTICAL' : (rp ? 'REVIEW' : 'NOT RUN'), rpOK ? 1 : 0], ['Methods text', 'NOT BUILT', 0], ['Figure legends filled with your numbers', 'NOT BUILT', 0], ['Limitations paragraph', 'NOT BUILT', 0], ['Pre-registration plan', S.prereg ? 'NOT BUILT' : 'OFF', 0], ['Data availability statement', 'NOT BUILT', 0]];
   const ready = R.map((k) => '<div style="display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:12px;background:var(--panel2)"><span style="flex:none;width:8px;height:8px;border-radius:50%;background:' + (k[2] ? 'var(--accent)' : 'var(--warn)') + '"></span><span style="flex-grow:1">' + k[0] + '</span><span class="mono" style="font-size:11px;color:' + (k[2] ? 'var(--accent)' : 'var(--warn)') + '">' + k[1] + '</span></div>').join('');
   const nav = S.pairs.length > 1 ? '<div style="display:flex;flex-wrap:wrap;gap:8px">' + S.pairs.map((p, i) => '<button type="button" data-a="rpair" data-v="' + i + '" style="padding:6px 14px;border-radius:999px;font-size:13px;font-weight:550;color:' + (i === S.rp ? 'var(--accentInk)' : 'var(--text)') + ';background:' + (i === S.rp ? 'var(--accent)' : 'transparent') + ';border:1px solid ' + (i === S.rp ? 'var(--accent)' : 'var(--line)') + '">Pair ' + (i + 1) + '</button>').join('') + '</div>' : '';
-  const sentence = iv ? 'The IVW estimate is ' + fx(iv.estimate, 3) + ' (' + Math.round(iv.ci_level * 100) + '% CI ' + fx(iv.ci_lower, 3) + ' to ' + fx(iv.ci_upper, 3) + ') ' + esc(pair.outName) + ' per unit of ' + esc(pair.exName) + '; ' + same + ' of ' + ce.length + ' methods agree on direction.' : '';
+  const sentence = iv ? 'The IVW estimate is ' + fx(iv.estimate, 3) + ' (' + (Math.round(iv.ci_level * 1000) / 10) + '% CI ' + fx(iv.ci_lower, 3) + ' to ' + fx(iv.ci_upper, 3) + ') ' + esc(pair.outName) + ' per unit of ' + esc(pair.exName) + '; ' + same + ' of ' + ce.length + ' methods agree on direction.' : '';
   const main = '<header style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between"><div style="max-width:660px">' + eyebrow('STEP 6 OF 7 · RESULTS · PAIR ' + (S.rp + 1) + ' OF ' + S.pairs.length) + h1(esc(pair.exName + ' → ' + pair.outName)) + sub(sentence) + '</div>' + '<div style="display:flex;flex-wrap:wrap;gap:10px">' + ghost('Review instruments', 'to_outliers') + ghost('Open in RStudio', 'open_rstudio', pair.folder) + cta('Export publication package', 'to_export', '', 'height:44px;padding:0 20px') + '</div></header>' + nav + cmpBanner(pay, pair) + cmpPanel(pair) + tiles +
     '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start"><section style="flex:1 1 440px;min-width:0;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Forest plot across methods</h2><span class="mono" style="font-size:11px;color:var(--mute)">beta per unit, linear scale</span></div>' + forest(pay) + '</section>' +
     '<section style="flex:1 1 440px;min-width:0;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Scatter plot with fitted lines</h2><span class="mono" style="font-size:11px;color:var(--mute)">IVW and MR-Egger</span></div>' + scatter(pay) + '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:14px;font-size:12px;color:var(--mute)"><span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:3px;background:var(--accent)"></span>IVW</span><span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:0;border-top:3px dashed var(--warn)"></span>MR-Egger</span><span>x: SNP effect on exposure · y: SNP effect on outcome, oriented to a positive exposure effect</span></div></section></div>' +
@@ -492,7 +522,7 @@ function runNext() {
   if (r.i >= r.total) { r.state = 'done'; render(); return; }
   if (r.paused) { render(); return; }
   const p = S.pairs[r.i]; r.t0 = Date.now(); r.log.push('Pair ' + (r.i + 1) + ': starting ' + p.exName + ' → ' + p.outName); render();
-  send('run_pair', { i: r.i, ex: p.ex, out: p.out, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built)), ci: S.params.ci_level });
+  send('run_pair', { i: r.i, ex: p.ex, out: p.out, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built)), params: S.params });
 }
 function impNext() {
   const I = S.imp;
@@ -536,6 +566,7 @@ function onClick(e) {
     case 'customise': e.stopPropagation(); S.custom = v; render(); break;
     case 'custom_close': S.custom = null; render(); break;
     case 'custom_close_bg': if (e.target === t) { S.custom = null; render(); } break;
+    case 'param_set': { const kv = v.split('|'), sch = (S.schemas[S.custom] || {})[kv[0]]; if (sch) { S.params[kv[0]] = sch.type === 'enum' ? kv[1] : Number(kv[1]); render(); } break; }
     case 'param_reset': { const sch = S.schemas[S.custom] || {}; S.params[v] = sch[v].default; render(); break; }
     case 'm_next': S.maxStep = Math.max(S.maxStep, 3); go('check'); break;
     case 'c_next': startRun(); break;
@@ -569,7 +600,7 @@ function onClick(e) {
     case 'sel_var': S.sel = S.sel.indexOf(v) >= 0 ? S.sel.filter((x) => x !== v) : S.sel.concat([v]); render(); break;
     case 'sel_top': if (S.inst && S.inst.length) { const t0 = S.inst.slice().sort((a, b) => b.share - a.share)[0]; S.sel = [t0.id]; render(); } break;
     case 'sel_clear': S.sel = []; render(); break;
-    case 'run_sens': { const p = curPair(); S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, remove: S.sel, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built)), ci: S.params.ci_level }); break; }
+    case 'run_sens': { const p = curPair(); S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, remove: S.sel, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built)), params: S.params }); break; }
     case 'xpick': S.xsel = S.xsel.indexOf(v) >= 0 ? S.xsel.filter((x) => x !== v) : S.xsel.concat([v]); render(); break;
     case 'size': S.size = v; render(); break;
     case 'pub': S.pub = S.pub === v ? null : v; render(); break;
@@ -588,15 +619,16 @@ function onInput(e) {
   if (t.id === 'nm') S.name = t.value; else if (t.id === 'aim') S.aim = t.value;
   else if (t.id === 'q') { S.q = t.value; focusId = 'q'; render(); focusId = null; }
   else if (t.id === 'sq') { S.sq = t.value; focusId = 'sq'; render(); focusId = null; }
-  else if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = (S.schemas[S.custom] || {})[k], val = parseFloat(t.value); if (sch && isFinite(val) && val >= sch.min && val <= sch.max) { S.params[k] = val; } }
+  else if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = (S.schemas[S.custom] || {})[k], val = paramVal(t); if (sch && isFinite(val) && val >= sch.min && val <= sch.max) { S.params[k] = val; } }
 }
-function onChange(e) { const t = e.target; if (t.getAttribute && t.getAttribute('data-map')) { const r = t.getAttribute('data-map'); S.imp.mapping[r] = t.value; S.imp.conf[r] = undefined; render(); return; } if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = (S.schemas[S.custom] || {})[k], val = parseFloat(t.value); if (sch && !(isFinite(val) && val >= sch.min && val <= sch.max)) { S.notice = { kind: 'err', msg: sch.label + ' must be between ' + sch.min + ' and ' + sch.max + '. The previous value was kept.' }; } render(); } }
+function paramVal(t) { const v = parseFloat(t.value); return t.getAttribute('data-pct') ? Math.round(v * 10) / 1000 : v; }
+function onChange(e) { const t = e.target; if (t.getAttribute && t.getAttribute('data-map')) { const r = t.getAttribute('data-map'); S.imp.mapping[r] = t.value; S.imp.conf[r] = undefined; render(); return; } if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = (S.schemas[S.custom] || {})[k], val = paramVal(t); if (sch && !(isFinite(val) && val >= sch.min && val <= sch.max)) { const pc = t.getAttribute('data-pct'); S.notice = { kind: 'err', msg: sch.label + ' must be between ' + (pc ? sch.min * 100 + '%' : sch.min) + ' and ' + (pc ? sch.max * 100 + '%' : sch.max) + '. The previous value was kept.' }; } render(); } }
 function applyStudy(m) {
   S.study = { name: m.name, dir: m.dir }; S.root = m.root || S.root;
   const plan = m.plan || {}; S.name = m.name; S.aim = plan.aim || ''; S.prereg = !!plan.prereg; S.kind = plan.kind || 'basic';
   const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder }));
   S.ex = Array.from(new Set(S.pairs.map((p) => p.ex))); S.out = Array.from(new Set(S.pairs.map((p) => p.out)));
-  if (pairs.length && pairs[0].methods) S.methods = pairs[0].methods; if (pairs.length && pairs[0].ci) S.params.ci_level = pairs[0].ci;
+  if (pairs.length && pairs[0].methods) S.methods = pairs[0].methods; if (pairs.length && pairs[0].params) S.params = Object.assign({ ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, pairs[0].params); else if (pairs.length && pairs[0].ci) S.params.ci_level = pairs[0].ci;
   S.payloads = m.payloads || {}; S.sens = m.sens || []; S.inst = null; S.sel = []; S.facts = null; S.run = null;
   S.maxStep = pairs.length ? (Object.keys(S.payloads).length ? 5 : 1) : 0;
 }
@@ -644,6 +676,7 @@ document.addEventListener('DOMContentLoaded', function () {
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
       return;
     }
+    if (e.key === 'Enter' && modal && e.target && e.target.tagName === 'INPUT') { const c = modal.querySelector('.cta'); if (c) { e.preventDefault(); c.click(); return; } }
     if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button' && e.target.tagName !== 'BUTTON') { e.preventDefault(); e.target.click(); }
   });
   jQuery(document).on('shiny:connected', function () { send('init'); });

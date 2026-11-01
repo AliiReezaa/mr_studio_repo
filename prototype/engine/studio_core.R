@@ -161,13 +161,14 @@ pair_facts <- function(exp_id, out_id) {
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger")
 
-studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx = NULL) {
+studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx = NULL, params = NULL) {
+  params <- c(params[setdiff(names(params), "ci_level")], list(ci_level = if (!is.null(params$ci_level)) params$ci_level else ci_level))
   if (!length(methods)) stop("Choose at least one method.")
   exposure_label <- trimws(exposure_label); outcome_label <- trimws(outcome_label)
   if (!nzchar(exposure_label) || !nzchar(outcome_label)) stop("Give the exposure and the outcome a name.")
   ad <- list(ivw_mre = ADAPTER_IVW_MRE_V11, egger = ADAPTER_EGGER_V11)
   spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = input,
-                                           params = list(ci_level = ci_level)))
+                                           params = params[intersect(names(params), names(ad[[m]]$params))]))
   if (is.null(idx)) idx <- studio_pair_index(h$dir, exposure_label, outcome_label)
   r <- run_script_task(h$con, h$dir, idx, exposure_label, outcome_label, spec)
   r$pair_folder <- basename(r$pair_dir)
@@ -175,6 +176,29 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
 }
 
 METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", egger = "MR-Egger")
+IVW_MODEL_NAMES <- c(mre = "IVW (multiplicative random effects)", mre_floor = "IVW (random effects when over-dispersed)", fixed = "IVW (fixed effect)")
+
+#' The settings a pair was run with, read back from the settings lines of its scripts (the scripts are the record).
+pair_settings <- function(study, pair_folder) {
+  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre")
+  for (f in Sys.glob(file.path(study, "03_pairs", pair_folder, "02_scripts", "[0-9]*_*.R"))) {
+    for (k in names(out)) {
+      ln <- grep(paste0("^", k, " <- "), readLines(f, warn = FALSE), value = TRUE)
+      if (length(ln)) { v <- sub(paste0("^", k, " <- "), "", ln[1]); out[[k]] <- if (k == "ivw_model") gsub("\"", "", v) else as.numeric(v) }
+    }
+  }
+  out
+}
+
+#' The name of a method as it was actually run, read from the settings line of its script (so a reopened study is labelled correctly).
+method_label <- function(study, pair_folder, m) {
+  if (!identical(m, "ivw_mre")) return(METHOD_NAMES[[m]])
+  f <- Sys.glob(file.path(study, "03_pairs", pair_folder, "02_scripts", "*_ivw_mre.R"))
+  if (!length(f)) return(METHOD_NAMES[[m]])
+  ln <- grep("^ivw_model <- ", readLines(f[1], warn = FALSE), value = TRUE)
+  k <- if (length(ln)) gsub("^ivw_model <- \"|\".*$", "", ln[1]) else "mre"
+  if (k %in% names(IVW_MODEL_NAMES)) IVW_MODEL_NAMES[[k]] else METHOD_NAMES[[m]]
+}
 
 #' Estimates of a pair as one table, read from the delivered CSV files (works for a reopened study too).
 pair_results <- function(study, pair_folder) {
@@ -185,7 +209,7 @@ pair_results <- function(study, pair_folder) {
     if (!file.exists(f)) next
     d <- utils::read.csv(f, stringsAsFactors = FALSE)
     keep <- intersect(c("estimand", "estimate", "se", "ci_lower", "ci_upper", "ci_level", "p", "n_ivs_used"), names(d))
-    out[[m]] <- cbind(Method = METHOD_NAMES[[m]], d[, keep, drop = FALSE])
+    out[[m]] <- cbind(Method = method_label(study, pair_folder, m), d[, keep, drop = FALSE])
   }
   if (!length(out)) return(NULL)
   res <- do.call(rbind, out); rownames(res) <- NULL
@@ -279,13 +303,13 @@ pair_payload <- function(study, pair_folder) {
   est <- list(); dg <- list()
   for (m in names(METHOD_NAMES)) {
     e <- rd(file.path(pd, "04_tables", paste0(m, "_estimates.csv")))
-    if (!is.null(e)) est[[m]] <- lapply(seq_len(nrow(e)), function(i) c(list(method = m, method_name = METHOD_NAMES[[m]]), as.list(e[i, , drop = FALSE])))
+    if (!is.null(e)) est[[m]] <- lapply(seq_len(nrow(e)), function(i) c(list(method = m, method_name = method_label(study, pair_folder, m)), as.list(e[i, , drop = FALSE])))
     g <- rd(file.path(pd, "04_tables", paste0(m, "_diagnostics.csv")))
     if (!is.null(g)) dg[[m]] <- lapply(seq_len(nrow(g)), function(i) c(list(method = m), as.list(g[i, , drop = FALSE])))
   }
   v <- rd(Sys.glob(file.path(pd, "01_data", "analysis_data_*.csv"))[1])
   vars <- if (!is.null(v)) lapply(seq_len(nrow(v)), function(i) list(id = v$variant_id[i], bx = v$beta_x[i], by = v$beta_y[i], sx = v$se_x[i], sy = v$se_y[i], keep = isTRUE(as.logical(v$mr_keep[i])))) else list()
-  list(folder = pair_folder, estimates = unname(unlist(est, recursive = FALSE)), diagnostics = unname(unlist(dg, recursive = FALSE)), variants = vars,
+  list(folder = pair_folder, estimates = unname(unlist(est, recursive = FALSE)), diagnostics = unname(unlist(dg, recursive = FALSE)), variants = vars, settings = pair_settings(study, pair_folder),
        replay = pair_replay(study, pair_folder))
 }
 
@@ -352,7 +376,7 @@ instrument_table <- function(exp_id, out_id) {
 }
 
 #' Sensitivity branch: the same pair analysed again without the chosen variants, as its own pair folder (the primary results stay as they are).
-studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx) {
+studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL) {
   inp <- demo_input(exp_id, out_id)
   d <- inp$input$data; hit <- d$variant_id %in% remove
   if (!all(remove %in% d$variant_id)) stop("Some of the chosen variants are not instruments of this pair.")
@@ -361,6 +385,6 @@ studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre",
   if (kept < 2L) stop("At least 2 instruments must remain.")
   if (kept < 3L) methods <- setdiff(methods, "egger")
   lab <- sprintf("%s [without %d]", inp$exposure_label, length(remove))
-  r <- studio_run(h, lab, inp$outcome_label, inp$input, methods, ci_level, idx = idx)
+  r <- studio_run(h, lab, inp$outcome_label, inp$input, methods, ci_level, idx = idx, params = params)
   r$kept <- kept; r$label <- lab; r
 }

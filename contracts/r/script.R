@@ -73,9 +73,10 @@ write_analysis_csv <- function(data, path) {
 
 .param_comment_lines <- function(adapter, params) {
   unlist(lapply(names(adapter$params), function(p) {
-    sp <- adapter$params[[p]]
+    sp <- adapter$params[[p]]; v <- params[[p]]
     c(sprintf("# %s: %s", if (!is.null(sp$label)) sp$label else p, if (!is.null(sp$hint)) sp$hint else ""),
-      sprintf("%s <- %s", p, .num(params[[p]])))
+      if (identical(sp$type, "enum")) sprintf("#   choices: %s", paste(sp$values, collapse = ", ")),
+      sprintf("%s <- %s", p, if (is.character(v)) encodeString(v, quote = "\"") else .num(v)))
   }))
 }
 
