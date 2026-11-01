@@ -230,12 +230,14 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger")
 
+param_adapters <- function() list(ivw_mre = ADAPTER_IVW_MRE_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11)
+
 studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx = NULL, params = NULL) {
   params <- c(params[setdiff(names(params), "ci_level")], list(ci_level = if (!is.null(params$ci_level)) params$ci_level else ci_level))
   if (!length(methods)) stop("Choose at least one method.")
   exposure_label <- trimws(exposure_label); outcome_label <- trimws(outcome_label)
   if (!nzchar(exposure_label) || !nzchar(outcome_label)) stop("Give the exposure and the outcome a name.")
-  ad <- list(ivw_mre = ADAPTER_IVW_MRE_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11)
+  ad <- param_adapters()
   spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = input,
                                            params = params[intersect(names(params), names(ad[[m]]$params))]))
   if (is.null(idx)) idx <- studio_pair_index(h$dir, exposure_label, outcome_label)
@@ -429,7 +431,8 @@ ci_default_rows <- function(estimates, level = 0.95) {
   out <- list()
   for (e in estimates) {
     if (!identical(e$estimand, "causal_effect") || is.na(e$se)) next
-    q <- if (identical(e$ci_method, "wald_t")) stats::qt(1 - (1 - level) / 2, df = max(1, e$n_ivs_used - 2)) else stats::qnorm(1 - (1 - level) / 2)
+    k <- if (e$method %in% c("radial", "presso")) 1 else 2   # degrees of freedom: variants used minus 2 (Egger types) or minus 1 (radial IVW, MR-PRESSO)
+    q <- if (identical(e$ci_method, "wald_t")) stats::qt(1 - (1 - level) / 2, df = max(1, e$n_ivs_used - k)) else stats::qnorm(1 - (1 - level) / 2)
     out[[length(out) + 1L]] <- list(method = e$method, lo = e$estimate - q * e$se, hi = e$estimate + q * e$se, level = level)
   }
   out
@@ -457,4 +460,45 @@ studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre",
   lab <- sprintf("%s [without %d]", inp$exposure_label, length(remove))
   r <- studio_run(h, lab, inp$outcome_label, inp$input, methods, ci_level, idx = idx, params = params)
   r$kept <- kept; r$label <- lab; r
+}
+
+
+#' Compare with default settings, for every setting (FR-66). The same pair is analysed again with the default of each setting a method
+#' offers, in a throw-away study folder, and set beside the saved result. A method whose only changed setting is the confidence level is
+#' not run again: its estimate and standard error cannot change, so its default interval is recomputed from them.
+#' The saved results are never touched.
+compare_defaults <- function(study, pair_folder, exp_id, out_id, methods, pthr = 5e-8) {
+  st <- pair_settings(study, pair_folder); ads <- param_adapters()
+  dflt <- function(m, k) ads[[m]]$params[[k]]$default
+  same <- function(a, b) if (is.character(b)) identical(as.character(a), b) else isTRUE(all.equal(as.numeric(a), as.numeric(b)))
+  shown <- function(m, k, v) { sp <- ads[[m]]$params[[k]]; if (identical(sp$type, "enum") && !is.null(sp$value_labels)) unname(sp$value_labels[[as.character(v)]]) else format(v) }
+  pay <- pair_payload(study, pair_folder); rows <- list(); rerun <- character(); diffs <- list()
+  for (m in methods) {
+    if (is.null(ads[[m]])) next
+    d <- Filter(function(k) !identical(k, "ci_level") && !is.null(st[[k]]) && !same(st[[k]], dflt(m, k)), names(ads[[m]]$params))
+    diffs[[m]] <- vapply(d, function(k) sprintf("%s: %s (default %s)", ads[[m]]$params[[k]]$label, shown(m, k, st[[k]]), shown(m, k, dflt(m, k))), "")
+    if (length(d)) rerun <- c(rerun, m)
+  }
+  ci_changed <- !same(st$ci_level, 0.95)
+  if (length(rerun)) {
+    root <- tempfile("compare-"); dir.create(root)
+    on.exit(unlink(root, recursive = TRUE), add = TRUE)
+    hs <- studio_new("compare", root); on.exit(try(DBI::dbDisconnect(hs$con), silent = TRUE), add = TRUE, after = FALSE)
+    inp <- pair_input(exp_id, out_id, pthr)
+    r <- studio_run(hs, inp$exposure_label, inp$outcome_label, inp$input, rerun, ci_level = 0.95, idx = 1L, params = list(ci_level = 0.95))
+    dp <- pair_payload(hs$dir, r$pair_folder)
+  }
+  for (e in pay$estimates) {
+    if (!identical(e$estimand, "causal_effect")) next
+    m <- e$method
+    if (m %in% rerun) { f <- Filter(function(x) identical(x$method, m) && identical(x$estimand, "causal_effect"), dp$estimates)
+      if (!length(f)) next; f <- f[[1]]
+      rows[[length(rows) + 1L]] <- list(method = m, ran = TRUE, estimate = f$estimate, lo = f$ci_lower, hi = f$ci_upper, p = f$p, n = f$n_ivs_used, what = as.list(unname(diffs[[m]])))
+    } else {
+      cd <- ci_default_rows(list(e))
+      rows[[length(rows) + 1L]] <- list(method = m, ran = FALSE, estimate = e$estimate, lo = if (length(cd)) cd[[1]]$lo else e$ci_lower, hi = if (length(cd)) cd[[1]]$hi else e$ci_upper, p = e$p, n = e$n_ivs_used,
+                                        what = if (ci_changed) list(sprintf("Confidence level: %s (default 95%%)", format(st$ci_level))) else list())
+    }
+  }
+  list(rows = rows, rerun = as.list(rerun))
 }

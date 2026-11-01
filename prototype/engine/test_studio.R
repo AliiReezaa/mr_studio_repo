@@ -276,4 +276,23 @@ expect("package: detector and mode references are cited", all(vapply(c("Verbanck
 wi10 <- pair_input("expA", "outC"); sens10 <- studio_run_without(h10, "expA", "outC", wi10$input$data$variant_id[1], methods = c("ivw_mre", "presso", "radial", "radegger"), idx = 9L)
 expect("sensitivity branches do not repeat the detectors", identical(sort(vapply(sens10$results, function(x) x$method, "")), "ivw_mre") || !any(c("presso", "radial", "radegger") %in% vapply(sens10$results, function(x) x$method, "")))
 DBI::dbDisconnect(h10$con)
+# ---- Round 11: Compare with default for every setting ----
+h11 <- studio_new("Compare all")
+r11 <- studio_run(h11, p8$exposure_label, p8$outcome_label, p8$input, c("ivw_mre", "egger", "wm", "mode", "radial"), idx = 1L,
+                  params = list(ci_level = 0.9, nboot = 300L, phi = 0.5, alpha = 0.01, weights = "3"))
+cp <- compare_defaults(h11$dir, r11$pair_folder, "expA", "outC", c("ivw_mre", "egger", "wm", "mode", "radial"))
+cr <- function(m) Filter(function(x) x$method == m, cp$rows)[[1]]
+h11b <- studio_new("Compare all defaults"); r11b <- studio_run(h11b, p8$exposure_label, p8$outcome_label, p8$input, c("ivw_mre", "egger", "wm", "mode", "radial"), idx = 1L, params = list(ci_level = 0.95))
+pd11 <- pair_payload(h11b$dir, r11b$pair_folder); fd <- function(m) Filter(function(e) e$method == m, pd11$estimates)[[1]]
+expect("compare all: methods with a changed setting beyond the confidence level are run again, the others are not", setequal(unlist(cp$rerun), c("wm", "mode", "radial")) && !cr("ivw_mre")$ran && !cr("egger")$ran && cr("wm")$ran)
+expect("compare all: the default run equals a fresh run with default settings", all(vapply(c("wm", "mode", "radial"), function(m) abs(cr(m)$estimate - fd(m)$estimate) < 1e-12 && abs(cr(m)$lo - fd(m)$ci_lower) < 1e-12 && abs(cr(m)$hi - fd(m)$ci_upper) < 1e-12, TRUE)))
+expect("compare all: a confidence-level-only difference gives the exact default interval (normal and t)", all(vapply(c("ivw_mre", "egger"), function(m) abs(cr(m)$lo - fd(m)$ci_lower) < 1e-9 && abs(cr(m)$hi - fd(m)$ci_upper) < 1e-9, TRUE)))
+expect("compare all: each row says which setting differs", any(grepl("Bootstrap replications: 300 \\(default 1000\\)", unlist(cr("wm")$what))) && any(grepl("Weights: Modified second order", unlist(cr("radial")$what))) && any(grepl("Confidence level", unlist(cr("ivw_mre")$what))))
+h11c <- studio_new("Compare radial"); r11c <- studio_run(h11c, p8$exposure_label, p8$outcome_label, p8$input, "radial", idx = 1L, params = list(ci_level = 0.9))
+cc <- compare_defaults(h11c$dir, r11c$pair_folder, "expA", "outC", "radial")$rows[[1]]
+expect("compare all: radial IVW with only the level changed gives its exact default interval (t with k - 1 degrees of freedom)", !cc$ran && abs(cc$lo - fd("radial")$ci_lower) < 1e-9 && abs(cc$hi - fd("radial")$ci_upper) < 1e-9)
+DBI::dbDisconnect(h11c$con)
+expect("compare all: the saved results and the scripts are untouched", identical(pair_settings(h11$dir, r11$pair_folder)$nboot, 300) && !any(grepl("compare", list.files(h11$dir, recursive = TRUE))))
+expect("compare all: a pair with only default settings reports nothing to rerun", length(compare_defaults(h11b$dir, r11b$pair_folder, "expA", "outC", c("wm"))$rerun) == 0L)
+DBI::dbDisconnect(h11$con); DBI::dbDisconnect(h11b$con)
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

@@ -175,8 +175,10 @@ mr_server <- function(engine_dir) {
         open_rstudio = { req(rv$h); r <- open_in_rstudio(rv$h$dir, a$folder); ev("rstudio", opened = isTRUE(r$opened), script = r$script) },
         open_script = { req(rv$h); sp <- file.path(rv$h$dir, "03_pairs", a$folder, "02_scripts", "00_run_all.R"); open_in_file_manager(sp) },
         compare_default = {
-          req(rv$h); pay <- pair_payload(rv$h$dir, a$folder)
-          ev("compare", folder = a$folder, rows = ci_default_rows(pay$estimates))
+          req(rv$h)
+          r <- tryCatch(compare_defaults(rv$h$dir, a$folder, a$ex, a$out, unlist(a$methods), as.numeric(a$pthr %||% 5e-8)), error = function(e) e)
+          if (inherits(r, "error")) { ev("compare", folder = a$folder, ok = FALSE, msg = conditionMessage(r)); return() }
+          ev("compare", folder = a$folder, ok = TRUE, rows = r$rows, rerun = r$rerun)
         },
         NULL))(), error = function(e) {
           if (identical(t, "set") && identical(a$key, "studies_root")) ev("set_err", key = "studies_root", msg = conditionMessage(e)) else fail(e)
