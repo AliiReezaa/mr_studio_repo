@@ -150,14 +150,23 @@ jobs:
             rm -rf "$RT/libexec/gcc" "$RT/lib/clang" "$RT/lib/gcc"
             rmdir "$RT/libexec" 2>/dev/null || true
           fi
-          { echo "== largest files in bin (MB)"; ls -lS "$RT/bin" 2>/dev/null | head -25 | awk '{printf "%7.1f  %s\n", $5/1048576, $9}'; } >> "size-breakdown-${{ matrix.id }}.txt"
+          # Windows: the same kind of toolchain sits under Library/. Compiler passes, compile-time libraries
+          # and the compiler's own sysroot are not on the PATH that R uses (Library/bin, Library/mingw-w64/bin,
+          # Library/usr/bin), so they are not needed to run R. Runtime DLLs stay where they are.
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            rm -rf "$RT/Library/libexec/gcc" "$RT/Library/lib/gcc" "$RT/Library/x86_64-w64-mingw32"
+            rmdir "$RT/Library/libexec" 2>/dev/null || true
+          fi
+          for B in "$RT/bin" "$RT/Library/bin"; do
+            [ -d "$B" ] && { echo "== largest files in $B (MB)"; ls -lS "$B" 2>/dev/null | head -25 | awk '{printf "%7.1f  %s\n", $5/1048576, $9}'; } >> "size-breakdown-${{ matrix.id }}.txt"
+          done
           # Trimming can leave shortcuts (symbolic links) that point at deleted files, for example
           # lib/clang/*/include/omp.h -> include/omp.h. The installer builder stops on those, so remove them.
           # (find -L lists only broken links when combined with -type l; works with GNU and BSD find.)
           echo "== broken links removed: $(find -L $RT -type l 2>/dev/null | wc -l)" | tee -a "size-breakdown-${{ matrix.id }}.txt"
           find -L $RT -type l -exec rm -f {} + 2>/dev/null || true
           echo "== runtime after trimming: $(du -sm $RT | cut -f1) MB" | tee -a "size-breakdown-${{ matrix.id }}.txt"
-          cat "size-breakdown-${{ matrix.id }}.txt" | head -30
+          cat "size-breakdown-${{ matrix.id }}.txt"
 
       - name: Contract tests with the moved runtime
         run: |
