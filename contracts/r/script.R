@@ -122,11 +122,19 @@ materialise_pair <- function(pair_dir, methods, seed) {
 }
 
 #' Run 00_run_all.R in a fresh R process (--vanilla) with the pair folder as working directory.
-run_pair_script <- function(pair_dir, rscript = file.path(R.home("bin"), "Rscript"), console_name = "run_all_console.txt") {
+default_rscript <- function() {
+  p <- file.path(R.home("bin"), "Rscript")
+  if (.Platform$OS.type == "windows" && file.exists(paste0(p, ".exe"))) paste0(p, ".exe") else p
+}
+
+run_pair_script <- function(pair_dir, rscript = default_rscript(), console_name = "run_all_console.txt") {
   pair_dir <- normalizePath(pair_dir)
+  # one thread for the numerical libraries (same on every operating system); restored afterwards
+  old <- Sys.getenv(c("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS"), unset = NA)
+  Sys.setenv(OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1")
+  on.exit(for (n in names(old)) if (is.na(old[[n]])) Sys.unsetenv(n) else do.call(Sys.setenv, setNames(list(old[[n]]), n)), add = TRUE)
   out <- suppressWarnings(system2(rscript, c("--vanilla", shQuote(file.path("02_scripts", "00_run_all.R"))),
-                                  stdout = TRUE, stderr = TRUE, env = c("OMP_NUM_THREADS=1", "OPENBLAS_NUM_THREADS=1"),
-                                  wait = TRUE, input = NULL, timeout = 0))
+                                  stdout = TRUE, stderr = TRUE, wait = TRUE))
   status <- attr(out, "status"); if (is.null(status)) status <- 0L
   writeLines(out, file.path(pair_dir, "03_console", console_name))
   list(status = status, console = out)
@@ -158,7 +166,7 @@ read_method_results <- function(pair_dir, method_id) {
 
 #' Copy the delivered files to a temporary folder, run the master script in a fresh R,
 #' and compare every numeric output with the stored values (FR-59). Returns the C7 `replay` object.
-replay_check <- function(pair_dir, method_ids, stored, rscript = file.path(R.home("bin"), "Rscript"),
+replay_check <- function(pair_dir, method_ids, stored, rscript = default_rscript(),
                          same_machine_digits = 15L) {
   tmp <- tempfile("replay-"); dir.create(tmp)
   on.exit(unlink(tmp, recursive = TRUE), add = TRUE)

@@ -14,3 +14,24 @@ dependencies:
   - r-digest
   - r-dbi
   - r-rsqlite
+  # Dependencies of TwoSampleMR (contracts v1.1: the generated scripts call it directly).
+  # TwoSampleMR itself and its three GitHub-only imports (MRMix, MRPRESSO, RadialMR)
+  # are installed by the pipeline from pinned commits, see prototype.yml.
+  - r-cli
+  - r-cowplot
+  - r-data.table
+  - r-dplyr
+  - r-ggplot2
+  - r-glmnet
+  - r-gridextra
+  - r-gtable
+  - r-ieugwasr
+  - r-knitr
+  - r-lattice
+  - r-magrittr
+  - r-mass
+  - r-pbapply
+  - r-plotly
+  - r-psych
+  - r-rmarkdown
+  - r-tidyr

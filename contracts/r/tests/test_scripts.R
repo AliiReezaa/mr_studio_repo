@@ -101,7 +101,7 @@ writeLines(orig, sp)
 expect("restored script replays identical again", identical(replay_check(pair, c("ivw_mre", "egger"), stored)$status, "identical"))
 
 # ---- guard against the wrong working directory ----------------------------------------------
-wrong <- suppressWarnings(system2(file.path(R.home("bin"), "Rscript"),
+wrong <- suppressWarnings(system2(default_rscript(),
           c("--vanilla", shQuote(file.path(pair, "02_scripts", "00_run_all.R"))), stdout = TRUE, stderr = TRUE))
 expect("wrong working directory stops with a clear message", any(grepl("Wrong working directory", wrong)) && !is.null(attr(wrong, "status")))
 

@@ -93,6 +93,40 @@ jobs:
           echo "R exit code: $RC"
           exit $RC
 
+      # Pinned sources of the MR packages that are not on conda-forge or CRAN for this R.
+      # TwoSampleMR is the commit the reference adapters were written against (contracts C6).
+      # A change to any commit here changes results provenance: update the adapters' `packages` too.
+      - uses: actions/checkout@v4
+        with: { repository: MRCIEU/TwoSampleMR, ref: 5e93ee7d8e1f67581acb8134299759389d73efba, path: _pinned/twosamplemr }
+      - uses: actions/checkout@v4
+        with: { repository: gqi/MRMix, ref: 56afdb2bc96760842405396f5d3f02e60e305039, path: _pinned/mrmix }
+      - uses: actions/checkout@v4
+        with: { repository: rondolab/MR-PRESSO, ref: 3e3c92d7eda6dce0d1d66077373ec0f7ff4f7e87, path: _pinned/mrpresso }
+      - uses: actions/checkout@v4
+        with: { repository: WSpiller/RadialMR, ref: 7ca35c052489001890347871e38998ca53a02b03, path: _pinned/radialmr }
+
+      - name: Install the pinned MR packages into the runtime
+        run: |
+          pp() { if [[ "$RUNNER_OS" == "Windows" ]]; then cygpath -m "$PWD/_pinned/$1"; else echo "$PWD/_pinned/$1"; fi; }
+          export PK_MRMIX="$(pp mrmix)" PK_MRPRESSO="$(pp mrpresso)" PK_RADIALMR="$(pp radialmr)" PK_TWOSAMPLEMR="$(pp twosamplemr)"
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            RT="$PWD/prototype/runtime"
+            export PATH="$RT:$RT/Library/bin:$RT/Library/mingw-w64/bin:$RT/Library/usr/bin:$(dirname "$RBIN"):$PATH"
+          fi
+          "$RBIN" --no-echo --no-restore --vanilla -e '
+            p <- Sys.getenv(c("PK_MRMIX", "PK_MRPRESSO", "PK_RADIALMR", "PK_TWOSAMPLEMR"))   # dependency order
+            install.packages(unname(p), repos = NULL, type = "source",
+                             INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
+            for (n in c("MRMix", "MRPRESSO", "RadialMR", "TwoSampleMR")) {
+              if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n)
+              cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n))))
+            }'
+          {
+            for d in twosamplemr mrmix mrpresso radialmr; do echo "$d $(git -C "_pinned/$d" rev-parse HEAD)"; done
+          } > "package-lock-${{ matrix.id }}.txt"
+          cat "package-lock-${{ matrix.id }}.txt"
+          du -sh prototype/runtime | tee "size-${{ matrix.id }}.txt"
+
       - name: Contract tests with the moved runtime
         run: |
           cd contracts
@@ -151,6 +185,16 @@ jobs:
               exit $p.ExitCode'
           fi
 
+      - name: Script generation and replay tests (contracts v1.1)
+        run: |
+          cd contracts
+          set +e
+          "$RBIN" --no-echo --no-restore --vanilla --file=r/tests/test_scripts.R --args "$CTDIR"
+          RC=$?
+          mkdir -p "$GITHUB_WORKSPACE/results-${{ matrix.id }}/script-pair"
+          cp -R "$CTDIR"/run11-*/P01_pair/. "$GITHUB_WORKSPACE/results-${{ matrix.id }}/script-pair/" || true
+          exit $RC
+
       - name: Collect installer sizes
         if: always()
         run: |
@@ -173,6 +217,7 @@ jobs:
           path: |
             results-${{ matrix.id }}/
             runtime-lock-${{ matrix.id }}.txt
+            package-lock-${{ matrix.id }}.txt
             size-${{ matrix.id }}.txt
 
   cross-os:
@@ -184,3 +229,5 @@ jobs:
         with: { pattern: report-*, path: reports }
       - name: Compare estimates across operating systems (tolerance 1e-8)
         run: python3 prototype/ci/compare_results.py reports
+      - name: Compare generated scripts and their results across operating systems
+        run: python3 prototype/ci/compare_scripts.py reports

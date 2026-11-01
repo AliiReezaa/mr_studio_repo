@@ -81,3 +81,9 @@ Prototype code: `contracts/r/script.R`, `contracts/r/adapters/reference_adapters
 
 ## Finding: the bundled R needs TwoSampleMR and its GitHub-only dependencies
 TwoSampleMR 0.7.13 imports MRMix, MRPRESSO and RadialMR, none of which is installable from the standard registries for R 4.3 (RadialMR was no longer on CRAN; MRMix and MRPRESSO are GitHub-only). They had to be built from pinned GitHub sources (MRMix 56afdb2, MR-PRESSO 3e3c92d, RadialMR from GitHub HEAD at the time) and several others from Ubuntu binaries. The same will be true for the conda-forge runtime and for `renv` on a user's machine. Options to decide before M1 continues: (a) build these packages from pinned commits inside CI and ship them in the runtime (recommended; matches the lock-file idea), (b) have the scripts call minimal public functions only for the two reference methods, (c) vendor patched copies (not recommended: it would be hidden statistical code).
+
+### Packaging decision applied (2026-11-01)
+Option (a) was chosen: the pipeline installs TwoSampleMR, MRMix, MRPRESSO and RadialMR from pinned commits into the bundled runtime (`.github/workflows/prototype.yml`, step "Install the pinned MR packages into the runtime"); their CRAN dependencies come from conda-forge (`prototype/ci/runtime.yml`).
+Pins: TwoSampleMR 5e93ee7d8e1f67581acb8134299759389d73efba, MRMix 56afdb2bc96760842405396f5d3f02e60e305039, MR-PRESSO 3e3c92d7eda6dce0d1d66077373ec0f7ff4f7e87, RadialMR 7ca35c052489001890347871e38998ca53a02b03.
+Rehearsed on Linux with conda-forge R 4.5.3: all four install (pure R, no compiler needed), 37 of 37 original and 24 of 24 new tests pass. macOS and Windows are verified only when the pipeline runs.
+Cost: the conda dependencies pull in pandoc (about 160 MB) through rmarkdown, which TwoSampleMR imports. Check the installer sizes after the first run before deciding whether to strip it.
