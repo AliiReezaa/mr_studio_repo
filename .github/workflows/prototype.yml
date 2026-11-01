@@ -127,6 +127,24 @@ jobs:
           cat "package-lock-${{ matrix.id }}.txt"
           du -sh prototype/runtime | tee "size-${{ matrix.id }}.txt"
 
+      - name: Size breakdown and safe trimming of the runtime
+        run: |
+          RT=prototype/runtime
+          {
+            echo "== runtime before trimming: $(du -sm $RT | cut -f1) MB"
+            echo "== largest folders (MB), depth 3"
+            du -m -d 3 $RT | sort -rn | head -40
+          } > "size-breakdown-${{ matrix.id }}.txt"
+          # Remove only what the app never uses at run time: package vignettes, tests, examples,
+          # demos and html help, header files and manual pages. Package help indexes stay.
+          find $RT \( -path '*/library/*/doc' -o -path '*/library/*/tests' -o -path '*/library/*/html' \
+            -o -path '*/library/*/examples' -o -path '*/library/*/demo' -o -path '*/share/doc' \
+            -o -path '*/share/man' -o -path '*/R/doc' -o -path "$RT/include" -o -path "$RT/man" \) \
+            -type d -prune -exec rm -rf {} + 2>/dev/null || true
+          find $RT -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
+          echo "== runtime after trimming: $(du -sm $RT | cut -f1) MB" | tee -a "size-breakdown-${{ matrix.id }}.txt"
+          cat "size-breakdown-${{ matrix.id }}.txt" | head -30
+
       - name: Contract tests with the moved runtime
         run: |
           cd contracts
@@ -185,12 +203,15 @@ jobs:
               exit $p.ExitCode'
           fi
 
-      - name: Script generation and replay tests (contracts v1.1)
+      - name: Script generation, replay and study folder tests (contracts v1.1)
         run: |
           cd contracts
           set +e
           "$RBIN" --no-echo --no-restore --vanilla --file=r/tests/test_scripts.R --args "$CTDIR"
           RC=$?
+          "$RBIN" --no-echo --no-restore --vanilla --file=r/tests/test_study.R --args "$CTDIR"
+          RC2=$?
+          if [[ $RC2 -ne 0 ]]; then RC=$RC2; fi
           mkdir -p "$GITHUB_WORKSPACE/results-${{ matrix.id }}/script-pair"
           cp -R "$CTDIR"/run11-*/P01_pair/. "$GITHUB_WORKSPACE/results-${{ matrix.id }}/script-pair/" || true
           exit $RC
@@ -218,6 +239,7 @@ jobs:
             results-${{ matrix.id }}/
             runtime-lock-${{ matrix.id }}.txt
             package-lock-${{ matrix.id }}.txt
+            size-breakdown-${{ matrix.id }}.txt
             size-${{ matrix.id }}.txt
 
   cross-os:
