@@ -14,7 +14,8 @@ RUNTIME_CLASSES <- c("fast", "moderate", "slow", "very_slow")
 #' list(type = "double"|"integer"|"logical"|"enum", default, min, max, values).
 mrgui_adapter <- function(id, adapter_version, label, input_kind, estimands, requires,
                           packages, stochastic, supports_checkpoint, runtime_class,
-                          params = list(), check, run) {
+                          params = list(), check, run,
+                          emit_script = NULL, column_requirements = NULL) {
   stopifnot(is.character(id), length(id) == 1L, nzchar(id))
   stopifnot(grepl("^[0-9]+\\.[0-9]+\\.[0-9]+$", adapter_version))
   stopifnot(input_kind %in% INPUT_KINDS, all(estimands %in% ESTIMANDS))
@@ -22,6 +23,7 @@ mrgui_adapter <- function(id, adapter_version, label, input_kind, estimands, req
   stopifnot(is.list(requires), is.numeric(requires$min_ivs))
   stopifnot(is.list(packages), !is.null(names(packages)))
   stopifnot(is.function(check), is.function(run))
+  stopifnot(is.null(emit_script) || is.function(emit_script))   # v1.1 (additive)
   for (p in names(params)) {
     spec <- params[[p]]
     stopifnot(spec$type %in% c("double", "integer", "logical", "enum"), !is.null(spec$default))
@@ -30,7 +32,8 @@ mrgui_adapter <- function(id, adapter_version, label, input_kind, estimands, req
                  input_kind = input_kind, estimands = estimands, requires = requires,
                  packages = packages, stochastic = stochastic,
                  supports_checkpoint = supports_checkpoint, runtime_class = runtime_class,
-                 params = params, check = check, run = run),
+                 params = params, check = check, run = run,
+                 emit_script = emit_script, column_requirements = column_requirements),
             class = "mrgui_adapter")
 }
 
