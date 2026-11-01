@@ -149,7 +149,11 @@ jobs:
           if [[ "$RUNNER_OS" == "macOS" ]]; then
             rm -rf "$RT/libexec/gcc" "$RT/lib/clang" "$RT/lib/gcc"
             rmdir "$RT/libexec" 2>/dev/null || true
+            # compiler and LLVM command-line programs in bin (prefixed compilers, llvm-*, clang*, gfortran)
+            rm -f "$RT"/bin/llvm-* "$RT"/bin/clang* "$RT"/bin/*-apple-darwin*-* "$RT"/bin/gfortran "$RT"/bin/lld* "$RT"/bin/ld64* 2>/dev/null || true
           fi
+          # debug symbol files (not needed to run anything)
+          find $RT -name '*.pdb' -type f -exec rm -f {} + 2>/dev/null || true
           # Windows: the same kind of toolchain sits under Library/. Compiler passes, compile-time libraries
           # and the compiler's own sysroot are not on the PATH that R uses (Library/bin, Library/mingw-w64/bin,
           # Library/usr/bin), so they are not needed to run R. Runtime DLLs stay where they are.
@@ -157,7 +161,7 @@ jobs:
             rm -rf "$RT/Library/libexec/gcc" "$RT/Library/lib/gcc" "$RT/Library/x86_64-w64-mingw32"
             rmdir "$RT/Library/libexec" 2>/dev/null || true
           fi
-          for B in "$RT/bin" "$RT/Library/bin"; do
+          for B in "$RT/bin" "$RT/lib" "$RT/Library/bin" "$RT/Library/lib"; do
             [ -d "$B" ] && { echo "== largest files in $B (MB)"; ls -lS "$B" 2>/dev/null | head -25 | awk '{printf "%7.1f  %s\n", $5/1048576, $9}'; } >> "size-breakdown-${{ matrix.id }}.txt"
           done
           # Trimming can leave shortcuts (symbolic links) that point at deleted files, for example
