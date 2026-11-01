@@ -49,3 +49,8 @@ How to use: Data library, Import a GWAS file, pick the file, then follow the fou
 ## Not covered yet
 
 Decimal commas (for example 0,123), files above a few hundred MB, genome build detection and Z-score import are not supported. Imported datasets are saved to the Data library with their recipe, but cannot be used in a study yet because clumping and harmonisation are not built.
+
+## A matching pair for a full study (files 23 and 24)
+- `23_pair_exposure_clumped.csv`: 60 independent variants (simulated). Import it as an **exposure**, answer "Yes, clumped and independent", frequency column = effect allele frequency, "Only selected variants".
+- `24_pair_outcome_full.csv`: the same variants in an outcome study (simulated, true effect 0.25), with 3 variants missing, 12 with swapped alleles and some on the opposite strand. Import it as an **outcome**.
+- Then start a study, pick both on the Data screen and run. The Check screen lists what happened to every instrument. Expected: 60 variants, 3 not found, about 2 palindromic dropped, 13 flipped, about 50 kept, IVW close to 0.23.

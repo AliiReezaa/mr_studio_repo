@@ -75,10 +75,10 @@ mr_server <- function(engine_dir) {
       tryCatch((function() switch(t,
         init = {
           s <- settings_read(); root <- studies_root()
-          ev("init", settings = s, library = library_list(), templates = template_list(), studies = studies_overview(root), catalogue = demo_catalogue(), schemas = param_schemas(), root = root, diag = run_diagnostics(root))
+          ev("init", settings = s, library = library_list(), templates = template_list(), studies = studies_overview(root), catalogue = catalogue_all(), schemas = param_schemas(), root = root, diag = run_diagnostics(root))
         },
         study_folder = open_in_file_manager(file.path(studies_root(), basename(a$name))),
-        library = ev("library", items = library_list(), templates = template_list()),
+        library = ev("library", items = library_list(), templates = template_list(), catalogue = catalogue_all()),
         library_folder = { d <- library_dir(); dir.create(d, recursive = TRUE, showWarnings = FALSE); open_in_file_manager(d) },
         import_check = {
           req(rv$imp); v <- import_validate(rv$imp$path, rv$imp$sep, rv$imp$columns, a$mapping, a$facts)
@@ -88,9 +88,9 @@ mr_server <- function(engine_dir) {
           req(rv$imp)
           rec <- import_save(rv$imp$path, rv$imp$name, rv$imp$sep, rv$imp$columns, a$mapping, a$facts)
           tn <- if (nzchar(a$template %||% "")) template_save(a$template, rv$imp$fingerprint, a$mapping, a$facts) else ""
-          ev("import_saved", rec = rec, template = tn, items = library_list(), templates = template_list())
+          ev("import_saved", rec = rec, template = tn, items = library_list(), templates = template_list(), catalogue = catalogue_all())
         },
-        template_delete = { template_delete(a$name); ev("library", items = library_list(), templates = template_list()) },
+        template_delete = { template_delete(a$name); ev("library", items = library_list(), templates = template_list(), catalogue = catalogue_all()) },
         studies = ev("studies", studies = studies_overview(), root = studies_root()),
         set = {
           s <- settings_set(a$key, a$value)
@@ -118,12 +118,14 @@ mr_server <- function(engine_dir) {
           study_msg("study_opened", h, to = a$to %||% "auto")
         },
         facts = {
-          f <- lapply(a$pairs, function(p) pair_facts(p[[1]], p[[2]]))
+          pt <- as.numeric(a$pthr %||% 5e-8); f <- lapply(a$pairs, function(p) tryCatch(pair_facts(p[[1]], p[[2]], pt), error = function(e) list(error = conditionMessage(e))))
           ev("facts", facts = f)
         },
         run_pair = {
           req(rv$h)
-          inp <- demo_input(a$ex, a$out)
+          pt <- as.numeric(a$pthr %||% 5e-8)
+          inp <- tryCatch(pair_input(a$ex, a$out, pt), error = function(e) e)
+          if (inherits(inp, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
           meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
           # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
           old <- Filter(function(p) identical(p$ex, a$ex) && identical(p$out, a$out), ui_state_get(rv$h$con, "pairs") %||% list())
@@ -134,11 +136,11 @@ mr_server <- function(engine_dir) {
           if (length(bad)) { ev("pair_done", i = a$i, ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
           pl <- ui_state_get(rv$h$con, "pairs") %||% list()
           pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
-          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm))
+          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), pthr = pt)
           ui_state_set(rv$h$con, "pairs", pl)
           ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder))
         },
-        instruments = ev("instruments", folder = a$folder, rows = { it <- instrument_table(a$ex, a$out); unname(lapply(seq_len(nrow(it)), function(i) as.list(it[i, , drop = FALSE]))) }),
+        instruments = ev("instruments", folder = a$folder, rows = { it <- instrument_table(a$ex, a$out, as.numeric(a$pthr %||% 5e-8)); unname(lapply(seq_len(nrow(it)), function(i) as.list(it[i, , drop = FALSE]))) }),
         run_sens = {
           req(rv$h)
           rem <- sort(unlist(a$remove)); parent <- a$folder
@@ -146,7 +148,7 @@ mr_server <- function(engine_dir) {
           sens <- ui_state_get(rv$h$con, "sens") %||% list()
           old <- Filter(function(x) identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem), sens)
           idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-          r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params)), error = function(e) e)
+          r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params), pthr = as.numeric(a$pthr %||% 5e-8)), error = function(e) e)
           if (inherits(r, "error")) { ev("sens_done", ok = FALSE, msg = conditionMessage(r)); return() }
           bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
           if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }

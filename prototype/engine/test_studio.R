@@ -154,7 +154,7 @@ expect("import: individual-level data is refused before anything is read", grepl
 expect("import: VCF and zip files are refused with a clear message", grepl("not supported yet", err_of(import_read_head(fi, "x.vcf.gz"))))
 rec <- import_save(fi, "bolt.tsv", hd$sep, hd$columns, mp, list(name = "Import test", role = "exposure", frq = "eaf", scale = "beta", scope = "selected", n = ""))
 sd <- file.path(library_dir(), "Import test")
-expect("import: standard copy and recipe are saved, with the checksum of the original", file.exists(file.path(sd, "standardised.csv")) && identical(rec$original$sha256, sha256_file(fi)) && identical(rec$usable_in_runs, FALSE))
+expect("import: standard copy and recipe are saved, with the checksum of the original", file.exists(file.path(sd, "standardised.csv")) && identical(rec$original$sha256, sha256_file(fi)) && identical(rec$usable_in_runs, TRUE) && identical(rec$usable_as_exposure, FALSE))
 expect("import: the original file is unchanged", identical(sha256_file(fi), rec$original$sha256))
 expect("import: saving the same name twice is refused", grepl("already exists", err_of(import_save(fi, "bolt.tsv", hd$sep, hd$columns, mp, list(name = "Import test", frq = "eaf", scale = "beta", scope = "selected", n = "")))))
 expect("import: the library lists the dataset", length(library_list()) == 1L && identical(library_list()[[1]]$trait, "Import test"))
@@ -183,4 +183,38 @@ shiny::testServer(mr_server(args_dir), {
   session$setInputs(act = list(t = "run_pair", i = 0, ex = "expA", out = "outB", methods = list("ivw_mre", "egger"), ci = 0.9, nonce = 6))
   expect("server: rerunning a pair with the same settings reuses its folder", length(studio_pair_folders(rv$h$dir)) == 2L && length(ui_state_get(rv$h$con, "pairs")) == 2L)
 })
+# ---- imported datasets in a run: harmonisation, ledger, refusals ----
+set.seed(1); kk <- 60; snps <- sprintf("rs%d", 1000 + 1:kk); eaa <- sample(c("A", "C", "G", "T"), kk, TRUE); cmp <- c(A = "T", T = "A", C = "G", G = "C")
+oaa <- vapply(eaa, function(x) sample(setdiff(c("A", "C", "G", "T"), x), 1), ""); bxx <- runif(kk, .05, .15) * sample(c(-1, 1), kk, TRUE); sxx <- runif(kk, .01, .015)
+efq <- round(runif(kk, .1, .9), 3); byy <- 0.3 * bxx + rnorm(kk, 0, .01); syy <- runif(kk, .01, .02)
+exd <- data.frame(snp = snps, ea = eaa, oa = oaa, eaf = efq, beta = bxx, se = sxx, p = 2 * pnorm(-abs(bxx / sxx)), n = 100000)
+oud <- data.frame(snp = snps, ea = eaa, oa = oaa, eaf = efq, beta = byy, se = syy, p = 2 * pnorm(-abs(byy / syy)), n = 200000, stringsAsFactors = FALSE)
+swr <- 1:10; tt <- oud$ea[swr]; oud$ea[swr] <- oud$oa[swr]; oud$oa[swr] <- tt; oud$beta[swr] <- -oud$beta[swr]; oud$eaf[swr] <- 1 - oud$eaf[swr]
+palx <- (eaa == "A" & oaa == "T") | (eaa == "T" & oaa == "A") | (eaa == "C" & oaa == "G") | (eaa == "G" & oaa == "C")
+str5 <- which(!palx & seq_len(kk) > 10)[1:5]; oud$ea[str5] <- cmp[oud$ea[str5]]; oud$oa[str5] <- cmp[oud$oa[str5]]
+oud <- oud[-(55:58), ][sample(kk - 4), ]
+fxx <- tempfile(fileext = ".csv"); foo <- tempfile(fileext = ".csv"); utils::write.csv(exd, fxx, row.names = FALSE); utils::write.csv(oud, foo, row.names = FALSE)
+mpl <- list(snp = "snp", ea = "ea", oa = "oa", eaf = "eaf", beta = "beta", se = "se", p = "p", n = "n")
+fct <- function(nm, role, ind, ea_ok = "yes") list(name = nm, role = role, kind = "continuous", scale = "beta", ea_ok = ea_ok, frq = "eaf", build = "37", ancestry = "EUR", n = "", scope = "selected", sex = "both", ukb = FALSE, independent = ind)
+invisible(import_save(fxx, "ex.csv", ",", names(exd), mpl, fct("Trait X", "exposure", "yes")))
+invisible(import_save(foo, "out.csv", ",", names(exd), mpl, fct("Trait Y", "outcome", "no")))
+invisible(import_save(fxx, "ex2.csv", ",", names(exd), mpl, fct("Trait X2", "exposure", "no")))
+expect("library catalogue lists only usable datasets by role", identical(vapply(library_catalogue()$exposures, `[[`, "", "id"), "lib:Trait X") && identical(vapply(library_catalogue()$outcomes, `[[`, "", "id"), "lib:Trait Y"))
+lp <- pair_input("lib:Trait X", "lib:Trait Y", pthr = 1e-4); led <- lp$ledger; ld <- lp$input$data
+expect("harmonisation ledger: 4 instruments missing in the outcome, every other one kept, flipped or dropped with a reason", led$missing_in_outcome == 4 && led$kept + led$dropped_palindromic + led$dropped_mismatch == led$in_outcome && led$flipped >= 10 && !lp$simulated)
+expect("harmonised effects point the same way as the truth after allele alignment", mean(sign(ld$beta_x[ld$mr_keep]) == sign(ld$beta_y[ld$mr_keep])) > 0.9)
+expect("an exposure that is not marked independent is refused with the reason", grepl("Clumping is not built", tryCatch(pair_input("lib:Trait X2", "lib:Trait Y", 1e-4), error = conditionMessage)))
+expect("a simulated and an imported trait cannot be paired", grepl("cannot be paired", tryCatch(pair_input("expA", "lib:Trait Y"), error = conditionMessage)))
+expect("an exposure with no variant under the threshold is refused", grepl("Fewer than 2 variants", tryCatch(pair_input("lib:Trait X", "lib:Trait Y", 1e-300), error = conditionMessage)))
+hl <- studio_new("Imported run"); rl <- studio_run(hl, lp$exposure_label, lp$outcome_label, lp$input, c("ivw_mre", "egger"), idx = 1L)
+pll <- pair_payload(hl$dir, rl$pair_folder)
+expect("an imported pair runs through both methods with an identical replay check", identical(pll$replay$status, "identical") && length(pll$estimates) == 3L && all(vapply(pll$estimates, function(e) e$n_ivs_used == led$kept, TRUE)))
+ivw_l <- suppressWarnings(TwoSampleMR::mr_ivw_mre(ld$beta_x[ld$mr_keep], ld$beta_y[ld$mr_keep], ld$se_x[ld$mr_keep], ld$se_y[ld$mr_keep], TwoSampleMR::default_parameters()))
+expect("the imported IVW estimate equals TwoSampleMR on the harmonised table", abs(pll$estimates[[1]]$estimate - ivw_l$b) < 1e-9)
+DBI::dbDisconnect(hl$con)
+# "the effect size is for the other allele" must swap the labels in the saved copy
+swd <- data.frame(snp = c("rs1", "rs2", "rs3"), ea = c("A", "C", "G"), oa = c("G", "T", "A"), beta = c(.1, .2, .3), se = c(.01, .01, .01)); fsw <- tempfile(fileext = ".csv"); utils::write.csv(swd, fsw, row.names = FALSE)
+invisible(import_save(fsw, "sw.csv", ",", names(swd), list(snp = "snp", ea = "ea", oa = "oa", beta = "beta", se = "se"), modifyList(fct("Swap test", "outcome", "no", ea_ok = "swap"), list(frq = "none"))))
+sd2 <- library_dataset("Swap test")$data
+expect("import: answering 'no, the effect is for the other allele' swaps the allele labels", identical(sd2$ea, c("G", "T", "A")) && identical(sd2$oa, c("A", "C", "G")))
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

@@ -115,6 +115,8 @@ import_save <- function(path, orig_name, sep, columns, mapping, facts, root = st
   rn <- setNames(names(mp), unlist(mp)); names(d) <- unname(rn[names(d)])
   for (r in intersect(c("eaf", "beta", "se", "p", "n", "pos"), names(d))) d[[r]] <- suppressWarnings(as.numeric(d[[r]]))
   d$ea <- toupper(d$ea); d$oa <- toupper(d$oa)
+  # "No, the effect size is for the other allele": the labels swap, so the effect allele column always holds the allele the effect belongs to.
+  if (identical(facts$ea_ok, "swap")) { tmp <- d$ea; d$ea <- d$oa; d$oa <- tmp }
   key <- if ("snp" %in% names(d)) d$snp else paste(d$chr, d$pos, d$ea, d$oa)
   keep <- grepl("^[ACGT]$", d$ea) & grepl("^[ACGT]$", d$oa) & !is.na(d$beta) & !is.na(d$se) & d$se > 0 & !duplicated(key)
   d <- d[keep, , drop = FALSE]
@@ -128,7 +130,9 @@ import_save <- function(path, orig_name, sep, columns, mapping, facts, root = st
   dir.create(dest, recursive = TRUE)
   out <- file.path(dest, "standardised.csv"); utils::write.csv(d, out, row.names = FALSE, na = "")
   rec <- list(trait = nm, role = facts$role, facts = facts, mapping = mp, original = list(file = orig_name, bytes = file.size(path), sha256 = sha256_file(path)),
-              rows_in_file = v$stats$rows, rows_kept = nrow(d), warnings = v$warnings, saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"), usable_in_runs = FALSE)
+              rows_in_file = v$stats$rows, rows_kept = nrow(d), warnings = v$warnings, saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+              usable_as_exposure = facts$role %in% c("exposure", "either") && identical(facts$independent, "yes"),
+              usable_as_outcome = facts$role %in% c("outcome", "either"), usable_in_runs = TRUE)
   atomic_write_text(file.path(dest, "recipe.json"), jsonlite::toJSON(rec, auto_unbox = TRUE, pretty = TRUE, null = "null"))
   rec
 }
@@ -160,4 +164,15 @@ template_match <- function(fingerprint) {
   best <- NULL; bs <- 0
   for (t in template_list()) { fp <- unlist(t$fingerprint); j <- length(intersect(fp, fingerprint)) / length(union(fp, fingerprint)); if (j > bs) { bs <- j; best <- t } }
   if (!is.null(best) && bs >= 0.8) c(best, list(similarity = bs)) else NULL
+}
+
+#' One imported dataset, read back from the Data library: its recipe and its standard copy.
+library_dataset <- function(trait, root = studies_root()) {
+  dir <- file.path(library_dir(root), basename(trait))
+  rf <- file.path(dir, "recipe.json"); cf <- file.path(dir, "standardised.csv")
+  if (!file.exists(rf) || !file.exists(cf)) stop("The dataset \"", trait, "\" is not in the Data library any more.")
+  rec <- jsonlite::fromJSON(rf, simplifyVector = FALSE)
+  hd <- names(utils::read.csv(cf, nrows = 1, check.names = FALSE)); cc <- c(snp = "character", chr = "character", ea = "character", oa = "character")
+  d <- utils::read.csv(cf, stringsAsFactors = FALSE, colClasses = cc[intersect(names(cc), hd)])
+  list(recipe = rec, data = d)
 }

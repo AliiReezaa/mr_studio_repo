@@ -131,6 +131,17 @@ demo_catalogue <- function() {
   mk <- function(d) lapply(seq_len(nrow(d)), function(i) list(id = d$id[i], name = d$name[i], src = "Demo, simulated", n = format(d$n[i], big.mark = ","), anc = "EUR"))
   list(exposures = mk(DEMO_EXPOSURES), outcomes = mk(DEMO_OUTCOMES))
 }
+#' Datasets imported by the user, offered next to the simulated traits. An exposure must be marked as already independent (clumping is not built).
+library_catalogue <- function(root = studies_root()) {
+  recs <- tryCatch(library_list(root), error = function(e) list())
+  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, src = "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?")
+  list(exposures = lapply(Filter(function(r) isTRUE(r$usable_as_exposure), recs), mk, role = "exposure"),
+       outcomes = lapply(Filter(function(r) isTRUE(r$usable_as_outcome), recs), mk, role = "outcome"))
+}
+catalogue_all <- function(root = studies_root()) {
+  d <- demo_catalogue(); l <- library_catalogue(root)
+  list(exposures = c(l$exposures, d$exposures), outcomes = c(l$outcomes, d$outcomes))
+}
 .seed_of <- function(x) sum(utf8ToInt(x) * seq_along(utf8ToInt(x))) %% 2147483647
 
 #' One simulated pair of 40 instruments. The instruments belong to the exposure; the outcome noise belongs to the pair.
@@ -150,13 +161,71 @@ demo_input <- function(exp_id, out_id) {
        input = list(kind = "pair_iv", data = d, exposure_id = paste0("demo:", exp_id), outcome_id = paste0("demo:", out_id), outcome_scale = "beta"))
 }
 
+.vkey <- function(d) {
+  if ("snp" %in% names(d) && any(nzchar(d$snp))) return(list(key = d$snp, kind = "rsID"))
+  if (all(c("chr", "pos") %in% names(d))) return(list(key = paste0(d$chr, ":", d$pos), kind = "position"))
+  stop("The dataset has neither variant IDs nor chromosome and position.")
+}
+
+#' A pair of imported datasets, made ready for the methods: instruments are the exposure variants with P below the threshold (the file must
+#' already hold independent variants), looked up in the outcome and harmonised with TwoSampleMR::harmonise_data (action 2: palindromic
+#' variants are aligned by allele frequency or dropped). Every instrument that is lost on the way is counted in the `ledger`.
+library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root()) {
+  ex <- library_dataset(sub("^lib:", "", exp_id), root); ou <- library_dataset(sub("^lib:", "", out_id), root)
+  if (!isTRUE(ex$recipe$usable_as_exposure)) stop("\"", ex$recipe$trait, "\" is not marked as a set of independent instruments, so it cannot be an exposure yet. Clumping is not built. Import a file that holds only clumped, genome-wide significant variants and answer \"Yes\" to the question about independent variants.")
+  if (!isTRUE(ou$recipe$usable_as_outcome)) stop("\"", ou$recipe$trait, "\" was imported as an exposure only.")
+  kx <- .vkey(ex$data); ky <- .vkey(ou$data)
+  if (!identical(kx$kind, ky$kind)) stop("One dataset identifies variants by rsID and the other only by chromosome and position, so they cannot be matched. Import both with the same kind of ID.")
+  X <- ex$data; X$key <- kx$key; Y <- ou$data; Y$key <- ky$key
+  if (!("p" %in% names(X))) X$p <- 2 * stats::pnorm(-abs(X$beta / X$se))
+  led <- list(candidates = nrow(X))
+  X <- X[is.finite(X$p) & X$p < pthr, , drop = FALSE]; led$instruments <- nrow(X)
+  if (nrow(X) < 2L) stop("Fewer than 2 variants in \"", ex$recipe$trait, "\" reach P < ", format(pthr, scientific = TRUE), ". At least 2 instruments are needed.")
+  Y <- Y[Y$key %in% X$key, , drop = FALSE]; led$in_outcome <- nrow(Y); led$missing_in_outcome <- led$instruments - nrow(Y)
+  if (nrow(Y) < 2L) stop("Fewer than 2 instruments were found in \"", ou$recipe$trait, "\".")
+  fmt <- function(D, type) {
+    D2 <- data.frame(SNP = D$key, beta = D$beta, se = D$se, effect_allele = D$ea, other_allele = D$oa, stringsAsFactors = FALSE)
+    if ("eaf" %in% names(D) && any(is.finite(D$eaf))) D2$eaf <- D$eaf
+    if ("p" %in% names(D)) D2$pval <- D$p
+    if ("n" %in% names(D)) D2$samplesize <- D$n
+    suppressMessages(TwoSampleMR::format_data(D2, type = type, snp_col = "SNP", beta_col = "beta", se_col = "se", effect_allele_col = "effect_allele", other_allele_col = "other_allele",
+      eaf_col = if ("eaf" %in% names(D2)) "eaf" else NULL, pval_col = if ("pval" %in% names(D2)) "pval" else NULL, samplesize_col = if ("samplesize" %in% names(D2)) "samplesize" else NULL))
+  }
+  H <- suppressWarnings(suppressMessages(TwoSampleMR::harmonise_data(fmt(X, "exposure"), fmt(Y, "outcome"), action = 2)))
+  if (!nrow(H)) stop("No instrument could be matched to the outcome.")
+  oy <- stats::setNames(Y$ea, Y$key)
+  flipped <- toupper(H$effect_allele.exposure) != toupper(oy[H$SNP])
+  act <- ifelse(H$mr_keep, ifelse(flipped, "flipped", "aligned"), ifelse(H$palindromic %in% TRUE, "dropped_palindromic", "dropped_allele_mismatch"))
+  col <- function(nm) if (nm %in% names(H)) H[[nm]] else rep(NA_real_, nrow(H))
+  d <- data.frame(variant_id = H$SNP, ea = toupper(H$effect_allele.exposure), oa = toupper(H$other_allele.exposure), beta_x = H$beta.exposure, se_x = H$se.exposure,
+                  eaf_x = col("eaf.exposure"), beta_y = H$beta.outcome, se_y = H$se.outcome, eaf_y = col("eaf.outcome"), p_x = col("pval.exposure"), p_y = col("pval.outcome"),
+                  n_x = col("samplesize.exposure"), n_y = col("samplesize.outcome"), harmonise_action = act, mr_keep = H$mr_keep %in% TRUE, stringsAsFactors = FALSE)
+  d <- d[order(d$p_x), , drop = FALSE]; rownames(d) <- NULL
+  led$flipped <- sum(d$harmonise_action == "flipped"); led$dropped_palindromic <- sum(d$harmonise_action == "dropped_palindromic")
+  led$dropped_mismatch <- sum(d$harmonise_action == "dropped_allele_mismatch"); led$kept <- sum(d$mr_keep); led$threshold <- pthr; led$id_kind <- kx$kind
+  if (led$kept < 2L) stop("Fewer than 2 instruments remain after harmonisation.")
+  sc <- if (identical(ou$recipe$facts$kind, "binary")) "log_or" else "beta"
+  list(exposure_label = ex$recipe$trait, outcome_label = ou$recipe$trait, simulated = FALSE, ledger = led,
+       anc_x = ex$recipe$facts$ancestry %||% "?", anc_y = ou$recipe$facts$ancestry %||% "?",
+       input = list(kind = "pair_iv", data = d, exposure_id = exp_id, outcome_id = out_id, outcome_scale = sc))
+}
+
+#' One pair as the methods need it, from the simulated catalogue or from imported datasets (never a mixture).
+pair_input <- function(exp_id, out_id, pthr = 5e-8) {
+  le <- startsWith(exp_id, "lib:"); lo <- startsWith(out_id, "lib:")
+  if (le != lo) stop("A simulated trait cannot be paired with an imported one. Choose two simulated traits or two imported datasets.")
+  if (le) return(library_pair_input(exp_id, out_id, pthr))
+  p <- demo_input(exp_id, out_id); p$simulated <- TRUE; p$anc_x <- "EUR"; p$anc_y <- "EUR"; p$ledger <- NULL; p
+}
+
 #' What the engine can say about a pair before running it (Methods and Check screens). Real numbers from the data table.
-pair_facts <- function(exp_id, out_id) {
-  p <- demo_input(exp_id, out_id); d <- p$input$data; kept <- d[d$mr_keep, ]
+pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
+  p <- pair_input(exp_id, out_id, pthr); d <- p$input$data; kept <- d[d$mr_keep, ]
   Fs <- (kept$beta_x / kept$se_x)^2
   pal <- sum((kept$ea == "A" & kept$oa == "T") | (kept$ea == "T" & kept$oa == "A") | (kept$ea == "C" & kept$oa == "G") | (kept$ea == "G" & kept$oa == "C"))
   list(exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(kept), mean_f = round(mean(Fs), 1), min_f = round(min(Fs), 1),
-       n_weak = sum(Fs < 10), palindromic = pal, scale = p$input$outcome_scale)
+       n_weak = sum(Fs < 10), palindromic = pal, scale = p$input$outcome_scale,
+       simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger)
 }
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger")
@@ -369,15 +438,15 @@ ci_default_rows <- function(estimates, level = 0.95) {
 #' Descriptive table of the instruments of a pair for the outlier review. Nothing here is an estimator: the single-variant ratio is
 #' beta_y / beta_x, the weight share is the first-order inverse-variance weight (beta_x^2 / se_y^2) as a share of the total, and F is
 #' (beta_x / se_x)^2. Detection of outliers is left to the packages named in the spec (not built yet).
-instrument_table <- function(exp_id, out_id) {
-  d <- demo_input(exp_id, out_id)$input$data; d <- d[d$mr_keep, ]
+instrument_table <- function(exp_id, out_id, pthr = 5e-8) {
+  d <- pair_input(exp_id, out_id, pthr)$input$data; d <- d[d$mr_keep, ]
   w <- d$beta_x^2 / d$se_y^2
   data.frame(id = d$variant_id, bx = d$beta_x, by = d$beta_y, ratio = d$beta_y / d$beta_x, share = w / sum(w), f = (d$beta_x / d$se_x)^2, stringsAsFactors = FALSE)
 }
 
 #' Sensitivity branch: the same pair analysed again without the chosen variants, as its own pair folder (the primary results stay as they are).
-studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL) {
-  inp <- demo_input(exp_id, out_id)
+studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8) {
+  inp <- pair_input(exp_id, out_id, pthr)
   d <- inp$input$data; hit <- d$variant_id %in% remove
   if (!all(remove %in% d$variant_id)) stop("Some of the chosen variants are not instruments of this pair.")
   d$mr_keep[hit] <- FALSE; inp$input$data <- d
