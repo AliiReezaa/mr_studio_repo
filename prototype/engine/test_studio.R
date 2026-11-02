@@ -362,6 +362,12 @@ expect("opengwas outcome: with proxies off only the 12 direct hits are kept, and
 
 pp12 <- pair_input(paste0("lib:", rx$trait), paste0("lib:", ro$trait))
 expect("opengwas pair: built by the same harmonisation as imported files; the ledger counts the proxies and what was lost", pp12$ledger$instruments == 15L && pp12$ledger$by_proxy == 2L && pp12$ledger$missing_in_outcome == 1L && pp12$ledger$kept == 14L && !isTRUE(pp12$ukb_both) && pp12$anc_x == "EUR" && pp12$anc_y == "EUR")
+pf12 <- pair_facts(paste0("lib:", rx$trait), paste0("lib:", ro$trait))
+expect("opengwas pair: the facts say which sides came from OpenGWAS, so the Check screen can word ancestry correctly", isTRUE(pf12$og_x) && isTRUE(pf12$og_y) && !isTRUE(pair_facts("expA", "outA")$og_x))
+rhome_orig <- Sys.getenv("R_HOME"); Sys.setenv(R_HOME = "/keep/this/value"); .with_user_env(expect("programs started for the user do not inherit the bundled R settings", !nzchar(Sys.getenv("R_HOME"))))
+expect("programs started for the user: the engine's own settings are put back afterwards", identical(Sys.getenv("R_HOME"), "/keep/this/value")); Sys.setenv(R_HOME = rhome_orig)
+tmp_r <- tempfile(fileext = ".R"); writeLines("x", tmp_r)
+expect("text editor: only scripts inside the studies folder can be opened", grepl("Only scripts", err_of(open_in_text_editor(tmp_r))))
 h12 <- studio_new("OpenGWAS pair"); r12 <- studio_run(h12, pp12$exposure_label, pp12$outcome_label, pp12$input, c("ivw_mre", "egger"), idx = 1L)
 expect("opengwas pair: the analysis runs from downloaded data, replay identical, IVW estimate near the planted 0.25", all(vapply(r12$results, function(x) x$status, "") == "ok") && identical(r12$replay$status, "identical") && abs(pair_results(h12$dir, r12$pair_folder)$estimate[1] - 0.25) < 0.08)
 ui_state_set(h12$con, "pairs", list(list(ex = paste0("lib:", rx$trait), out = paste0("lib:", ro$trait), exName = pp12$exposure_label, outName = pp12$outcome_label, folder = r12$pair_folder, methods = as.list(c("ivw_mre", "egger")), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = pp12$ledger, anc_x = "EUR", anc_y = "EUR")))

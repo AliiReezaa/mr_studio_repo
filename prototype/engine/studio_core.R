@@ -228,7 +228,7 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
   pal <- sum((kept$ea == "A" & kept$oa == "T") | (kept$ea == "T" & kept$oa == "A") | (kept$ea == "C" & kept$oa == "G") | (kept$ea == "G" & kept$oa == "C"))
   list(exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(kept), mean_f = round(mean(Fs), 1), min_f = round(min(Fs), 1),
        n_weak = sum(Fs < 10), palindromic = pal, scale = p$input$outcome_scale,
-       simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both))
+       simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y))
 }
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger")
@@ -319,14 +319,36 @@ study_files <- function(study) {
   m
 }
 
+#' Run a program that belongs to the user (an editor, RStudio) without the engine's own R settings. The bundled R sets R_HOME and
+#' library paths; a program started from here would otherwise inherit them and could pick up the bundled R instead of its own.
+.with_user_env <- function(expr) {
+  nm <- c("R_HOME", "R_SHARE_DIR", "R_INCLUDE_DIR", "R_DOC_DIR", "R_LIBS", "R_LIBS_SITE", "R_LIBS_USER", "R_ARCH", "R_PLATFORM", "R_PAPERSIZE", "R_ENVIRON", "R_PROFILE")
+  old <- Sys.getenv(nm, unset = NA); on.exit({ for (n in nm) if (!is.na(old[[n]])) do.call(Sys.setenv, stats::setNames(list(old[[n]]), n)) }, add = TRUE)
+  Sys.unsetenv(nm); force(expr)
+}
+
 #' Open a folder in Finder or Explorer. Only paths inside the studies root are opened.
 open_in_file_manager <- function(path, root = studies_root()) {
   p <- normalizePath(path, winslash = "/", mustWork = TRUE)
   r <- normalizePath(root, winslash = "/", mustWork = FALSE)
   if (!startsWith(p, paste0(r, "/")) && !identical(p, r)) stop("Only study folders can be opened from here.")
   if (.Platform$OS.type == "windows") utils::shell.exec(normalizePath(p))
-  else system2(if (Sys.info()[["sysname"]] == "Darwin") "open" else "xdg-open", shQuote(p), wait = FALSE)
+  else .with_user_env(system2(if (Sys.info()[["sysname"]] == "Darwin") "open" else "xdg-open", shQuote(p), wait = FALSE))
   invisible(TRUE)
+}
+
+#' Open a script in the computer's plain text editor (TextEdit, Notepad). Used when RStudio is not installed. The script is not
+#' handed to whatever program is registered for .R files, because on many computers that is R itself, which cannot edit it well.
+open_in_text_editor <- function(path, root = studies_root()) {
+  p <- normalizePath(path, winslash = "/", mustWork = TRUE)
+  r <- normalizePath(root, winslash = "/", mustWork = FALSE)
+  if (!startsWith(p, paste0(r, "/"))) stop("Only scripts inside the studies folder can be opened from here.")
+  sys <- Sys.info()[["sysname"]]
+  .with_user_env(
+    if (sys == "Darwin") system2("open", c("-t", shQuote(p)), wait = FALSE)
+    else if (.Platform$OS.type == "windows") system2("notepad.exe", shQuote(normalizePath(p, winslash = "\\")), wait = FALSE)
+    else system2("xdg-open", shQuote(p), wait = FALSE))
+  invisible(p)
 }
 
 
@@ -424,8 +446,8 @@ open_in_rstudio <- function(study, pair_folder, root = studies_root()) {
   if (!startsWith(p, paste0(r, "/"))) stop("Only scripts inside the studies folder can be opened from here.")
   rs <- rstudio_path()
   if (is.na(rs)) return(list(opened = FALSE, script = p))
-  if (Sys.info()[["sysname"]] == "Darwin") system2("open", c("-a", shQuote(rs), shQuote(p)), wait = FALSE)
-  else system2(rs, shQuote(p), wait = FALSE)
+  .with_user_env(if (Sys.info()[["sysname"]] == "Darwin") system2("open", c("-a", shQuote(rs), shQuote(p)), wait = FALSE)
+                 else system2(rs, shQuote(p), wait = FALSE))
   list(opened = TRUE, script = p)
 }
 
