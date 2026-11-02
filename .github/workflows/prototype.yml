@@ -191,6 +191,12 @@ jobs:
           python -m pip install --quiet websockets
           MRGUI_R_CMD="$RBIN|--no-echo|--no-restore|--vanilla" python prototype/engine/test_gate.py
 
+      - name: Real https request to OpenGWAS with the moved runtime
+        run: |
+          # The runtime was built in another folder; its libcurl remembers that folder's certificate file.
+          # This step fails the build if a verified https call does not work from the moved runtime.
+          "$RBIN" --no-echo --no-restore --vanilla --file=prototype/ci/https_check.R
+
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - uses: dtolnay/rust-toolchain@stable

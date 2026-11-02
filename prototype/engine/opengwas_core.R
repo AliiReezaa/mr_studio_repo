@@ -48,11 +48,59 @@ ogw_token_info <- function(tok, now = Sys.time()) {
 ogw_token_set <- function(tok) { if (is.null(tok)) rm(list = intersect("jwt", ls(.ogw_mem)), envir = .ogw_mem) else assign("jwt", tok, envir = .ogw_mem); invisible(TRUE) }
 ogw_token_get <- function() if (exists("jwt", envir = .ogw_mem, inherits = FALSE)) get("jwt", envir = .ogw_mem) else NULL
 
+# ---- certificate file ------------------------------------------------------------------------------------------------------------------
+# The bundled R is built on a different computer, and its libcurl remembers that computer's certificate path
+# (for example /Users/runner/work/_temp/build_runtime/ssl/cacert.pem). On the user's machine that file does not exist and every
+# https request fails with "Problem with the SSL CA cert". So we choose a certificate file that really exists here, in this order:
+# the user's own setting, the file inside the bundled runtime, the operating system's file, and finally a copy shipped with the
+# app (engine/certs/cacert.pem). If a request still fails with a certificate error, the next file in the list is tried.
+.ogw_ca_state <- new.env(parent = emptyenv())
+.ogw_ca_valid <- function(f) {
+  if (!length(f) || is.na(f) || !nzchar(f) || !file.exists(f) || dir.exists(f)) return(FALSE)
+  if (isTRUE(file.info(f)$size < 1000)) return(FALSE)
+  l <- tryCatch(readLines(f, n = 60L, warn = FALSE), error = function(e) character())
+  any(grepl("BEGIN CERTIFICATE", l, fixed = TRUE))
+}
+ogw_ca_candidates <- function() {
+  e <- Sys.getenv(c("MRGUI_CA_BUNDLE", "CURL_CA_BUNDLE", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"), unset = "")
+  rh <- tryCatch(R.home(), error = function(e) "")
+  ed <- getOption("mrgui.engine_dir", "")
+  unique(c(e[nzchar(e)],
+    file.path(rh, "..", "..", "ssl", "cacert.pem"), file.path(rh, "..", "..", "ssl", "cert.pem"),
+    file.path(rh, "..", "..", "Library", "ssl", "cacert.pem"), file.path(rh, "..", "..", "etc", "ssl", "cacert.pem"),
+    file.path(rh, "..", "..", "..", "ssl", "cacert.pem"), file.path(rh, "..", "..", "..", "Library", "ssl", "cacert.pem"),
+    "/etc/ssl/cert.pem", "/private/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt",
+    "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/ca-bundle.pem", "/etc/pki/tls/cacert.pem",
+    if (nzchar(ed)) file.path(ed, "certs", "cacert.pem")))
+}
+.ogw_ca_apply <- function(path) {
+  path <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  Sys.setenv(CURL_CA_BUNDLE = path, SSL_CERT_FILE = path)
+  if (requireNamespace("httr", quietly = TRUE)) try(httr::set_config(httr::config(cainfo = path)), silent = TRUE)
+  .ogw_ca_state$path <- path
+  path
+}
+ogw_ca_setup <- function(candidates = ogw_ca_candidates(), force = FALSE) {
+  if (!force && !is.null(.ogw_ca_state$path)) return(invisible(.ogw_ca_state$path))
+  ok <- Filter(.ogw_ca_valid, candidates)
+  .ogw_ca_state$list <- vapply(ok, normalizePath, "", winslash = "/", mustWork = FALSE, USE.NAMES = FALSE)
+  if (!length(ok)) { .ogw_ca_state$path <- ""; return(invisible("")) }
+  invisible(.ogw_ca_apply(ok[1]))
+}
+#' Move to the next usable certificate file (used after a certificate error). FALSE when there is none left.
+ogw_ca_next <- function() {
+  ogw_ca_setup(); l <- .ogw_ca_state$list %||% character(); cur <- .ogw_ca_state$path %||% ""
+  i <- match(cur, l); nx <- if (is.na(i)) l[1] else l[i + 1L]
+  if (is.na(nx) || !length(nx)) return(FALSE)
+  .ogw_ca_apply(nx); TRUE
+}
+.ogw_is_cert_error <- function(e) grepl("SSL|certificate|CA cert|trust anchor|peer verification", conditionMessage(e), ignore.case = TRUE)
+
 # ---- talking to OpenGWAS (replaceable for tests) --------------------------------------------------------------------------------------
-.ogw_real_backend <- function() list(
+.ogw_real_backend <- function() { ogw_ca_setup(); list(
   info = function(jwt, id = NULL) as.data.frame(ieugwasr::gwasinfo(id, opengwas_jwt = jwt), stringsAsFactors = FALSE),
   tophits = function(id, p, r2, kb, pop, jwt) as.data.frame(ieugwasr::tophits(id, pval = p, clump = 1, r2 = r2, kb = kb, pop = pop, opengwas_jwt = jwt), stringsAsFactors = FALSE),
-  outcome = function(snps, id, proxies, rsq, maf, jwt) as.data.frame(suppressMessages(TwoSampleMR::extract_outcome_data(snps, id, proxies = proxies, rsq = rsq, maf_threshold = maf, opengwas_jwt = jwt)), stringsAsFactors = FALSE))
+  outcome = function(snps, id, proxies, rsq, maf, jwt) as.data.frame(suppressMessages(TwoSampleMR::extract_outcome_data(snps, id, proxies = proxies, rsq = rsq, maf_threshold = maf, opengwas_jwt = jwt)), stringsAsFactors = FALSE)) }
 ogw_backend <- function() getOption("mrgui.ogw_backend", .ogw_real_backend())
 
 #' Turn the packages' technical errors into sentences that say what to do. Tokens are removed from any text that is passed on.
@@ -71,7 +119,15 @@ ogw_friendly <- function(e) {
     return(paste0("Cannot reach OpenGWAS. Check the internet connection (or a firewall or proxy) and try again. Imported files and saved studies still work.", detail))
   paste0("OpenGWAS returned an unexpected answer: ", substr(m, 1, 240))
 }
-.ogw_do <- function(expr) tryCatch(expr, error = function(e) stop(ogw_friendly(e), call. = FALSE))
+.ogw_do <- function(expr) {
+  ex <- substitute(expr); env <- parent.frame()
+  repeat {
+    r <- tryCatch(list(v = eval(ex, env)), error = function(e) e)
+    if (!inherits(r, "error")) return(r$v)
+    if (.ogw_is_cert_error(r) && ogw_ca_next()) next
+    stop(ogw_friendly(r), call. = FALSE)
+  }
+}
 .ogw_need <- function(jwt, offline = FALSE) {
   if (isTRUE(offline)) stop("Offline mode is on in Settings, so nothing is downloaded. Turn it off to use OpenGWAS.", call. = FALSE)
   if (is.null(jwt) || !nzchar(jwt)) stop("Paste your OpenGWAS access token in Settings first. It is free: create it at api.opengwas.io.", call. = FALSE)
@@ -269,8 +325,13 @@ ogw_token_test <- function(jwt, offline = FALSE, backend = ogw_backend()) {
 
 #' Is OpenGWAS reachable at all from this engine? Uses its public status page, which needs no token. Any answer from the server counts as reachable.
 .ogw_ping_real <- function() {
-  r <- tryCatch(httr::GET("https://api.opengwas.io/api/status", httr::timeout(20)), error = function(e) e)
-  if (inherits(r, "error")) return(list(ok = FALSE, detail = substr(gsub("\\s+", " ", redact(conditionMessage(r), character())), 1, 300)))
-  list(ok = TRUE, detail = paste0("api.opengwas.io answered (HTTP ", r$status_code, ")"))
+  ca <- ogw_ca_setup()
+  repeat {
+    r <- tryCatch(httr::GET("https://api.opengwas.io/api/status", httr::timeout(20)), error = function(e) e)
+    if (inherits(r, "error") && .ogw_is_cert_error(r) && ogw_ca_next()) { ca <- .ogw_ca_state$path; next }
+    break
+  }
+  if (inherits(r, "error")) return(list(ok = FALSE, detail = substr(paste0(gsub("\\s+", " ", redact(conditionMessage(r), character())), " [certificates: ", if (nzchar(ca)) ca else "none found", "]"), 1, 400)))
+  list(ok = TRUE, detail = paste0("api.opengwas.io answered (HTTP ", r$status_code, "). Certificates: ", if (nzchar(ca)) ca else "none found"))
 }
 ogw_ping <- function(backend = ogw_backend()) { f <- backend$ping %||% .ogw_ping_real; tryCatch(f(), error = function(e) list(ok = FALSE, detail = substr(conditionMessage(e), 1, 300))) }
