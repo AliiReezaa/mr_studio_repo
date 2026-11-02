@@ -58,6 +58,7 @@ ogw_backend <- function() getOption("mrgui.ogw_backend", .ogw_real_backend())
 #' Turn the packages' technical errors into sentences that say what to do. Tokens are removed from any text that is passed on.
 ogw_friendly <- function(e) {
   m <- paste(conditionMessage(e), collapse = " "); m <- gsub("\\s+", " ", redact(m, character()))
+  detail <- paste0(" Technical detail: ", substr(m, 1, 220))
   if (grepl("Status code from OpenGWAS API: 401|\\b401\\b|must provide a token|token.*(expired|invalid)", m, ignore.case = TRUE))
     return("OpenGWAS did not accept the access token. It may be missing, mistyped or expired (tokens last for a limited time). Create a new token at api.opengwas.io and paste it in Settings.")
   if (grepl("\\b429\\b|too many|allowance|rate limit", m, ignore.case = TRUE))
@@ -67,7 +68,7 @@ ogw_friendly <- function(e) {
   if (grepl("\\b5[0-9][0-9]\\b|bad gateway|unavailable|server error", m, ignore.case = TRUE))
     return("OpenGWAS is not answering properly at the moment (a server error on their side). Try again later. Imported files and saved studies still work.")
   if (grepl("resolve host|could not resolve|timed out|timeout|failed to connect|connection (refused|reset)|ssl|certificate|curl|network|unreachable|cannot open the connection", m, ignore.case = TRUE))
-    return("Cannot reach OpenGWAS. Check the internet connection (or a firewall or proxy) and try again. Imported files and saved studies still work.")
+    return(paste0("Cannot reach OpenGWAS. Check the internet connection (or a firewall or proxy) and try again. Imported files and saved studies still work.", detail))
   paste0("OpenGWAS returned an unexpected answer: ", substr(m, 1, 240))
 }
 .ogw_do <- function(expr) tryCatch(expr, error = function(e) stop(ogw_friendly(e), call. = FALSE))
@@ -265,3 +266,11 @@ ogw_token_test <- function(jwt, offline = FALSE, backend = ogw_backend()) {
   if (!is.data.frame(d) || !nrow(d)) stop("OpenGWAS answered, but with nothing. Try again later.", call. = FALSE)
   TRUE
 }
+
+#' Is OpenGWAS reachable at all from this engine? Uses its public status page, which needs no token. Any answer from the server counts as reachable.
+.ogw_ping_real <- function() {
+  r <- tryCatch(httr::GET("https://api.opengwas.io/api/status", httr::timeout(20)), error = function(e) e)
+  if (inherits(r, "error")) return(list(ok = FALSE, detail = substr(gsub("\\s+", " ", redact(conditionMessage(r), character())), 1, 300)))
+  list(ok = TRUE, detail = paste0("api.opengwas.io answered (HTTP ", r$status_code, ")"))
+}
+ogw_ping <- function(backend = ogw_backend()) { f <- backend$ping %||% .ogw_ping_real; tryCatch(f(), error = function(e) list(ok = FALSE, detail = substr(conditionMessage(e), 1, 300))) }

@@ -393,15 +393,16 @@ folder_size_bytes <- function(path) {
 }
 
 #' Self-check for Settings > Run diagnostics. Each item: name, ok, detail.
-run_diagnostics <- function(root = studies_root()) {
+run_diagnostics <- function(root = studies_root(), net = FALSE) {
   chk <- function(name, expr) { r <- tryCatch(expr, error = function(e) list(ok = FALSE, detail = conditionMessage(e))); c(list(name = name), r) }
-  list(
+  Filter(Negate(is.null), list(
     chk("R engine", list(ok = TRUE, detail = R.version.string)),
     chk("TwoSampleMR package", list(ok = requireNamespace("TwoSampleMR", quietly = TRUE), detail = if (requireNamespace("TwoSampleMR", quietly = TRUE)) paste("version", as.character(utils::packageVersion("TwoSampleMR"))) else "not installed")),
     chk("Script runner (Rscript)", { r <- default_rscript(); list(ok = file.exists(r), detail = if (file.exists(r)) "found" else paste("missing:", r)) }),
     chk("Studies folder is writable", { dir.create(root, recursive = TRUE, showWarnings = FALSE); f <- tempfile(".mrstudio-check-", root); ok <- tryCatch({ writeLines("x", f); TRUE }, error = function(e) FALSE, warning = function(w) FALSE); unlink(f); list(ok = ok, detail = root) }),
-    chk("Studies folder is not synchronised", { p <- study_path_problem(root); list(ok = is.null(p), detail = if (is.null(p)) "local folder" else p) })
-  )
+    chk("Studies folder is not synchronised", { p <- study_path_problem(root); list(ok = is.null(p), detail = if (is.null(p)) "local folder" else p) }),
+    if (isTRUE(net)) chk("Internet access to OpenGWAS", ogw_ping())
+  ))
 }
 
 # ---- Open in RStudio (FR-86) and Compare with default (FR-66) ------------------------------------------------------------

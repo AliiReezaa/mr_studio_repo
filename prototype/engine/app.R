@@ -109,7 +109,7 @@ mr_server <- function(engine_dir) {
           root <- studies_root(); b <- if (dir.exists(root)) folder_size_bytes(root) else 0
           ev("settings_info", info = list(size = fmt_bytes(b))); ogw_ev()
         },
-        diagnostics = ev("diagnostics", items = run_diagnostics()),
+        diagnostics = ev("diagnostics", items = run_diagnostics(net = !isTRUE(settings_read()$offline))),
         study_create = {
           nm <- clean_study_name(a$name)
           if (!nzchar(nm)) { ev("name_error", msg = "Give the study a name."); return() }

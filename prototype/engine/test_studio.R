@@ -376,6 +376,10 @@ expect("opengwas pair: a downloaded exposure with an imported outcome is allowed
 ux <- ogw_get_exposure("ukb-sim-1", tok_ok, name = "UKB exposure"); uo <- ogw_get_outcome("ukb-sim-2", ux$trait, tok_ok, name = "UKB outcome")
 expect("opengwas: UK Biobank datasets are flagged from the catalogue, and a pair of two of them carries the overlap flag", isTRUE(ux$facts$ukb) && isTRUE(uo$facts$ukb) && isTRUE(pair_input(paste0("lib:", ux$trait), paste0("lib:", uo$trait))$ukb_both) && isTRUE(pair_facts(paste0("lib:", ux$trait), paste0("lib:", uo$trait))$ukb_both))
 
+BE$ping <- function() list(ok = TRUE, detail = "api.opengwas.io answered (HTTP 200)"); options(mrgui.ogw_backend = BE)
+dg <- run_diagnostics(net = TRUE); dg0 <- run_diagnostics()
+expect("diagnostics: the internet check is only run when asked for, and says what the server answered", length(dg) == length(dg0) + 1L && dg[[length(dg)]]$name == "Internet access to OpenGWAS" && isTRUE(dg[[length(dg)]]$ok) && grepl("HTTP 200", dg[[length(dg)]]$detail))
+expect("opengwas errors: a network failure keeps the technical detail (without any token) so a failure can be diagnosed", grepl("Technical detail: .*certificate", ogw_friendly(simpleError(paste("SSL certificate problem: unable to get local issuer certificate", tok_ok)))) && !grepl("eyJ", ogw_friendly(simpleError(paste("SSL certificate problem", tok_ok)))))
 fe <- function(m) ogw_friendly(simpleError(m))
 expect("opengwas errors: each technical failure becomes a sentence that says what to do", grepl("access token", fe("Status code from OpenGWAS API: 401")) && grepl("limited how many requests", fe("Status code from OpenGWAS API: 429")) && grepl("Cannot reach OpenGWAS", fe("Could not resolve host: api.opengwas.io")) && grepl("server error", fe("Status code from OpenGWAS API: 503")) && grepl("does not know this dataset", fe("Status code from OpenGWAS API: 404")) && grepl("Cannot reach", fe("Timeout was reached")))
 mock$fail <- paste("curl error", tok_ok, "Could not resolve host")
