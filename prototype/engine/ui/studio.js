@@ -644,6 +644,7 @@ function render() {
 }
 function go(screen) {
   S.screen = screen; S.notice = null; const i = STEPS.findIndex((s) => s[1] === screen); if (i > S.maxStep) S.maxStep = i;
+  if ((screen === 'methods' || screen === 'check') && !S.facts && !S.factsBusy && S.pairs && S.pairs.length) { S.factsBusy = true; send('facts', { pairs: S.pairs.map((p) => [p.ex, p.out]), pthr: S.pairs[0].pthr || pthrNum() || 5e-8 }); }
   if (screen === 'settings') send('settings_info'); if (screen === 'home' || screen === 'studies') send('studies'); if (screen === 'library') send('library');
   window.scrollTo(0, 0); render();
 }
@@ -682,7 +683,7 @@ function onClick(e) {
   switch (a) {
     case 'theme': S.theme = v; send('set', { key: 'theme', value: v }); render(); break;
     case 'nav': if (v === 'home' || v === 'studies' || v === 'library' || v === 'settings') go(v); else if (STEPS.findIndex((s) => s[1] === v) <= S.maxStep) { if (v === 'run' && (!S.run)) break; go(v); } break;
-    case 'new': S.study = null; S.name = ''; S.aim = ''; S.ex = []; S.out = []; S.pairs = []; S.run = null; S.payloads = {}; S.sens = []; S.maxStep = 0; S.facts = null; S.pkg = null; S.pkgBusy = false; S.err = null; go('question'); break;
+    case 'new': S.factsBusy = false; S.study = null; S.name = ''; S.aim = ''; S.ex = []; S.out = []; S.pairs = []; S.run = null; S.payloads = {}; S.sens = []; S.maxStep = 0; S.facts = null; S.pkg = null; S.pkgBusy = false; S.err = null; go('question'); break;
     case 'open': send('study_open', { name: v, to: 'auto' }); break;
     case 'open_results': send('study_open', { name: v, to: 'results' }); break;
     case 'sfilter': S.sf = v; render(); break;
@@ -695,7 +696,7 @@ function onClick(e) {
       if (S.study) { send('plan_update', { aim: S.aim, prereg: S.prereg, kind: S.kind }); go('data'); } else { if (!S.name.trim()) { S.err = 'Give the study a name.'; render(); break; } send('study_create', { name: S.name, aim: S.aim, prereg: S.prereg, kind: S.kind }); } break;
     case 'pick_ex': case 'pick_out': { const k = a.slice(5), cur = S[k]; S[k] = cur.indexOf(v) >= 0 ? cur.filter((x) => x !== v) : cur.concat([v]); render(); break; }
     case 'pop': S.pop = v; render(); break;
-    case 'd_next': buildPairs(); S.facts = null; send('facts', { pairs: S.pairs.map((p) => [p.ex, p.out]), pthr: pthrNum() || 5e-8 }); go('methods'); break;
+    case 'd_next': buildPairs(); S.facts = null; S.factsBusy = false; go('methods'); break;
     case 'mfilter': S.mfilter = v; render(); break;
     case 'pick_method': S.methods = S.methods.indexOf(v) >= 0 ? S.methods.filter((x) => x !== v) : S.methods.concat([v]); render(); break;
     case 'preset': S.methods = ['ivw_mre', 'egger']; render(); break;
@@ -790,7 +791,7 @@ function applyStudy(m) {
   const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder, pthr: p.pthr || null }));
   S.ex = Array.from(new Set(S.pairs.map((p) => p.ex))); S.out = Array.from(new Set(S.pairs.map((p) => p.out)));
   if (pairs.length && pairs[0].methods) S.methods = pairs[0].methods; if (pairs.length && pairs[0].params) S.params = Object.assign({ ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, pairs[0].params); else if (pairs.length && pairs[0].ci) S.params.ci_level = pairs[0].ci;
-  S.payloads = m.payloads || {}; S.sens = m.sens || []; S.inst = null; S.sel = []; S.facts = null; S.run = null; S.pkg = null; S.pkgBusy = false;
+  S.payloads = m.payloads || {}; S.sens = m.sens || []; S.inst = null; S.sel = []; S.facts = null; S.factsBusy = false; S.run = null; S.pkg = null; S.pkgBusy = false;
   S.maxStep = pairs.length ? (Object.keys(S.payloads).length ? 5 : 1) : 0;
 }
 function handle(m) {
@@ -799,7 +800,7 @@ function handle(m) {
     case 'studies': S.studies = m.studies; S.root = m.root || S.root; if (S.screen === 'home' || S.screen === 'studies') render(); break;
     case 'study_created': applyStudy(m); S.studies = m.studies || S.studies; go('data'); break;
     case 'study_opened': applyStudy(m); if (m.to === 'results' || (m.to === 'auto' && Object.keys(S.payloads).length)) { S.rp = 0; go('results'); } else if (m.to === 'auto' && S.pairs.length) go('data'); else go(S.pairs.length ? 'data' : 'question'); break;
-    case 'facts': S.factErr = Array.from(new Set(m.facts.filter((f) => f.error).map((f) => f.error))); S.facts = m.facts.filter((f) => !f.error); if (S.screen === 'methods' || S.screen === 'check') render(); break;
+    case 'facts': S.factsBusy = false; S.factErr = Array.from(new Set(m.facts.filter((f) => f.error).map((f) => f.error))); S.facts = m.facts.filter((f) => !f.error); if (S.screen === 'methods' || S.screen === 'check') render(); break;
     case 'pair_done': { const r = S.run; if (!r) break; const p = S.pairs[m.i]; r.times.push((Date.now() - r.t0) / 1000); r.results[m.i] = { ok: m.ok };
       if (m.ok) { p.folder = m.folder; S.payloads[m.folder] = m.payload; r.log.push('Pair ' + (m.i + 1) + ': ' + (m.reused ? 'nothing changed, saved results reused' : 'done') + (m.payload.replay ? ', replay ' + m.payload.replay.status : '')); } else { r.failed++; r.log.push('Pair ' + (m.i + 1) + ' failed: ' + String(m.msg).replace(/\s+/g, ' ').slice(0, 220)); }
       r.done = r.results.filter((x) => x && x.ok).length; r.i = r.stopped ? r.total : m.i + 1; if (r.stopped) r.state = 'done'; S.maxStep = Math.max(S.maxStep, 5); runNext(); break; }
