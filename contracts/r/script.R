@@ -90,11 +90,181 @@ emit_master_script <- function(method_files) {
   paste0(paste(c(
     "# MR Studio: run all methods for this pair, in order. Run from the pair folder.",
     "if (!dir.exists(\"01_data\") || !dir.exists(\"02_scripts\"))",
-    "  stop(\"Wrong working directory. Set it to the pair folder (the folder that contains 01_data).\")",
+    "  stop(\"Wrong working directory. To check these results in R, open VERIFY_IN_R.R in the pair folder and click Source.\")",
     unlist(lapply(method_files, function(f) c(
       sprintf("cat(\"\\n=== %s ===\\n\")", f),
       sprintf("source(file.path(\"02_scripts\", %s), echo = FALSE, print.eval = FALSE)", encodeString(f, quote = "\""))))),
     ""), collapse = "\n"))
+}
+
+
+# ---- files that let a user check the results in their own R (VERIFY_IN_R.R, .Rproj, README) -----
+# The text is the same for every pair: the script finds its own folder and reads the packages from the method scripts.
+VERIFY_SCRIPT_TEXT <- r"---(# ==============================================================================
+# MR Studio: check these results in your own copy of R
+#
+# HOW TO USE
+#   1. Open this file in RStudio.
+#   2. Click the "Source" button at the top right of this editor. Nothing else is needed.
+#
+# WHAT IT DOES
+#   - Copies the data and the scripts of this pair into a NEW folder: 09_verification/run_<date and time>
+#   - Runs the scripts there, in a fresh R process.
+#   - Compares every number with the results MR Studio saved in 04_tables.
+#   Your original results are never changed or overwritten.
+# ==============================================================================
+
+local({
+  lines <- character()
+  say <- function(...) { x <- paste0(..., collapse = "\n"); lines <<- c(lines, x); cat(x, "\n", sep = "") }
+
+  # ---- 1. Find the pair folder (the folder that holds this file) -----------------
+  find_here <- function() {
+    for (i in seq_len(sys.nframe())) {                       # sourced (the Source button in RStudio)
+      of <- sys.frame(i)$ofile
+      if (is.character(of) && length(of) == 1L) return(dirname(normalizePath(of, mustWork = FALSE)))
+    }
+    a <- commandArgs(FALSE); f <- sub("^--file=", "", a[grepl("^--file=", a)])
+    f <- gsub("~+~", " ", f, fixed = TRUE)                  # Rscript writes spaces in the path as ~+~
+    if (length(f)) return(dirname(normalizePath(f[1], mustWork = FALSE)))
+    if (requireNamespace("rstudioapi", quietly = TRUE) && rstudioapi::isAvailable()) {   # lines run one by one
+      p <- tryCatch(rstudioapi::getSourceEditorContext()$path, error = function(e) "")
+      if (nzchar(p)) return(dirname(normalizePath(p, mustWork = FALSE)))
+    }
+    getwd()
+  }
+  here <- find_here()
+  if (!dir.exists(file.path(here, "01_data")) || !dir.exists(file.path(here, "02_scripts")))
+    stop("Cannot find the pair folder. Open VERIFY_IN_R.R from inside the pair folder and click Source.", call. = FALSE)
+  here <- normalizePath(here, winslash = "/")
+
+  # ---- 2. Check the R packages the scripts need ----------------------------------
+  scripts <- sort(list.files(file.path(here, "02_scripts"), pattern = "^[0-9]+_.*\\.R$"))
+  scripts <- scripts[!grepl("^00_", scripts)]
+  if (!length(scripts)) stop("There are no method scripts in 02_scripts.", call. = FALSE)
+  pins <- list()
+  for (s in scripts) {
+    h <- grep("^# Package  :", readLines(file.path(here, "02_scripts", s), n = 12, warn = FALSE), value = TRUE)
+    if (length(h)) for (part in trimws(strsplit(sub("^# Package  :\\s*", "", h[1]), ";")[[1]])) {
+      m <- regmatches(part, regexec("^(\\S+) commit (\\S+)$", part))[[1]]
+      if (length(m) == 3) pins[[m[2]]] <- m[3]
+    }
+  }
+  repo <- c(TwoSampleMR = "MRCIEU/TwoSampleMR", MRPRESSO = "rondolab/MR-PRESSO", RadialMR = "WSpiller/RadialMR")
+  absent <- names(pins)[!vapply(names(pins), requireNamespace, logical(1), quietly = TRUE)]
+  if (length(absent)) {
+    say("These R packages are not installed in your R yet: ", paste(absent, collapse = ", "))
+    say("Install them once by running these lines in the Console, then click Source again:")
+    say("  install.packages(\"remotes\")")
+    for (p in absent) say("  remotes::install_github(\"", if (p %in% names(repo)) repo[[p]] else p, "@", pins[[p]], "\")")
+    stop("Missing packages. See the lines above.", call. = FALSE)
+  }
+
+  # ---- 3. Copy data and scripts into a new folder --------------------------------
+  run <- file.path(here, "09_verification", paste0("run_", format(Sys.time(), "%Y%m%d_%H%M%S")))
+  k <- 1L; base_run <- run; while (dir.exists(run)) { k <- k + 1L; run <- paste0(base_run, "_", k) }
+  dir.create(run, recursive = TRUE)
+  for (d in c("01_data", "02_scripts")) file.copy(file.path(here, d), run, recursive = TRUE)
+  dir.create(file.path(run, "03_console")); dir.create(file.path(run, "04_tables"))
+
+  # ---- 4. Run the scripts in a fresh R process (same way MR Studio runs them) ------
+  rscript <- file.path(R.home("bin"), if (.Platform$OS.type == "windows") "Rscript.exe" else "Rscript")
+  say("Running ", length(scripts), " method script(s) in a fresh R process. Slow methods can take a few minutes.")
+  old <- setwd(run); on.exit(setwd(old), add = TRUE)
+  env_new <- c(R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep), OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1")
+  env_old <- Sys.getenv(names(env_new), unset = NA)    # the same on every operating system; restored afterwards
+  do.call(Sys.setenv, as.list(env_new))
+  on.exit(for (n in names(env_old)) if (is.na(env_old[[n]])) Sys.unsetenv(n) else do.call(Sys.setenv, stats::setNames(list(env_old[[n]]), n)), add = TRUE)
+  out <- suppressWarnings(system2(rscript, c("--vanilla", shQuote(file.path("02_scripts", "00_run_all.R"))), stdout = TRUE, stderr = TRUE))
+  status <- attr(out, "status"); if (is.null(status)) status <- 0L
+  writeLines(out, file.path(run, "03_console", "verify_console.txt"))
+  if (status != 0L) {
+    say("The scripts stopped with an error. Last lines of the output:")
+    say(paste0("  ", utils::tail(out, 12)))
+    stop("The run failed. The full output is in ", file.path(run, "03_console", "verify_console.txt"), call. = FALSE)
+  }
+
+  # ---- 5. Compare every number with the results MR Studio saved ---------------------
+  tol <- 1e-8
+  rd <- function(p) utils::read.csv(p, stringsAsFactors = FALSE)
+  files <- list.files(file.path(here, "04_tables"), pattern = "_(estimates|diagnostics)\\.csv$")
+  worst <- 0; n <- 0L; bad <- character(); headline <- list()
+  for (f in files) {
+    pa <- file.path(here, "04_tables", f); pb <- file.path(run, "04_tables", f)
+    if (!file.exists(pb)) { bad <- c(bad, paste0(f, " (not produced by this run)")); next }
+    a <- rd(pa); b <- rd(pb)
+    if (!identical(dim(a), dim(b)) || !identical(names(a), names(b))) { bad <- c(bad, paste0(f, " (different layout)")); next }
+    for (nm in names(a)) {
+      x <- a[[nm]]; y <- b[[nm]]
+      if (is.numeric(x) && is.numeric(y)) {
+        if (any(is.na(x) != is.na(y))) { bad <- c(bad, paste0(f, ", column ", nm, " (missing values differ)")); next }
+        k <- !is.na(x)
+        if (any(k)) {
+          dif <- abs(x[k] - y[k])
+          d <- dif / pmax(abs(x[k]), abs(y[k]), 1e-300); d[dif <= 1e-14] <- 0
+          worst <- max(worst, d); n <- n + sum(k)
+          if (any(d > tol)) bad <- c(bad, sprintf("%s, column %s (relative difference %.2e)", f, nm, max(d)))
+        }
+      } else if (!identical(as.character(x), as.character(y))) {
+        bad <- c(bad, paste0(f, ", column ", nm, " (text differs)"))
+      }
+    }
+    if (grepl("_estimates\\.csv$", f) && "estimand" %in% names(a)) {
+      r <- which(a$estimand == "causal_effect")
+      if (length(r)) headline[[f]] <- data.frame(method = sub("_estimates\\.csv$", "", f),
+                                                 MR_Studio = a$estimate[r], This_run = b$estimate[r])
+    }
+  }
+
+  # ---- 6. Report ----------------------------------------------------------------------
+  say("")
+  say("==================== RESULT ====================")
+  say(R.version.string)
+  for (p in names(pins)) say(p, " version in your R: ", as.character(utils::packageVersion(p)))
+  if (length(headline)) {
+    say("")
+    say("Causal effect estimates (MR Studio against this run):")
+    say(paste0("  ", utils::capture.output(print(do.call(rbind, headline), row.names = FALSE, digits = 10))))
+  }
+  say("")
+  if (!length(files)) {
+    say("RESULT: no saved result tables were found in 04_tables, so there is nothing to compare.")
+  } else if (!length(bad)) {
+    say("RESULT: ALL ", n, " NUMBERS MATCH THE RESULTS SAVED BY MR STUDIO.")
+    say("Largest relative difference: ", format(worst, digits = 3), "  (0 means bit for bit identical; the allowed limit is ", format(tol), ")")
+  } else {
+    say("RESULT: DIFFERENCES FOUND. These do not match the results saved by MR Studio:")
+    say(paste0("  - ", bad))
+  }
+  say("")
+  say("This run is saved in: ", run)
+  writeLines(lines, file.path(run, "verification_result.txt"))
+  invisible(list(match = length(files) > 0 && !length(bad), folder = run))
+})
+)---"
+
+RPROJ_TEXT <- "Version: 1.0\n\nRestoreWorkspace: No\nSaveWorkspace: No\nAlwaysSaveHistory: No\n\nEncoding: UTF-8\n"
+
+RERUN_README_TEXT <- paste(c(
+  "How to check this pair in your own R",
+  "====================================",
+  "",
+  "1. Open VERIFY_IN_R.R in RStudio (or double-click the .Rproj file, then open VERIFY_IN_R.R).",
+  "2. Click Source. If R packages are missing, the script prints the exact lines to install them once.",
+  "3. The script runs the saved scripts on a copy, in 09_verification/run_<date and time>,",
+  "   and compares every number with 04_tables. Your original results are never changed.",
+  "",
+  "You do not need to set a working folder or copy anything.",
+  ""), collapse = "\n")
+
+#' Write the verification files at the top of a pair folder when they are missing. Existing files are never rewritten
+#' (they are listed in the manifest, and a pair keeps the check it was delivered with). Older pair folders get them when opened.
+ensure_verify_files <- function(pair_dir) {
+  w <- function(name, text) if (!file.exists(file.path(pair_dir, name))) writeBin(charToRaw(enc2utf8(text)), file.path(pair_dir, name))
+  w("VERIFY_IN_R.R", paste0(VERIFY_SCRIPT_TEXT, "\n"))
+  w("README_RERUN.md", RERUN_README_TEXT)
+  w("MR_Studio_pair.Rproj", RPROJ_TEXT)
+  invisible(file.path(pair_dir, "VERIFY_IN_R.R"))
 }
 
 # ---- materialise a pair folder, run it in a fresh R, read results back --------
@@ -119,6 +289,7 @@ materialise_pair <- function(pair_dir, methods, seed) {
     files <- c(files, fname); info[[a$id]] <- c(spec, list(script_file = fname, bundle = b))
   }
   writeBin(charToRaw(emit_master_script(files)), file.path(pair_dir, "02_scripts", "00_run_all.R"))
+  ensure_verify_files(pair_dir)
   invisible(info)
 }
 

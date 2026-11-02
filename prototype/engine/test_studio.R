@@ -115,6 +115,37 @@ expect("a changed confidence level reaches both methods", all(vapply(Filter(func
 DBI::dbDisconnect(h4$con)
 expect("RStudio lookup returns a path or NA", is.character(rstudio_path()) && length(rstudio_path()) == 1L)
 expect("open in RStudio refuses a pair without scripts", grepl("no script", err_of(open_in_rstudio(h3$dir, "P99_none"))))
+pd_v <- file.path(h3$dir, "03_pairs", base$pair_folder)
+expect("check files: a new pair folder holds VERIFY_IN_R.R, a README and an .Rproj", all(file.exists(file.path(pd_v, c("VERIFY_IN_R.R", "README_RERUN.md", "MR_Studio_pair.Rproj")))))
+expect("check script: base R only, no setwd and no reference to the studies folder", {tx <- readLines(file.path(pd_v, "VERIFY_IN_R.R")); !any(grepl("^\\s*setwd\\(", tx)) && !any(grepl("mrgui|studio_core|contracts", tx))})
+tab_md5 <- function(d) unname(tools::md5sum(list.files(file.path(d, "04_tables"), full.names = TRUE)))
+md5_before <- tab_md5(pd_v)
+run_verify <- function(dir, from = tempdir()) {
+  old <- setwd(from); on.exit(setwd(old)); lib_old <- Sys.getenv("R_LIBS", unset = NA); Sys.setenv(R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep))
+  on.exit(if (is.na(lib_old)) Sys.unsetenv("R_LIBS") else Sys.setenv(R_LIBS = lib_old), add = TRUE)
+  suppressWarnings(system2(default_rscript(), c("--vanilla", shQuote(file.path(dir, "VERIFY_IN_R.R"))), stdout = TRUE, stderr = TRUE))
+}
+vo <- run_verify(pd_v)
+expect("check script: started from another folder, it finds the pair folder and reports that every number matches", any(grepl("ALL [0-9]+ NUMBERS MATCH", vo)))
+expect("check script: the result is saved in a new run folder and the original results are untouched", {rf <- list.files(file.path(pd_v, "09_verification"), pattern = "^run_", full.names = TRUE); length(rf) == 1L && file.exists(file.path(rf, "verification_result.txt")) && file.exists(file.path(rf, "04_tables", "ivw_mre_estimates.csv")) && identical(tab_md5(pd_v), md5_before)})
+src_old <- setwd(tempdir()); src_res <- tryCatch(suppressMessages(utils::capture.output(src_v <- source(file.path(pd_v, "VERIFY_IN_R.R"), echo = FALSE))), error = function(e) conditionMessage(e)); src_wd <- getwd(); setwd(src_old)
+expect("check script: the Source button route (source()) works from another folder, matches, and leaves the working folder as it was", is.list(src_v$value) && isTRUE(src_v$value$match) && identical(normalizePath(src_wd), normalizePath(tempdir())))
+expect("check script: the headline table shows the app estimate next to this run", any(grepl("MR_Studio", vo)) && any(grepl("This_run", vo)))
+# a changed saved result must be reported
+pd_alt <- file.path(tempfile("alt-"), "pair"); dir.create(dirname(pd_alt)); file.copy(pd_v, dirname(pd_alt), recursive = TRUE); pd_alt <- file.path(dirname(pd_alt), basename(pd_v)); unlink(file.path(pd_alt, "09_verification"), recursive = TRUE)
+ef <- file.path(pd_alt, "04_tables", "ivw_mre_estimates.csv"); et <- utils::read.csv(ef, stringsAsFactors = FALSE); et$estimate[1] <- et$estimate[1] * 1.001; utils::write.csv(et, ef, row.names = FALSE)
+vo2 <- run_verify(pd_alt)
+expect("check script: a changed saved number is reported as a difference and names the file", any(grepl("DIFFERENCES FOUND", vo2)) && any(grepl("ivw_mre_estimates.csv", vo2)))
+# an older pair folder (made before the check files existed) is upgraded when it is opened
+unlink(file.path(pd_v, c("VERIFY_IN_R.R", "README_RERUN.md", "MR_Studio_pair.Rproj")))
+vp <- verify_script_path(h3$dir, base$pair_folder)
+expect("check files: an older pair folder gets them when opened, and the path stays inside the pair folder", file.exists(vp$script) && startsWith(vp$script, vp$pair) && identical(basename(vp$script), "VERIFY_IN_R.R"))
+expect("check script: a pair folder outside the studies folder is refused", grepl("Only scripts", err_of(verify_script_path(h3$dir, base$pair_folder, root = file.path(tempdir(), "other_root")))))
+# a missing package is explained with the exact install lines
+pd_np <- file.path(tempfile("np-"), basename(pd_v)); dir.create(dirname(pd_np)); file.copy(pd_v, dirname(pd_np), recursive = TRUE)
+sf <- list.files(file.path(pd_np, "02_scripts"), pattern = "^01_", full.names = TRUE); sx <- readLines(sf); sx <- sub("^# Package  : TwoSampleMR", "# Package  : NoSuchPackageXyz", sx); writeLines(sx, sf)
+vo3 <- run_verify(pd_np)
+expect("check script: a missing package gets the install lines, not an obscure error", any(grepl("remotes::install_github", vo3)) && any(grepl("NoSuchPackageXyz", vo3)))
 expect("customise panel schema comes from the adapters", all(c("label", "hint", "min", "max", "default", "type") %in% names(param_schemas()$ivw_mre$ci_level)) && identical(names(param_schemas()$ivw_mre), c("ci_level", "ivw_model", "min_f")) && identical(names(param_schemas()$egger), c("ci_level", "min_f")) && identical(unlist(param_schemas()$ivw_mre$ivw_model$values), c("mre", "mre_floor", "fixed")))
 DBI::dbDisconnect(h3$con)
 

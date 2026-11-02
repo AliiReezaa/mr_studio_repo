@@ -174,8 +174,8 @@ mr_server <- function(engine_dir) {
         },
         open_package = { req(rv$h); open_in_file_manager(file.path(rv$h$dir, "05_publication", a$folder)) },
         open_folder = { req(rv$h); open_in_file_manager(rv$h$dir) },
-        open_rstudio = { req(rv$h); r <- open_in_rstudio(rv$h$dir, a$folder); ev("rstudio", opened = isTRUE(r$opened), script = r$script, pair = if (is.null(r$script)) NULL else dirname(dirname(r$script))) },
-        open_script = { req(rv$h); sp <- file.path(rv$h$dir, "03_pairs", a$folder, "02_scripts", "00_run_all.R"); open_in_text_editor(sp) },
+        open_rstudio = { req(rv$h); r <- open_in_rstudio(rv$h$dir, a$folder); ev("rstudio", opened = isTRUE(r$opened), script = r$script, pair = r$pair) },
+        open_script = { req(rv$h); sp <- verify_script_path(rv$h$dir, a$folder)$script; open_in_text_editor(sp) },
         compare_default = {
           req(rv$h)
           r <- tryCatch(compare_defaults(rv$h$dir, a$folder, a$ex, a$out, unlist(a$methods), as.numeric(a$pthr %||% 5e-8)), error = function(e) e)

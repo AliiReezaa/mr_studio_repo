@@ -74,7 +74,7 @@ expect("the stored script hash equals the file on disk", identical(rr$script_sha
 
 # ---- manifest ----------------------------------------------------------------------------------
 chk <- manifest_check(study)
-expect("MANIFEST.csv exists and lists every delivered file (none missing, modified or untracked)", file.exists(file.path(study, "MANIFEST.csv")) && nrow(chk) == 11L && all(chk$status == "ok"))
+expect("MANIFEST.csv exists and lists every delivered file (none missing, modified or untracked)", file.exists(file.path(study, "MANIFEST.csv")) && nrow(chk) == 14L && all(chk$status == "ok"))
 mf <- manifest_read(study)
 expect("manifest has the agreed columns and 64-character hashes", identical(names(mf), MANIFEST_COLS) && all(nchar(mf$sha256) == 64))
 expect("the project database mirrors the manifest", DBI::dbGetQuery(con, "SELECT COUNT(*) n FROM manifest")$n == nrow(mf))

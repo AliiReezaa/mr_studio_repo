@@ -438,17 +438,24 @@ rstudio_path <- function() {
   if (length(hit)) hit[[1]] else NA_character_
 }
 
-#' Open the main script of a pair in RStudio. The script is opened as it is; nothing is copied or changed.
-open_in_rstudio <- function(study, pair_folder, root = studies_root()) {
-  script <- file.path(study, "03_pairs", pair_folder, "02_scripts", "00_run_all.R")
-  if (!file.exists(script)) stop("This pair has no script yet. Run the analysis first.")
-  p <- normalizePath(script, winslash = "/", mustWork = TRUE); r <- normalizePath(root, winslash = "/", mustWork = FALSE)
+#' Path of the verification script of a pair (VERIFY_IN_R.R). The files are written when missing, so pair folders made by older builds work too.
+verify_script_path <- function(study, pair_folder, root = studies_root()) {
+  pd <- file.path(study, "03_pairs", pair_folder)
+  if (!file.exists(file.path(pd, "02_scripts", "00_run_all.R"))) stop("This pair has no script yet. Run the analysis first.")
+  p <- normalizePath(pd, winslash = "/", mustWork = TRUE); r <- normalizePath(root, winslash = "/", mustWork = FALSE)
   if (!startsWith(p, paste0(r, "/"))) stop("Only scripts inside the studies folder can be opened from here.")
+  ensure_verify_files(p)
+  list(script = file.path(p, "VERIFY_IN_R.R"), pair = p)
+}
+
+#' Open the check script of a pair (VERIFY_IN_R.R) in RStudio. It finds its own folder and runs on a copy, so nothing is set, copied or changed by the user.
+open_in_rstudio <- function(study, pair_folder, root = studies_root()) {
+  v <- verify_script_path(study, pair_folder, root)
   rs <- rstudio_path()
-  if (is.na(rs)) return(list(opened = FALSE, script = p))
-  .with_user_env(if (Sys.info()[["sysname"]] == "Darwin") system2("open", c("-a", shQuote(rs), shQuote(p)), wait = FALSE)
-                 else system2(rs, shQuote(p), wait = FALSE))
-  list(opened = TRUE, script = p)
+  if (is.na(rs)) return(list(opened = FALSE, script = v$script, pair = v$pair))
+  .with_user_env(if (Sys.info()[["sysname"]] == "Darwin") system2("open", c("-a", shQuote(rs), shQuote(v$script)), wait = FALSE)
+                 else system2(rs, shQuote(v$script), wait = FALSE))
+  list(opened = TRUE, script = v$script, pair = v$pair)
 }
 
 #' The interval a result would have had at the default level (95%), recomputed from the saved estimate and standard error with the
