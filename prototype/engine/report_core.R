@@ -108,7 +108,8 @@ REFS <- list(
   hartwig2017 = list(pmid = "29040600", key = "Hartwig2017", authors = "Hartwig FP, Davey Smith G, Bowden J.", title = "Robust inference in summary data Mendelian randomization via the zero modal pleiotropy assumption", journal = "Int J Epidemiol", year = "2017", vol = "46", pages = "1985-1998", doi = "10.1093/ije/dyx102"),
   burgess2023 = list(pmid = "32760811", key = "Burgess2023", authors = "Burgess S, Davey Smith G, Davies NM, et al.", title = "Guidelines for performing Mendelian randomization investigations: update for summer 2023", journal = "Wellcome Open Res", year = "2023", vol = "4", pages = "186", doi = "10.12688/wellcomeopenres.15555.3"),
   skrivankova2021 = list(pmid = "34698778", key = "Skrivankova2021", authors = "Skrivankova VW, Richmond RC, Woolf BAR, et al.", title = "Strengthening the reporting of observational studies in epidemiology using Mendelian randomisation (STROBE-MR): explanation and elaboration", journal = "JAMA", year = "2021", vol = "326", pages = "1614-1621", doi = "10.1001/jama.2021.18236"))
-METHOD_REFS <- list(ivw_mre = "burgess2013", egger = "bowden2015", wm = "bowden2016", smed = "bowden2016", mode = "hartwig2017", smode = "hartwig2017", presso = "verbanck2018", radial = "bowden2018", radegger = "bowden2018")
+METHOD_REFS <- list(ivw_mre = "burgess2013", egger = "bowden2015", wm = "bowden2016", smed = "bowden2016", mode = "hartwig2017", smode = "hartwig2017", presso = "verbanck2018", radial = "bowden2018", radegger = "bowden2018", steiger = "hemani2017")
+REFS$hemani2017 <- list(pmid = "29149188", key = "Hemani2017", authors = "Hemani G, Tilling K, Davey Smith G.", title = "Orienting the causal relationship between imprecisely measured traits using GWAS summary data", journal = "PLoS Genet", year = "2017", vol = "13", pages = "e1007081", doi = "10.1371/journal.pgen.1007081")
 REFS$verbanck2018 <- list(pmid = "29686387", key = "Verbanck2018", authors = "Verbanck M, Chen CY, Neale B, Do R.", title = "Detection of widespread horizontal pleiotropy in causal relationships inferred from Mendelian randomization between complex traits and diseases", journal = "Nat Genet", year = "2018", vol = "50", pages = "693-698", doi = "10.1038/s41588-018-0099-7")
 REFS$bowden2018 <- list(pmid = "29961852", key = "Bowden2018", authors = "Bowden J, Spiller W, Del Greco M F, et al.", title = "Improving the visualization, interpretation and analysis of two-sample summary data Mendelian randomization via the Radial plot and Radial regression", journal = "Int J Epidemiol", year = "2018", vol = "47", pages = "1264-1278", doi = "10.1093/ije/dyy101")
 ref_text <- function(r) sprintf("%s %s. %s. %s;%s:%s. doi:%s. PMID %s.", r$authors, r$title, r$journal, r$year, r$vol, r$pages, r$doi, r$pmid)
@@ -150,7 +151,7 @@ refs_ris <- function(ids) paste(vapply(ids, function(i) { r <- REFS[[i]]; paste(
   d <- do.call(rbind, lapply(pay$estimates, function(e) data.frame(method = e$method, name = e$method_name, estimand = e$estimand, estimate = e$estimate, se = e$se, ci_lower = e$ci_lower, ci_upper = e$ci_upper, ci_level = e$ci_level, p = e$p, n_ivs = e$n_ivs_used, scale = e$scale %||% "beta", stringsAsFactors = FALSE)))
   d
 }
-.short <- c(ivw_mre = "IVW", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial Egger")
+.short <- c(steiger = "Steiger", ivw_mre = "IVW", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial Egger")
 pair_context <- function(h, p) {
   pay <- pair_payload(h$dir, p$folder); est <- .est_df(pay); ce <- est[est$estimand == "causal_effect", , drop = FALSE]
   v <- do.call(rbind, lapply(pay$variants, function(x) data.frame(id = x$id, bx = x$bx, by = x$by, sx = x$sx, sy = x$sy, keep = x$keep, stringsAsFactors = FALSE)))
@@ -183,6 +184,22 @@ overlap_limitations <- function(ctxs) {
   if (length(some)) out <- c(out, paste0("The analyst stated that the exposure and outcome studies share participants for: ", paste(vapply(some, det, ""), collapse = "; "), ". MR Studio did not correct for this. ", bias, " Consider an outcome from a different cohort or a method designed for overlapping samples."))
   if (length(rest)) out <- c(out, paste0(untested, "The cohorts of ", paste(vapply(rest, nm, ""), collapse = "; "), " were not checked by the analyst. ", bias))
   out
+}
+#' Steiger test numbers of one pair, read from the saved diagnostics (NULL when the test was not run).
+steiger_facts <- function(cx) {
+  dg <- Filter(function(d) identical(d$method, "steiger"), cx$pay$diagnostics); if (!length(dg)) return(NULL)
+  g <- function(n) { x <- Filter(function(d) identical(d$name, n), dg); if (length(x)) x[[1]] else NULL }
+  d <- g("steiger_direction"); if (is.null(d)) return(NULL)
+  list(ok = isTRUE(as.numeric(d$value) == 1), p = as.numeric(d$p), r2x = as.numeric(g("steiger_r2_exposure")$value), r2y = as.numeric(g("steiger_r2_outcome")$value),
+       wrong = as.numeric(g("steiger_variants_wrong_way")$value), n = as.numeric(g("steiger_variants")$value))
+}
+steiger_limitations <- function(ctxs) {
+  f <- lapply(ctxs, steiger_facts); ran <- !vapply(f, is.null, TRUE)
+  if (!any(ran)) return("Directionality was not tested (the Steiger directionality test was not run), so reverse causation is not excluded by this analysis.")
+  bad <- vapply(seq_along(f), function(i) ran[i] && !(f[[i]]$ok && is.finite(f[[i]]$p) && f[[i]]$p < 0.05), TRUE)
+  c("The Steiger directionality test [Hemani 2017] compares the variance the variants explain in the exposure and in the outcome. It assumes the variants act on the outcome only through the exposure, it is sensitive to measurement error and horizontal pleiotropy, and it was run for continuous traits only. It does not exclude confounding or reverse causation.",
+    if (any(bad)) sprintf("For %s the test did not clearly support the assumed direction.", paste(vapply(ctxs[bad], function(cx) sprintf("%s -> %s", cx$p$exName, cx$p$outName), ""), collapse = "; ")),
+    if (any(!ran)) sprintf("The test was not run for %s.", paste(vapply(ctxs[!ran], function(cx) sprintf("%s -> %s", cx$p$exName, cx$p$outName), ""), collapse = "; ")))
 }
 report_text <- function(ctxs, study_name) {
   txt <- list(methods = character(), results = character(), limitations = character(), availability = character(), legends = character())
@@ -225,6 +242,7 @@ report_text <- function(ctxs, study_name) {
     smode = sprintf("The simple mode estimator (the unweighted counterpart of the weighted mode) was computed with a bandwidth multiplier phi = %s and a bootstrapped standard error (%s replications) [Hartwig 2017].", format(st1$phi %||% 1), format(st1$nboot %||% 1000)),
     presso = sprintf("MR-PRESSO (global test of horizontal pleiotropy, outlier test and distortion test) was run with %s simulated datasets and a significance threshold of %s. Variants it flags are reported but were not removed from any analysis [Verbanck 2018].", format(st1$nbdist %||% 1000), format(st1$signif %||% 0.05)),
     radial = sprintf("Radial IVW was used to flag outlying variants through their contribution to Cochran's Q statistic (outlier level alpha = %s, %s weights); flagged variants are reported but were not removed [Bowden 2018].", format(st1$alpha %||% 0.05), c("1" = "first-order", "2" = "second-order", "3" = "modified second-order")[[as.character(st1$weights %||% "1")]]),
+    steiger = "The Steiger directionality test compared the variance the variants explain in the exposure with the variance they explain in the outcome, computed from each variant's effect, standard error and sample size and summed over variants (TwoSampleMR::mr_steiger; measurement reliability set to 1 unless stated otherwise). It gives no causal estimate [Hemani 2017].",
     radegger = sprintf("Radial MR-Egger was used to flag outlying variants and to estimate the effect allowing for directional pleiotropy (outlier level alpha = %s, %s weights); flagged variants are reported but were not removed [Bowden 2018].", format(st1$alpha %||% 0.05), c("1" = "first-order", "2" = "second-order", "3" = "modified second-order")[[as.character(st1$weights %||% "1")]]), ""), "")
   txt$methods <- c(txt$methods, unname(desc[nzchar(desc)]), sprintf("Confidence intervals are %s intervals. All estimates come from TwoSampleMR (commit %s)%s in %s. Bootstrap-based methods use a fixed seed recorded in each script, and every pair was re-run from its saved scripts in a fresh R session; the replay check was %s.",
     .pct(ctxs[[1]]$ce$ci_level[1] %||% 0.95), substr(ADAPTER_IVW_MRE_V11$packages$TwoSampleMR, 1, 10), if (any(c("presso", "radial", "radegger") %in% used)) sprintf(", with %s%s%s", if ("presso" %in% used) sprintf("MRPRESSO (commit %s)", substr(PIN_MRPRESSO, 1, 10)) else "", if ("presso" %in% used && any(c("radial", "radegger") %in% used)) " and " else "", if (any(c("radial", "radegger") %in% used)) sprintf("RadialMR (commit %s)", substr(PIN_RADIALMR, 1, 10)) else "") else "", R.version.string, paste(unique(vapply(ctxs, function(x) x$pay$replay$status %||% "not run", "")), collapse = " / ")))
@@ -237,6 +255,9 @@ report_text <- function(ctxs, study_name) {
     txt$results <- c(txt$results, sprintf("%s -> %s (%d instruments, effect expressed as %s). %s.%s%s %d of %d methods agree on the direction of the effect.", cx$p$exName, cx$p$outName, ce$n_ivs[1], unit, paste(lines, collapse = "; "),
       if (length(dg)) sprintf(" Cochran's Q for the IVW estimate was %.1f (P = %s).", dg[[1]]$value, .fp(dg[[1]]$p)) else "",
       if (nrow(ic)) sprintf(" The MR-Egger intercept was %s (P = %s)%s.", .fnum(ic$estimate, 4), .fp(ic$p), if (ic$p < 0.05) ", suggesting directional pleiotropy" else ", giving no evidence of directional pleiotropy") else "", same, nrow(ce)))
+    sf <- steiger_facts(cx)
+    if (!is.null(sf)) txt$results <- c(txt$results, sprintf("Steiger directionality test: the variants explained %s of the variance in %s and %s of the variance in %s (R2), %s (P = %s); %d of %d variants explained more variance in the outcome than in the exposure.",
+      .fnum(sf$r2x, 3), cx$p$exName, .fnum(sf$r2y, 3), cx$p$outName, if (sf$ok) "so the exposure explains more, as expected if it acts on the outcome" else "so the outcome explains more, which does not match the assumed direction", .fp(sf$p), as.integer(sf$wrong), as.integer(sf$n)))
     for (dm in intersect(c("presso", "radial", "radegger"), cx$ce$method)) {
       dg <- Filter(function(d) d$method == dm, cx$pay$diagnostics); od <- Filter(function(d) grepl("_outliers$", d$name), dg)
       ids <- if (length(od) && !is.null(od[[1]]$note) && !is.na(od[[1]]$note) && nzchar(od[[1]]$note)) strsplit(od[[1]]$note, ";")[[1]] else character(0)
@@ -251,7 +272,7 @@ report_text <- function(ctxs, study_name) {
   if (anyfile) lim <- c(lim, "For imported files, clumping was not performed by MR Studio: the independence of the instruments rests on the analyst's statement at import. Ancestry and genome build are declared, not verified, and the exposure and outcome files must come from the same genome build.")
   if (anyog) lim <- c(lim, "Instruments from OpenGWAS were clumped on its server against 1000 Genomes reference panels, so linkage disequilibrium was estimated in a reference sample and not in the study population. Proxy variants, where used, stand in for missing instruments and are listed in the harmonised data table.")
   lim <- c(lim, overlap_limitations(ctxs),
-           "Directionality was not tested (the Steiger test is not built), so reverse causation is not excluded by this analysis.",
+           steiger_limitations(ctxs),
            if (any(vapply(ctxs, function(x) x$n_weak > 0, TRUE))) "Some variants have an F statistic below 10, which can bias estimates toward the null in two-sample MR." else NULL,
            if (any(c("presso", "radial", "radegger") %in% used)) "Variants flagged by MR-PRESSO or radial MR were reported but not removed from the primary analysis. Detectors flag variants by a statistical rule and cannot tell horizontal pleiotropy from valid heterogeneity; any analysis without flagged variants is a post-hoc sensitivity analysis and must be reported as one [Burgess 2023]." else "Outlier detection (MR-PRESSO, radial MR) was not run in this study. Pleiotropy-robust estimators were compared with the IVW estimate; agreement in direction does not prove the assumptions hold.",
            "No correction for multiple testing was applied across pairs.")

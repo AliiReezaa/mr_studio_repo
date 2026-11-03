@@ -236,6 +236,7 @@ run_script_task <- function(con, study_dir, pair_index, exposure_label, outcome_
                   started_at = format(started, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC"),
                   finished_at = format(finished, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC"),
                   elapsed_s = as.double(difftime(finished, started, units = "secs"))))
+    if (isTRUE(a$diagnostic_only)) res$diagnostic_only <- TRUE   # contracts v1.1 (additive): only set for diagnostic-only methods, so other results are unchanged
     json <- result_to_json(res)
     blob <- blob_put_text(engine, json)
     db_commit_result(con, p$task_id, p$fp, status, blob, json)

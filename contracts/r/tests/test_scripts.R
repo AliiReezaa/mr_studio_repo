@@ -164,5 +164,18 @@ rp10 <- replay_check(pair10, c("presso", "radial", "radegger"), stored10)
 expect("detectors: replay is identical", identical(rp10$status, "identical"))
 expect("detector schemas complete", all(vapply(list(ADAPTER_PRESSO_V11, ADAPTER_RADIAL_V11, ADAPTER_RADEGGER_V11), function(a) length(validate_param_schema(a)) == 0, logical(1))))
 
+# ---- Round 15: Steiger directionality (diagnostic-only) ----
+pair15 <- file.path(out_dir, "P15_steiger")
+m15 <- list(list(adapter = ADAPTER_STEIGER_V11, input = input10, params = list(r_xxo = 0.9, r_yyo = 0.95)))
+materialise_pair(pair15, m15, SEED)
+run15 <- run_in_dir(pair15, run_pair_script(pair15))
+expect("steiger: master script runs in a fresh R", run15$status == 0L)
+r15 <- read_method_results(pair15, "steiger"); o15 <- ADAPTER_STEIGER_V11$run(input10, resolve_params(ADAPTER_STEIGER_V11, m15[[1]]$params), list(seed = SEED))
+expect("steiger: script result equals oracle (1e-12)", cmp(r15$diagnostics, o15$diagnostics) && nrow(r15$estimates) == 0L && nrow(o15$estimates) == 0L)
+expect("steiger: replay is identical (header-only estimates file)", identical(replay_check(pair15, "steiger", list(steiger = r15))$status, "identical"))
+expect("steiger: schema complete and flagged diagnostic-only", length(validate_param_schema(ADAPTER_STEIGER_V11)) == 0 && isTRUE(ADAPTER_STEIGER_V11$diagnostic_only) && !isTRUE(ADAPTER_IVW_MRE_V11$diagnostic_only))
+expect("steiger: blocks a binary outcome and missing sample sizes", identical(ADAPTER_STEIGER_V11$check(modifyList(input10, list(outcome_scale = "log_or")), list())$status, "block") &&
+       identical(ADAPTER_STEIGER_V11$check(modifyList(input10, list(data = transform(dat10, n_y = NA_real_))), list())$status, "block"))
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail))
 quit(status = if (n_fail) 1L else 0L)

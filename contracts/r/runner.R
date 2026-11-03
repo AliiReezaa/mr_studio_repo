@@ -127,6 +127,7 @@ run_method_task <- function(con, root, adapter, input, params, task_id, input_bl
       threads = 1L, started_at = format(started, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC"),
       finished_at = format(finished, "%Y-%m-%dT%H:%M:%OS3Z", tz = "UTC"),
       elapsed_s = as.double(difftime(finished, started, units = "secs"))))
+  if (isTRUE(adapter$diagnostic_only)) res$diagnostic_only <- TRUE   # contracts v1.1 (additive): only set for diagnostic-only methods, so other results are unchanged
   json <- result_to_json(res)
   blob <- blob_put_text(root, json)                         # C8.7 step 1
   db_commit_result(con, task_id, fp, status, blob, json)   # C8.7 step 3

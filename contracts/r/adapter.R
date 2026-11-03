@@ -15,7 +15,8 @@ RUNTIME_CLASSES <- c("fast", "moderate", "slow", "very_slow")
 mrgui_adapter <- function(id, adapter_version, label, input_kind, estimands, requires,
                           packages, stochastic, supports_checkpoint, runtime_class,
                           params = list(), check, run,
-                          emit_script = NULL, column_requirements = NULL) {
+                          emit_script = NULL, column_requirements = NULL,
+                          diagnostic_only = FALSE) {   # v1.1 (additive): TRUE = reports diagnostics only, no causal estimate (e.g. Steiger)
   stopifnot(is.character(id), length(id) == 1L, nzchar(id))
   stopifnot(grepl("^[0-9]+\\.[0-9]+\\.[0-9]+$", adapter_version))
   stopifnot(input_kind %in% INPUT_KINDS, all(estimands %in% ESTIMANDS))
@@ -24,6 +25,7 @@ mrgui_adapter <- function(id, adapter_version, label, input_kind, estimands, req
   stopifnot(is.list(packages), !is.null(names(packages)))
   stopifnot(is.function(check), is.function(run))
   stopifnot(is.null(emit_script) || is.function(emit_script))   # v1.1 (additive)
+  stopifnot(is.logical(diagnostic_only), length(diagnostic_only) == 1L, !is.na(diagnostic_only))
   for (p in names(params)) {
     spec <- params[[p]]
     stopifnot(spec$type %in% c("double", "integer", "logical", "enum"), !is.null(spec$default))
@@ -33,7 +35,8 @@ mrgui_adapter <- function(id, adapter_version, label, input_kind, estimands, req
                  packages = packages, stochastic = stochastic,
                  supports_checkpoint = supports_checkpoint, runtime_class = runtime_class,
                  params = params, check = check, run = run,
-                 emit_script = emit_script, column_requirements = column_requirements),
+                 emit_script = emit_script, column_requirements = column_requirements,
+                 diagnostic_only = diagnostic_only),
             class = "mrgui_adapter")
 }
 

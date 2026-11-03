@@ -228,12 +228,13 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
   pal <- sum((kept$ea == "A" & kept$oa == "T") | (kept$ea == "T" & kept$oa == "A") | (kept$ea == "C" & kept$oa == "G") | (kept$ea == "G" & kept$oa == "C"))
   list(ex_id = exp_id, out_id = out_id, exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(kept), mean_f = round(mean(Fs), 1), min_f = round(min(Fs), 1),
        n_weak = sum(Fs < 10), palindromic = pal, scale = p$input$outcome_scale,
+       has_n = nrow(kept) > 0 && all(c("n_x", "n_y") %in% names(kept)) && all(is.finite(kept$n_x) & is.finite(kept$n_y) & kept$n_x > 2 & kept$n_y > 2),
        simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y))
 }
 
-METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger")
+METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger", "MR Steiger directionality" = "steiger")
 
-param_adapters <- function() list(ivw_mre = ADAPTER_IVW_MRE_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11)
+param_adapters <- function() list(ivw_mre = ADAPTER_IVW_MRE_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11, steiger = ADAPTER_STEIGER_V11)
 
 studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx = NULL, params = NULL) {
   params <- c(params[setdiff(names(params), "ci_level")], list(ci_level = if (!is.null(params$ci_level)) params$ci_level else ci_level))
@@ -241,6 +242,7 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
   exposure_label <- trimws(exposure_label); outcome_label <- trimws(outcome_label)
   if (!nzchar(exposure_label) || !nzchar(outcome_label)) stop("Give the exposure and the outcome a name.")
   ad <- param_adapters()
+  if ("steiger" %in% methods) { v <- ad$steiger$check(input, list()); if (identical(v$status, "block")) stop(paste(v$messages, collapse = " ")) }   # the script would stop on missing sample sizes but could not tell a binary outcome
   spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = input,
                                            params = params[intersect(names(params), names(ad[[m]]$params))]))
   if (is.null(idx)) idx <- studio_pair_index(h$dir, exposure_label, outcome_label)
@@ -249,12 +251,12 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
   r
 }
 
-METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger")
+METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger", steiger = "MR Steiger directionality")
 IVW_MODEL_NAMES <- c(mre = "IVW (multiplicative random effects)", mre_floor = "IVW (random effects when over-dispersed)", fixed = "IVW (fixed effect)")
 
 #' The settings a pair was run with, read back from the settings lines of its scripts (the scripts are the record).
 pair_settings <- function(study, pair_folder) {
-  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, weights = "1", tol = 1e-4)
+  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, weights = "1", tol = 1e-4, r_xxo = 1, r_yyo = 1)
   for (f in Sys.glob(file.path(study, "03_pairs", pair_folder, "02_scripts", "[0-9]*_*.R"))) {
     for (k in names(out)) {
       ln <- grep(paste0("^", k, " <- "), readLines(f, warn = FALSE), value = TRUE)
@@ -282,6 +284,7 @@ pair_results <- function(study, pair_folder) {
     f <- file.path(tdir, paste0(m, "_estimates.csv"))
     if (!file.exists(f)) next
     d <- utils::read.csv(f, stringsAsFactors = FALSE)
+    if (!nrow(d)) next   # a diagnostic-only method (Steiger) has a header-only estimates file
     keep <- intersect(c("estimand", "estimate", "se", "ci_lower", "ci_upper", "ci_level", "p", "n_ivs_used"), names(d))
     out[[m]] <- cbind(Method = method_label(study, pair_folder, m), d[, keep, drop = FALSE])
   }
@@ -510,7 +513,7 @@ studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre",
   d$mr_keep[hit] <- FALSE; inp$input$data <- d
   kept <- sum(d$mr_keep)
   if (kept < 2L) stop("At least 2 instruments must remain.")
-  methods <- setdiff(methods, c("presso", "radial", "radegger"))   # detectors are not repeated on a reduced set: they are what suggests the sensitivity analysis
+  methods <- setdiff(methods, c("presso", "radial", "radegger", "steiger"))   # detectors are not repeated on a reduced set: they are what suggests the sensitivity analysis
   if (kept < 3L) methods <- setdiff(methods, c("egger", "wm", "smed", "mode", "smode"))
   lab <- sprintf("%s [without %d]", inp$exposure_label, length(remove))
   r <- studio_run(h, lab, inp$outcome_label, inp$input, methods, ci_level, idx = idx, params = params)
@@ -523,6 +526,7 @@ studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre",
 #' not run again: its estimate and standard error cannot change, so its default interval is recomputed from them.
 #' The saved results are never touched.
 compare_defaults <- function(study, pair_folder, exp_id, out_id, methods, pthr = 5e-8) {
+  methods <- setdiff(methods, "steiger")   # no estimate to compare
   st <- pair_settings(study, pair_folder); ads <- param_adapters()
   dflt <- function(m, k) ads[[m]]$params[[k]]$default
   same <- function(a, b) if (is.character(b)) identical(as.character(a), b) else isTRUE(all.equal(as.numeric(a), as.numeric(b)))

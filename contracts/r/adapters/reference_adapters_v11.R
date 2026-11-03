@@ -474,3 +474,95 @@ ADAPTER_RADEGGER_V11 <- mrgui_adapter(
     "  data.frame(name = \"radial_alpha\", value = alpha, df = NA_real_, p = NA_real_, note = NA_character_, stringsAsFactors = FALSE))"),
     "fixed seed (this method is deterministic; kept for the record)"),
   column_requirements = .colreq_basic)
+
+# ---- Round 15: MR Steiger directionality test (Hemani, Tilling, Davey Smith 2017, PLoS Genet 13:e1007081). ----
+# A diagnostic-only method (contracts v1.1, additive): it gives no causal estimate, only a check of the assumed direction
+# (does the exposure explain more variance in the instruments than the outcome does?). Continuous traits only in this version:
+# for a binary outcome the variance explained needs the number of cases, controls and the prevalence, which the pair data do not carry.
+.steiger_r_param <- function(id, label, what, arg) {
+  setNames(list(list(
+    type = "double", default = 1, min = 0.1, max = 1,
+    label = label,
+    hint = sprintf("Correlation between the measured and the true %s (its measurement reliability). 1 assumes no measurement error. Values below 1 re-run the test after correcting the variance explained for that error.", what),
+    package_arg = arg, kind = "float", conventional = TRUE, advanced = FALSE,
+    evidence = "1 is the default of TwoSampleMR::mr_steiger; Hemani et al. (2017) describe the sensitivity analysis over values below 1.",
+    affects = c("direction"))), id)
+}
+
+.steiger_empty_estimates <- function() data.frame(
+  estimand = character(0), exposure_id = character(0), outcome_id = character(0), scale = character(0),
+  estimate = numeric(0), se = numeric(0), ci_lower = numeric(0), ci_upper = numeric(0), ci_level = numeric(0),
+  ci_method = character(0), p = numeric(0), n_ivs_used = integer(0), stringsAsFactors = FALSE)
+
+.steiger_core <- function(d, r_xxo, r_yyo) {
+  r_exp <- TwoSampleMR::get_r_from_bsen(d$beta_x, d$se_x, d$n_x)
+  r_out <- TwoSampleMR::get_r_from_bsen(d$beta_y, d$se_y, d$n_y)
+  st <- TwoSampleMR::mr_steiger(p_exp = rep(NA_real_, nrow(d)), p_out = rep(NA_real_, nrow(d)), n_exp = d$n_x, n_out = d$n_y,
+                                r_exp = r_exp, r_out = r_out, r_xxo = r_xxo, r_yyo = r_yyo)
+  wrong <- abs(r_out) > abs(r_exp)
+  rbind(
+    diagnostic_row("steiger_r2_exposure", st$r2_exp, NA_real_, NA_real_, "variance in the exposure explained by the variants (sum over variants)"),
+    diagnostic_row("steiger_r2_outcome", st$r2_out, NA_real_, NA_real_, "variance in the outcome explained by the same variants (sum over variants)"),
+    diagnostic_row("steiger_direction", as.double(st$correct_causal_direction), NA_real_, st$steiger_test,
+                   "1 = the exposure explains more variance than the outcome (the assumed direction); 0 = the reverse. P tests whether the two differ"),
+    diagnostic_row("steiger_direction_adjusted", as.double(st$correct_causal_direction_adj), NA_real_, st$steiger_test_adj,
+                   "same test after correcting for measurement reliability (r_xxo, r_yyo); equals the unadjusted test when both are 1"),
+    diagnostic_row("steiger_variants", nrow(d), NA_real_, NA_real_, "variants used in the test"),
+    diagnostic_row("steiger_variants_wrong_way", sum(wrong), NA_real_, NA_real_, .ids_note(d$variant_id[wrong])))
+}
+
+ADAPTER_STEIGER_V11 <- NULL
+ADAPTER_STEIGER_V11 <- mrgui_adapter(
+  id = "steiger", adapter_version = "1.1.0", label = "MR Steiger directionality", input_kind = "pair_iv", estimands = character(0),
+  requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = TRUE,
+                  needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(TwoSampleMR = "5e93ee7d8e1f67581acb8134299759389d73efba"), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.steiger_r_param("r_xxo", "Exposure measurement reliability (r_xxo)", "exposure", "r_xxo"),
+             .steiger_r_param("r_yyo", "Outcome measurement reliability (r_yyo)", "outcome", "r_yyo"), .minf_param_v11),
+  diagnostic_only = TRUE,
+  check = function(input, params) {
+    if (identical(input$outcome_scale, "log_or"))
+      return(verdict("block", "FEAS_STEIGER_BINARY", "The Steiger test in this version is for a continuous outcome. This outcome is binary (log odds ratio); the test then needs the number of cases, controls and the disease prevalence, which are not in the data."))
+    d <- .usable(input$data)
+    if (nrow(d) < 3) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("The Steiger test needs at least 3 usable instruments; %d available.", nrow(d))))
+    if (!all(c("n_x", "n_y") %in% names(d)) || any(!is.finite(d$n_x) | !is.finite(d$n_y) | d$n_x <= 2 | d$n_y <= 2))
+      return(verdict("block", "FEAS_STEIGER_NEEDS_N", "The Steiger test needs the sample size of the exposure and of the outcome for every variant, and some are missing."))
+    w <- .common_warnings(d)
+    verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+  },
+  run = function(input, params, ctx) {
+    d <- .usable(input$data)
+    list(estimates = .steiger_empty_estimates(), diagnostics = .steiger_core(d, params$r_xxo, params$r_yyo))
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_STEIGER_V11, spec, params, seed, "TwoSampleMR", c(
+    "# ---- 5. Analysis: MR Steiger directionality test (TwoSampleMR::mr_steiger) --------",
+    "# Does the exposure explain more variance in the instruments than the outcome does? If so the assumed direction is supported.",
+    "# This method gives no causal estimate; it only checks the direction. It is for a continuous exposure and outcome.",
+    "if (any(!is.finite(dat$n_x) | !is.finite(dat$n_y) | dat$n_x <= 2 | dat$n_y <= 2))",
+    "  stop(\"The Steiger test needs the sample size of the exposure and of the outcome for every variant (columns n_x, n_y).\")",
+    "r_exp <- TwoSampleMR::get_r_from_bsen(dat$beta_x, dat$se_x, dat$n_x)   # signed correlation of each variant with the exposure",
+    "r_out <- TwoSampleMR::get_r_from_bsen(dat$beta_y, dat$se_y, dat$n_y)   # and with the outcome",
+    "st <- TwoSampleMR::mr_steiger(p_exp = rep(NA_real_, nrow(dat)), p_out = rep(NA_real_, nrow(dat)),",
+    "  n_exp = dat$n_x, n_out = dat$n_y, r_exp = r_exp, r_out = r_out, r_xxo = r_xxo, r_yyo = r_yyo)",
+    "wrong <- abs(r_out) > abs(r_exp)   # variants that explain more variance in the outcome than in the exposure",
+    "estimates <- data.frame(estimand = character(0), exposure_id = character(0), outcome_id = character(0), scale = character(0),",
+    "  estimate = numeric(0), se = numeric(0), ci_lower = numeric(0), ci_upper = numeric(0), ci_level = numeric(0),",
+    "  ci_method = character(0), p = numeric(0), n_ivs_used = integer(0), stringsAsFactors = FALSE)   # no causal estimate by design",
+    "dg <- function(name, value, p, note) data.frame(name = name, value = as.double(value), df = NA_real_, p = as.double(p), note = as.character(note), stringsAsFactors = FALSE)",
+    "diagnostics <- rbind(",
+    "  dg(\"steiger_r2_exposure\", st$r2_exp, NA_real_, \"variance in the exposure explained by the variants (sum over variants)\"),",
+    "  dg(\"steiger_r2_outcome\", st$r2_out, NA_real_, \"variance in the outcome explained by the same variants (sum over variants)\"),",
+    "  dg(\"steiger_direction\", st$correct_causal_direction, st$steiger_test,",
+    "     \"1 = the exposure explains more variance than the outcome (the assumed direction); 0 = the reverse. P tests whether the two differ\"),",
+    "  dg(\"steiger_direction_adjusted\", st$correct_causal_direction_adj, st$steiger_test_adj,",
+    "     \"same test after correcting for measurement reliability (r_xxo, r_yyo); equals the unadjusted test when both are 1\"),",
+    "  dg(\"steiger_variants\", nrow(dat), NA_real_, \"variants used in the test\"),",
+    "  dg(\"steiger_variants_wrong_way\", sum(wrong), NA_real_, if (any(wrong)) paste(dat$variant_id[wrong], collapse = \";\") else NA_character_))"),
+    "fixed seed (this method is deterministic; kept for the record)"),
+  column_requirements = list(
+    list(column = "beta_x", level = "required", why = "Effect of each variant on the exposure.", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
+    list(column = "se_x", level = "required", why = "Standard error of the exposure effect.", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
+    list(column = "beta_y", level = "required", why = "Effect of each variant on the outcome.", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
+    list(column = "se_y", level = "required", why = "Standard error of the outcome effect.", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
+    list(column = "n_x", level = "required", why = "Sample size of the exposure study (variance explained is computed from it).", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_N")),
+    list(column = "n_y", level = "required", why = "Sample size of the outcome study.", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_N"))))
