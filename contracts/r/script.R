@@ -171,7 +171,7 @@ local({
   rscript <- file.path(R.home("bin"), if (.Platform$OS.type == "windows") "Rscript.exe" else "Rscript")
   say("Running ", length(scripts), " method script(s) in a fresh R process. Slow methods can take a few minutes.")
   old <- setwd(run); on.exit(setwd(old), add = TRUE)
-  env_new <- c(R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep), OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1")
+  env_new <- c(R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep), RHOME = R.home(), OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1")   # RHOME: Rscript finds this R even when it was moved
   env_old <- Sys.getenv(names(env_new), unset = NA)    # the same on every operating system; restored afterwards
   do.call(Sys.setenv, as.list(env_new))
   on.exit(for (n in names(env_old)) if (is.na(env_old[[n]])) Sys.unsetenv(n) else do.call(Sys.setenv, stats::setNames(list(env_old[[n]]), n)), add = TRUE)

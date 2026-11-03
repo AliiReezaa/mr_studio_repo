@@ -121,8 +121,9 @@ expect("check script: base R only, no setwd and no reference to the studies fold
 tab_md5 <- function(d) unname(tools::md5sum(list.files(file.path(d, "04_tables"), full.names = TRUE)))
 md5_before <- tab_md5(pd_v)
 run_verify <- function(dir, from = tempdir()) {
-  old <- setwd(from); on.exit(setwd(old)); lib_old <- Sys.getenv("R_LIBS", unset = NA); Sys.setenv(R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep))
+  old <- setwd(from); on.exit(setwd(old)); lib_old <- Sys.getenv("R_LIBS", unset = NA); Sys.setenv(R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep)); rh_old <- Sys.getenv("RHOME", unset = NA); Sys.setenv(RHOME = R.home())
   on.exit(if (is.na(lib_old)) Sys.unsetenv("R_LIBS") else Sys.setenv(R_LIBS = lib_old), add = TRUE)
+  on.exit(if (is.na(rh_old)) Sys.unsetenv("RHOME") else Sys.setenv(RHOME = rh_old), add = TRUE)
   suppressWarnings(system2(default_rscript(), c("--vanilla", shQuote(file.path(dir, "VERIFY_IN_R.R"))), stdout = TRUE, stderr = TRUE))
 }
 vo <- run_verify(pd_v)
