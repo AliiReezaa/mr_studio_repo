@@ -161,12 +161,29 @@ pair_context <- function(h, p) {
   rc <- file.path(h$dir, "03_pairs", p$folder, "02_scripts", "00_run_all.R"); sc <- Sys.glob(file.path(h$dir, "03_pairs", p$folder, "02_scripts", "[0-9]*_*.R"))
   srcname <- function(id, role) if (startsWith(id, "lib:")) tryCatch({ r <- library_dataset(sub("^lib:", "", id))$recipe; list(file = r$original$file, ancestry = r$facts$ancestry %||% "unknown", n = r$facts$n %||% "", og = if (identical(r$source$type, "opengwas")) r$source else NULL) }, error = function(e) list(file = "(file no longer in the library)", ancestry = "unknown", n = "")) else list(file = NA_character_, ancestry = "EUR", n = "")
   list(p = p, pay = pay, est = est, ce = ce, vars = v, kept = kept, mean_f = mean(Fs), min_f = min(Fs), n_weak = sum(Fs < 10), settings = st, nx = nx, ny = ny,
-       simulated = isTRUE(p$simulated) || !startsWith(p$ex %||% "", "lib:"), ledger = p$ledger, pthr = p$pthr %||% 5e-8, src_x = srcname(p$ex, "exposure"), src_y = srcname(p$out, "outcome"), methods = unlist(p$methods), scripts = sc)
+       simulated = isTRUE(p$simulated) || !startsWith(p$ex %||% "", "lib:"), ledger = p$ledger, pthr = p$pthr %||% 5e-8, src_x = srcname(p$ex, "exposure"), src_y = srcname(p$out, "outcome"), methods = unlist(p$methods), scripts = sc,
+       overlap = tryCatch(overlap_get(h)[[overlap_key(p$ex %||% "", p$out %||% "")]], error = function(e) NULL))
 }
 
 # ---------- text ----------
 .ci_phrase <- function(r, scale) { ratio <- scale %in% c("log_or"); f <- function(x) if (ratio) exp(x) else x
   sprintf("%s = %s (%s CI %s to %s; P = %s)", if (ratio) "OR" else "beta", .fnum(f(r$estimate)), .pct(r$ci_level), .fnum(f(r$ci_lower)), .fnum(f(r$ci_upper)), .fp(r$p)) }
+#' The limitation sentences about sample overlap. Overlap is never calculated by MR Studio; the sentence says what the analyst declared.
+overlap_limitations <- function(ctxs) {
+  real <- Filter(function(cx) !isTRUE(cx$simulated), ctxs)
+  bias <- "Overlap biases estimates toward the observational association, most strongly with weak instruments."
+  untested <- "Sample overlap between the exposure and outcome studies was not tested. "
+  if (!length(real)) return(paste0(untested, bias))
+  nm <- function(cx) paste0(cx$p$exName %||% cx$p$ex %||% "exposure", " and ", cx$p$outName %||% cx$p$out %||% "outcome")
+  ans <- vapply(real, function(cx) cx$overlap$answer %||% "unanswered", "")
+  out <- character(0)
+  none <- real[ans == "none"]; some <- real[ans == "some"]; rest <- real[!(ans %in% c("none", "some"))]
+  det <- function(cx) paste0(nm(cx), if (!is.null(cx$overlap$pct)) sprintf(" (about %s%% of the people)", format(cx$overlap$pct)) else "", if (nzchar(cx$overlap$note %||% "")) paste0(" [", cx$overlap$note, "]") else "")
+  if (length(none)) out <- c(out, paste0(untested, "The analyst stated that the exposure and outcome studies for ", paste(vapply(none, function(cx) paste0(nm(cx), if (nzchar(cx$overlap$note %||% "")) paste0(" [", cx$overlap$note, "]") else ""), ""), collapse = "; "), " do not share participants. This is a declaration and MR Studio did not verify it."))
+  if (length(some)) out <- c(out, paste0("The analyst stated that the exposure and outcome studies share participants for: ", paste(vapply(some, det, ""), collapse = "; "), ". MR Studio did not correct for this. ", bias, " Consider an outcome from a different cohort or a method designed for overlapping samples."))
+  if (length(rest)) out <- c(out, paste0(untested, "The cohorts of ", paste(vapply(rest, nm, ""), collapse = "; "), " were not checked by the analyst. ", bias))
+  out
+}
 report_text <- function(ctxs, study_name) {
   txt <- list(methods = character(), results = character(), limitations = character(), availability = character(), legends = character())
   used <- unique(unlist(lapply(ctxs, function(x) x$methods))); anysim <- any(vapply(ctxs, `[[`, TRUE, "simulated")); anyimp <- any(!vapply(ctxs, `[[`, TRUE, "simulated"))
@@ -233,7 +250,7 @@ report_text <- function(ctxs, study_name) {
   anyog <- any(vapply(ctxs, function(cx) !cx$simulated && !is.null(cx$src_x$og), TRUE)); anyfile <- any(vapply(ctxs, function(cx) !cx$simulated && (is.null(cx$src_x$og) || is.null(cx$src_y$og)), TRUE))
   if (anyfile) lim <- c(lim, "For imported files, clumping was not performed by MR Studio: the independence of the instruments rests on the analyst's statement at import. Ancestry and genome build are declared, not verified, and the exposure and outcome files must come from the same genome build.")
   if (anyog) lim <- c(lim, "Instruments from OpenGWAS were clumped on its server against 1000 Genomes reference panels, so linkage disequilibrium was estimated in a reference sample and not in the study population. Proxy variants, where used, stand in for missing instruments and are listed in the harmonised data table.")
-  lim <- c(lim, "Sample overlap between the exposure and outcome studies was not tested. Overlap biases estimates toward the observational association, most strongly with weak instruments.",
+  lim <- c(lim, overlap_limitations(ctxs),
            "Directionality was not tested (the Steiger test is not built), so reverse causation is not excluded by this analysis.",
            if (any(vapply(ctxs, function(x) x$n_weak > 0, TRUE))) "Some variants have an F statistic below 10, which can bias estimates toward the null in two-sample MR." else NULL,
            if (any(c("presso", "radial", "radegger") %in% used)) "Variants flagged by MR-PRESSO or radial MR were reported but not removed from the primary analysis. Detectors flag variants by a statistical rule and cannot tell horizontal pleiotropy from valid heterogeneity; any analysis without flagged variants is a post-hoc sensitivity analysis and must be reported as one [Burgess 2023]." else "Outlier detection (MR-PRESSO, radial MR) was not run in this study. Pleiotropy-robust estimators were compared with the IVW estimate; agreement in direction does not prove the assumptions hold.",

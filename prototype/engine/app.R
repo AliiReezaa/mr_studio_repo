@@ -64,7 +64,7 @@ mr_server <- function(engine_dir) {
       pairs <- Filter(function(p) !is.null(p$folder), pairs)
       sens <- ui_state_get(h$con, "sens") %||% list()
       for (sn in sens) if (!is.null(sn$folder) && dir.exists(file.path(h$dir, "03_pairs", sn$folder)) && !is.null(pair_results(h$dir, sn$folder))) payloads[[sn$folder]] <- pair_payload(h$dir, sn$folder)
-      ev(t, name = name, dir = h$dir, root = root, plan = plan, pairs = pairs, sens = sens, payloads = payloads, to = to, studies = studies_overview(root))
+      ev(t, name = name, dir = h$dir, root = root, plan = plan, pairs = pairs, sens = sens, payloads = payloads, overlap = overlap_get(h), to = to, studies = studies_overview(root))
     }
 
     observeEvent(input$impfile, {
@@ -117,6 +117,11 @@ mr_server <- function(engine_dir) {
           close_study(); h <- studio_new(nm); rv$h <- h
           study_plan_save(h, list(kind = a$kind, aim = a$aim %||% "", prereg = isTRUE(a$prereg), question_kind = a$kind))
           study_msg("study_created", h)
+        },
+        overlap_save = {
+          req(rv$h)
+          for (it in a$items) overlap_set(rv$h, it$ex, it$out, it$answer, it$pct, it$note %||% "")
+          ev("overlap", overlap = overlap_get(rv$h))
         },
         plan_update = { req(rv$h); study_plan_save(rv$h, list(kind = a$kind, aim = a$aim %||% "", prereg = isTRUE(a$prereg))) },
         study_open = {

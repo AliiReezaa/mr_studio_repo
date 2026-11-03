@@ -226,7 +226,7 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
   p <- pair_input(exp_id, out_id, pthr); d <- p$input$data; kept <- d[d$mr_keep, ]
   Fs <- (kept$beta_x / kept$se_x)^2
   pal <- sum((kept$ea == "A" & kept$oa == "T") | (kept$ea == "T" & kept$oa == "A") | (kept$ea == "C" & kept$oa == "G") | (kept$ea == "G" & kept$oa == "C"))
-  list(exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(kept), mean_f = round(mean(Fs), 1), min_f = round(min(Fs), 1),
+  list(ex_id = exp_id, out_id = out_id, exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(kept), mean_f = round(mean(Fs), 1), min_f = round(min(Fs), 1),
        n_weak = sum(Fs < 10), palindromic = pal, scale = p$input$outcome_scale,
        simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y))
 }
@@ -361,6 +361,28 @@ ui_state_set <- function(con, key, value) {
   DBI::dbExecute(con, "INSERT OR REPLACE INTO ui_state(key, value_json, updated_at) VALUES (?, ?, ?)",
                  params = list(key, as.character(jsonlite::toJSON(value, auto_unbox = TRUE, null = "null")), format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")))
   invisible(TRUE)
+}
+
+# ---- Sample overlap: the analyst's own statement about the two cohorts (not a calculation) -------------------------------------
+# Overlap between the exposure and outcome studies cannot be calculated from the summary statistics the app reads, so the Check screen
+# asks the analyst and records the answer in the study, where the reports read it. The answer is a declaration and is reported as one.
+OVERLAP_ANSWERS <- c("none", "some", "unknown")
+overlap_key <- function(exp_id, out_id) paste(exp_id, out_id, sep = " | ")
+overlap_get <- function(h) { ov <- ui_state_get(h$con, "overlap"); if (is.null(ov) || !is.list(ov)) list() else ov }
+overlap_set <- function(h, exp_id, out_id, answer, pct = NULL, note = "") {
+  if (!nzchar(exp_id) || !nzchar(out_id)) stop("The pair is missing.")
+  if (!(answer %in% OVERLAP_ANSWERS)) stop("Choose one of: the studies do not share people, they share some people, or I do not know.")
+  pct <- suppressWarnings(as.numeric(pct)); if (length(pct) != 1L || !is.finite(pct) || answer != "some") pct <- NA_real_
+  if (!is.na(pct) && (pct < 0 || pct > 100)) stop("The share of overlapping people must be between 0 and 100 percent.")
+  note <- trimws(substr(gsub("[[:cntrl:]]+", " ", as.character(note %||% "")), 1, 500))
+  ov <- overlap_get(h)
+  ov[[overlap_key(exp_id, out_id)]] <- list(exposure = exp_id, outcome = out_id, answer = answer, pct = if (is.na(pct)) NULL else pct, note = note,
+                                           saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"))
+  rel <- "01_study_plan/sample_overlap.json"
+  atomic_write_text(file.path(h$dir, rel), jsonlite::toJSON(unname(ov), auto_unbox = TRUE, pretty = TRUE, null = "null"))
+  manifest_register(h$dir, rel, role = "sample_overlap")
+  ui_state_set(h$con, "overlap", ov)
+  invisible(ov)
 }
 
 #' Save the question page of a new study (what the user typed) as a readable file and in the database.

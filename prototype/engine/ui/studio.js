@@ -55,7 +55,7 @@ const EXPORT_ITEMS = [['scripts', 'Scripts and data tables', 'The R scripts, the
   ['strobe', 'STROBE-MR checklist', 'Not built yet: the 22 items still need to be mapped to what the engine knows', 'DOCX', false], ['refs', 'Citations', 'Every method and tool named in the text, checked against PubMed', 'BibTeX · RIS', true],
   ['capsule', 'Reproducibility capsule', 'Every pair folder with scripts, data, results and the replay check, plus the R version', 'ZIP', true]];
 
-const S = { screen: 'boot', theme: 'aurora', settings: {}, studies: [], cat: { exposures: [], outcomes: [] }, schemas: {}, study: null, maxStep: 0,
+const S = { screen: 'boot', overlap: {}, ovl: null, theme: 'aurora', settings: {}, studies: [], cat: { exposures: [], outcomes: [] }, schemas: {}, study: null, maxStep: 0,
   kind: 'basic', name: '', aim: '', prereg: false, err: null, notice: null, q: '', pthr: '5e-8', factErr: [], ex: [], out: [], pop: 'EUR', methods: ['ivw_mre', 'egger'], mfilter: 'all',
   params: { ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, custom: null, facts: null, pairs: [], run: null, payloads: {}, rp: 0, size: 'Double column', pub: null, xsel: ['scripts', 'report', 'figs', 'tables', 'text', 'refs', 'capsule'], pkg: null,
   info: null, diag: null, editFolder: false, folderErr: null, root: '', dialog: null, lost: false, cmp: null, inst: null, sel: [], sens: [], sensBusy: false, lib: [], tmpls: [], imp: null, sq: '', sf: 'all',
@@ -414,6 +414,7 @@ function vCustomise() {
   const body = keys.length ? keys.map((k) => paramCtl(k, sch[k])).join('') : '<div style="color:var(--mute)">This method has no adjustable settings. It is run exactly as the package defines it, and the script says so.</div>';
   return '<div class="modal-bg" data-a="custom_close_bg"><div role="dialog" aria-modal="true" aria-label="Customise ' + esc(m.name) + '" style="width:100%;max-width:520px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:20px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">CUSTOMISE</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">' + esc(m.name) + '</div></div>' + body + cmpParams(keys, sch) + (NOT_ADJUSTABLE[S.custom] ? '<div style="font-size:12px;color:var(--mute)">' + esc(NOT_ADJUSTABLE[S.custom]) + '</div>' : '') + '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Every value you set is written into the script, and results from changed settings are marked as customised.</div><div style="display:flex;gap:12px;justify-content:flex-end">' + cta('Done', 'custom_close', '', 'height:44px') + '</div></div></div>';
 }
+function ovKey(x) { return x.ex_id + ' | ' + x.out_id; }
 function checks() {
   const fc = S.facts || []; if (!fc.length) return S.factErr.length ? [['Data problem', S.factErr.join(' '), 'REVIEW']] : [];
   const minI = Math.min.apply(null, fc.map((x) => x.instruments)), weak = fc.reduce((a, x) => a + x.n_weak, 0), meanF = fc.reduce((a, x) => a + x.mean_f, 0) / fc.length, pal = fc.reduce((a, x) => a + x.palindromic, 0);
@@ -422,9 +423,17 @@ function checks() {
   const out = [['Instrument strength', weak === 0 ? 'All variants in all ' + fc.length + ' pair' + (fc.length === 1 ? '' : 's') + ' have F above 10 (at least ' + minI + ' per pair). Mean F is ' + meanF.toFixed(1) + ', so weak-instrument bias is unlikely.' : weak + ' variants have F below 10. Weak instruments bias estimates toward the null.', weak === 0 ? 'PASS' : 'REVIEW']];
   if (imp) out.push(['What happened to each instrument', led.join(' '), 'PASS']);
   out.push(imp ? ['Ancestry match', fc.map((x) => x.exposure + ' ' + x.anc_x + (x.og_x ? ' (from OpenGWAS)' : ' (declared at import)') + ', ' + x.outcome + ' ' + x.anc_y + (x.og_y ? ' (from OpenGWAS)' : ' (declared at import)')).join('; ') + '. This app does not verify ancestry.', fc.every(two) ? 'PASS' : 'REVIEW'] : ['Ancestry match', 'Both traits are declared European. Ancestry is not tested for simulated traits.', 'PASS']);
-  const ukbPairs = fc.filter((x) => x.ukb_both);
-  if (ukbPairs.length) out.push(['Sample overlap', ukbPairs.map((x) => x.exposure + ' and ' + x.outcome).join('; ') + ': both datasets include UK Biobank, so the two studies probably share people. Overlap biases a two-sample estimate toward the observational association, more so with weaker instruments. Overlap is not tested here. Say so in the paper, or use an outcome from a different cohort.', 'REVIEW']);
-  else out.push(imp ? ['Sample overlap', 'Not tested. If the two studies share people (for example both use UK Biobank), the estimate is biased toward the observational association. Check the two cohorts yourself and report it.', 'NOT BUILT'] : ['Sample overlap', 'The simulated traits are independent, so there is no overlap. Real data will be checked.', 'PASS']);
+  if (!imp) out.push(['Sample overlap', 'The simulated traits are independent, so there is no overlap. Real data will be checked.', 'PASS']);
+  else {
+    const sd = (x) => x.exposure + ' and ' + x.outcome, info = fc.map((x) => ({ x: x, o: S.overlap[ovKey(x)] }));
+    const lines = info.map((r) => { const o = r.o, u = r.x.ukb_both ? ' Both datasets include UK Biobank, so the studies probably share people.' : '';
+      if (!o) return sd(r.x) + ': not answered yet.' + u;
+      if (o.answer === 'none') return sd(r.x) + ': you stated that the studies do not share people.' + (r.x.ukb_both ? ' Both datasets include UK Biobank, which conflicts with that statement. Please check.' : '');
+      if (o.answer === 'some') return sd(r.x) + ': you stated that the studies share people' + (o.pct != null ? ' (about ' + o.pct + '%)' : '') + '.';
+      return sd(r.x) + ': you do not know.' + u; });
+    const bad = info.some((r) => !r.o || r.o.answer !== 'none' || r.x.ukb_both);
+    out.push(['Sample overlap', lines.join(' ') + ' Overlap cannot be calculated from summary statistics, so this is your own statement and the draft text reports it as one. Overlap biases a two-sample estimate toward the observational association, more so with weaker instruments.', bad ? 'REVIEW' : 'PASS', 'ovl_open', info.every((r) => r.o) ? 'Change answer' : 'Answer now']);
+  }
   out.push(['Units', 'Outcome effects are on the beta scale (per unit), so estimates read as change in outcome per unit change in exposure.' + (fc.some((x) => x.scale === 'log_or' || x.scale === 'or') ? ' For a binary outcome they are log odds.' : ''), 'PASS']);
   out.push(imp ? ['Ambiguous variants', pal + ' palindromic variant' + (pal === 1 ? ' (A/T or C/G) is' : 's (A/T or C/G) are') + ' among the ' + fc.reduce((a, x) => a + x.instruments, 0) + ' kept. Allele frequency was clear enough to tell their strand. Those too close to 50% were dropped (' + fc.reduce((a, x) => a + ((x.ledger || {}).dropped_palindromic || 0), 0) + ', see above).', 'PASS'] : ['Ambiguous variants', pal + ' palindromic variant' + (pal === 1 ? '' : 's') + ' found. Allele frequency is used to resolve them when real data are loaded.', 'PASS']);
   out.push(['Direction of effect', 'The Steiger test is planned and not built yet. It will be reported as a limitation in your draft text.', 'NOT BUILT']);
@@ -433,13 +442,27 @@ function checks() {
 function vCheck() {
   const C6 = checks(), passed = C6.filter((c) => c[2] === 'PASS').length, rev = C6.filter((c) => c[2] === 'REVIEW').length, nb = C6.filter((c) => c[2] === 'NOT BUILT').length;
   const items = C6.map((k) => { const w = k[2] === 'REVIEW', nbk = k[2] === 'NOT BUILT';
-    return '<div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box;padding:18px 20px;border-radius:16px;background:var(--panel);border:1px solid ' + (w ? 'var(--warn)' : 'var(--line)') + '"><span style="flex:none;margin-top:6px;width:10px;height:10px;border-radius:50%;background:' + (w ? 'var(--warn)' : (nbk ? 'transparent' : 'var(--accent)')) + ';border:' + (nbk ? '2px solid var(--mute)' : 'none') + ';box-sizing:border-box"></span><div style="flex-grow:1;min-width:0"><div style="font-weight:600">' + k[0] + '</div><div style="color:var(--mute);margin-top:2px">' + esc(k[1]) + '</div></div><span class="mono" style="flex:none;font-size:11px;color:' + (w ? 'var(--warn)' : (nbk ? 'var(--mute)' : 'var(--accent)')) + '">' + k[2] + '</span></div>'; }).join('');
+    return '<div style="display:flex;gap:16px;align-items:flex-start;box-sizing:border-box;padding:18px 20px;border-radius:16px;background:var(--panel);border:1px solid ' + (w ? 'var(--warn)' : 'var(--line)') + '"><span style="flex:none;margin-top:6px;width:10px;height:10px;border-radius:50%;background:' + (w ? 'var(--warn)' : (nbk ? 'transparent' : 'var(--accent)')) + ';border:' + (nbk ? '2px solid var(--mute)' : 'none') + ';box-sizing:border-box"></span><div style="flex-grow:1;min-width:0"><div style="font-weight:600">' + k[0] + '</div><div style="color:var(--mute);margin-top:2px">' + esc(k[1]) + '</div>' + (k[3] ? '<button type="button" data-a="' + k[3] + '" style="flex:none;height:36px;padding:0 14px;margin-top:-4px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:550;font-size:13px">' + k[4] + '</button>' : '') + '</div><span class="mono" style="flex:none;font-size:11px;color:' + (w ? 'var(--warn)' : (nbk ? 'var(--mute)' : 'var(--accent)')) + '">' + k[2] + '</span></div>'; }).join('');
   const main = '<header style="max-width:680px">' + eyebrow('STEP 4 OF 7 · CHECK') + h1('A final check before you run') + sub('The app looked at your data for problems that could mislead the result. Anything unusual comes with a suggested fix.') + '</header>' +
     '<div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start"><section style="flex:999 1 520px;min-width:0;display:flex;flex-direction:column;gap:10px">' + items + '</section>' +
     '<aside style="flex:1 1 300px;max-width:380px;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;gap:20px"><div><div style="font-size:12px;color:var(--mute);margin-bottom:6px">Result of the check</div><div style="display:flex;align-items:baseline;gap:8px"><span class="mono" style="font-size:40px;font-weight:500;letter-spacing:-0.04em">' + passed + '</span><span style="color:var(--mute)">of ' + C6.length + ' passed</span></div><div style="margin-top:6px;color:' + (rev ? 'var(--warn)' : 'var(--accent)') + '">' + (rev ? rev + ' item to review.' : (nb ? 'Everything that can be tested is in order.' : 'Everything is in order.')) + '</div></div>' +
     '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Nothing is blocked. You can run now and each open item will be reported as a limitation in your draft text.</div>' +
     cta('Run analysis' + svg(IC.run, 16, 2.2), 'c_next') + '</aside></div>' + DEMO_NOTE;
-  return frame('study', 'check', main);
+  return frame('study', 'check', main) + vOverlap();
+}
+function vOverlap() {
+  const d = S.ovl; if (!d) return '';
+  const opts = [['none', 'No, different cohorts'], ['some', 'Yes, some people are in both'], ['unknown', 'I do not know']];
+  const inp = 'box-sizing:border-box;width:100%;height:40px;padding:0 12px;border-radius:10px;background:var(--panel);color:var(--text);border:1px solid var(--line)';
+  const blocks = d.items.map((it, i) => '<div style="display:flex;flex-direction:column;gap:12px;padding:16px;border-radius:14px;background:var(--panel2);border:1px solid var(--line)"><div style="font-weight:600">' + esc(it.name) + '</div>' +
+    '<div role="group" aria-label="Do the studies share people? ' + esc(it.name) + '" style="display:flex;flex-wrap:wrap;gap:8px">' + opts.map((o) => { const on = o[0] === it.answer; return '<button type="button" data-a="ovl_ans" data-v="' + i + '|' + o[0] + '" aria-pressed="' + on + '" style="padding:8px 14px;border-radius:999px;font-size:13px;font-weight:550;color:' + (on ? 'var(--accentInk)' : 'var(--text)') + ';background:' + (on ? 'var(--accent)' : 'transparent') + ';border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + '">' + o[1] + '</button>'; }).join('') + '</div>' +
+    (it.answer === 'some' ? '<div><label for="ovl_pct_' + i + '" style="display:block;font-size:12px;color:var(--mute);margin-bottom:6px">About what share of the people is in both studies? Percent, optional</label><input id="ovl_pct_' + i + '" class="mono" inputmode="decimal" value="' + esc(it.pct) + '" style="' + inp + '"></div>' : '') +
+    '<div><label for="ovl_note_' + i + '" style="display:block;font-size:12px;color:var(--mute);margin-bottom:6px">Which cohorts are involved? Optional, it goes into your draft text</label><input id="ovl_note_' + i + '" maxlength="500" value="' + esc(it.note) + '" style="' + inp + '"></div></div>').join('');
+  const bad = d.items.some((it) => it.answer === 'some' && String(it.pct).trim() !== '' && !(isFinite(Number(it.pct)) && Number(it.pct) >= 0 && Number(it.pct) <= 100));
+  return '<div class="modal-bg" data-a="ovl_close_bg"><div role="dialog" aria-modal="true" aria-label="Sample overlap" style="width:100%;max-width:560px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:18px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">SAMPLE OVERLAP</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">Do the two studies share people?</div></div>' +
+    '<div style="color:var(--mute)">The app cannot work this out from summary statistics, so it asks you. Check the two cohorts, for example whether both include UK Biobank. Your answer is saved with the study and written into the limitations of your draft text as your statement.</div>' + blocks +
+    (bad ? '<div style="color:var(--warn);font-size:13px">The share must be a number from 0 to 100.</div>' : '') +
+    '<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:flex-end"><button type="button" data-a="ovl_close" style="height:44px;padding:0 20px;border-radius:12px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:550;font-size:14px">Cancel</button><button type="button" class="cta" data-a="ovl_save" ' + (bad ? 'disabled' : '') + ' style="height:44px;padding:0 22px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;font-size:14px">Save answer</button></div></div></div>';
 }
 function elapsedLeft() { const r = S.run; if (!r || !r.times.length) return 'calculating'; const avg = r.times.reduce((a, b) => a + b, 0) / r.times.length, left = Math.round(avg * (r.total - r.i)); return left <= 0 ? 'done' : 'about ' + (left < 60 ? left + ' sec' : Math.ceil(left / 60) + ' min'); }
 function vRun() {
@@ -707,6 +730,11 @@ function onClick(e) {
     case 'param_reset': { const sch = S.schemas[S.custom] || {}; S.params[v] = sch[v].default; render(); break; }
     case 'm_next': S.maxStep = Math.max(S.maxStep, 3); go('check'); break;
     case 'c_next': startRun(); break;
+    case 'ovl_open': S.ovl = { items: (S.facts || []).map((x) => { const o = S.overlap[ovKey(x)] || {}; return { ex: x.ex_id, out: x.out_id, name: x.exposure + ' and ' + x.outcome, answer: o.answer || '', pct: o.pct != null ? String(o.pct) : '', note: o.note || '' }; }) }; render(); break;
+    case 'ovl_ans': { const kv = v.split('|'), it = S.ovl && S.ovl.items[Number(kv[0])]; if (it) { it.answer = kv[1]; render(); } break; }
+    case 'ovl_close': S.ovl = null; render(); break;
+    case 'ovl_close_bg': if (e.target === t) { S.ovl = null; render(); } break;
+    case 'ovl_save': { const items = S.ovl.items.filter((it) => it.answer); if (!items.length) { S.ovl = null; render(); break; } send('overlap_save', { items: items.map((it) => ({ ex: it.ex, out: it.out, answer: it.answer, pct: it.answer === 'some' && String(it.pct).trim() !== '' ? Number(it.pct) : null, note: it.note })) }); break; }
     case 'run_toggle': S.run.paused = !S.run.paused; if (!S.run.paused) runNext(); else render(); break;
     case 'run_stop': S.dialog = { title: 'Stop the analysis?', body: 'Pairs that are already saved stay saved. The pair being calculated right now finishes first. The remaining pairs are not run, and you can run them later from the Data step.', danger: true, buttons: [{ label: 'Keep running', a: 'dialog_close' }, { label: 'Stop and keep results', a: 'run_stop_yes', primary: true, danger: true }] }; render(); break;
     case 'run_stop_yes': S.dialog = null; S.run.stopped = true; S.run.i = S.run.total; if (S.run.results.length >= S.pairs.length || S.run.paused) S.run.state = 'done'; render(); break;
@@ -777,6 +805,7 @@ function onInput(e) {
   if (t.id === 'f_name') S.imp.facts.name = t.value; else if (t.id === 'f_n') S.imp.facts.n = t.value; else if (t.id === 'f_tmpl') S.imp.tmplName = t.value;
 
   if (t.id === 'oq' || t.id === 'ogw_minn') { if (t.id === 'oq') S.ogw.q = t.value; else S.ogw.minN = t.value; clearTimeout(S._ogwT); S._ogwT = setTimeout(ogwSearch, 250); return; }
+  if (t.id && t.id.indexOf('ovl_') === 0 && S.ovl) { const m = /^ovl_(pct|note)_(\d+)$/.exec(t.id), it = m && S.ovl.items[Number(m[2])]; if (it) { it[m[1]] = t.value; if (m[1] === 'pct') { focusId = t.id; render(); focusId = null; } } return; }
   if (t.id === 'nm') S.name = t.value; else if (t.id === 'aim') S.aim = t.value;
   else if (t.id === 'f_pthr') { S.pthr = t.value; focusId = 'f_pthr'; render(); focusId = null; }
   else if (t.id === 'q') { S.q = t.value; focusId = 'q'; render(); focusId = null; }
@@ -786,7 +815,7 @@ function onInput(e) {
 function paramVal(t) { const v = parseFloat(t.value); return t.getAttribute('data-pct') ? Math.round(v * 10) / 1000 : v; }
 function onChange(e) { const t = e.target; if (t.id === 'ogw_pop' || t.id === 'ogw_kind') { if (t.id === 'ogw_pop') S.ogw.pop = t.value; else S.ogw.kind = t.value; ogwSearch(); return; } if (t.getAttribute && t.getAttribute('data-map')) { const r = t.getAttribute('data-map'); S.imp.mapping[r] = t.value; S.imp.conf[r] = undefined; render(); return; } if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = (S.schemas[S.custom] || {})[k], val = paramVal(t); if (sch && !(isFinite(val) && val >= sch.min && val <= sch.max)) { const pc = t.getAttribute('data-pct'); S.notice = { kind: 'err', msg: sch.label + ' must be between ' + (pc ? sch.min * 100 + '%' : sch.min) + ' and ' + (pc ? sch.max * 100 + '%' : sch.max) + '. The previous value was kept.' }; } render(); } }
 function applyStudy(m) {
-  S.study = { name: m.name, dir: m.dir }; S.root = m.root || S.root;
+  S.study = { name: m.name, dir: m.dir }; S.root = m.root || S.root; S.overlap = Array.isArray(m.overlap) ? {} : (m.overlap || {}); S.ovl = null;
   const plan = m.plan || {}; S.name = m.name; S.aim = plan.aim || ''; S.prereg = !!plan.prereg; S.kind = plan.kind || 'basic';
   const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder, pthr: p.pthr || null }));
   S.ex = Array.from(new Set(S.pairs.map((p) => p.ex))); S.out = Array.from(new Set(S.pairs.map((p) => p.out)));
@@ -800,6 +829,7 @@ function handle(m) {
     case 'studies': S.studies = m.studies; S.root = m.root || S.root; if (S.screen === 'home' || S.screen === 'studies') render(); break;
     case 'study_created': applyStudy(m); S.studies = m.studies || S.studies; go('data'); break;
     case 'study_opened': applyStudy(m); if (m.to === 'results' || (m.to === 'auto' && Object.keys(S.payloads).length)) { S.rp = 0; go('results'); } else if (m.to === 'auto' && S.pairs.length) go('data'); else go(S.pairs.length ? 'data' : 'question'); break;
+    case 'overlap': S.overlap = Array.isArray(m.overlap) ? {} : (m.overlap || {}); S.ovl = null; if (S.screen === 'check') render(); break;
     case 'facts': S.factsBusy = false; S.factErr = Array.from(new Set(m.facts.filter((f) => f.error).map((f) => f.error))); S.facts = m.facts.filter((f) => !f.error); if (S.screen === 'methods' || S.screen === 'check') render(); break;
     case 'pair_done': { const r = S.run; if (!r) break; const p = S.pairs[m.i]; r.times.push((Date.now() - r.t0) / 1000); r.results[m.i] = { ok: m.ok };
       if (m.ok) { p.folder = m.folder; S.payloads[m.folder] = m.payload; r.log.push('Pair ' + (m.i + 1) + ': ' + (m.reused ? 'nothing changed, saved results reused' : 'done') + (m.payload.replay ? ', replay ' + m.payload.replay.status : '')); } else { r.failed++; r.log.push('Pair ' + (m.i + 1) + ' failed: ' + String(m.msg).replace(/\s+/g, ' ').slice(0, 220)); }
@@ -836,7 +866,7 @@ document.addEventListener('DOMContentLoaded', function () {
   document.addEventListener('change', function (e) { if (e.target && e.target.id === 'impfile' && S.imp) { S.imp.busy = true; S.notice = null; render(); } });
   document.addEventListener('keydown', function (e) {
     const modal = $root().querySelector('[aria-modal="true"]');
-    if (e.key === 'Escape' && modal && !S.lost) { if (S.dialog) S.dialog = null; else if (S.custom) S.custom = null; else return; e.preventDefault(); render(); return; }
+    if (e.key === 'Escape' && modal && !S.lost) { if (S.dialog) S.dialog = null; else if (S.ovl) S.ovl = null; else if (S.custom) S.custom = null; else return; e.preventDefault(); render(); return; }
     if (e.key === 'Tab' && modal) {
       const f = Array.prototype.filter.call(modal.querySelectorAll('button,[href],input,select,textarea,[tabindex="0"]'), function (x) { return !x.disabled && x.offsetParent !== null; });
       if (!f.length) return; const first = f[0], last = f[f.length - 1];
