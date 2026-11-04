@@ -33,7 +33,7 @@ settings_dir <- function() {
 }
 SETTINGS_DEFAULT <- list(theme = "aurora", setup_done = FALSE, offline = FALSE, update = TRUE, awake = TRUE, notify = TRUE,
                          studies_root = "")
-SETTINGS_THEMES <- c("aurora", "paper", "graphite", "ocean", "rose", "lilac")
+SETTINGS_THEMES <- c("aurora", "paper", "graphite", "ocean", "rose", "lilac", "sage", "peach")   # Sage and Peach added 2026-11-05
 settings_read <- function() {
   f <- file.path(settings_dir(), "settings.json")
   s <- SETTINGS_DEFAULT
