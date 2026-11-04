@@ -131,7 +131,7 @@ demo_catalogue <- function() {
   mk <- function(d) lapply(seq_len(nrow(d)), function(i) list(id = d$id[i], name = d$name[i], src = "Demo, simulated", n = format(d$n[i], big.mark = ","), anc = "EUR"))
   list(exposures = mk(DEMO_EXPOSURES), outcomes = mk(DEMO_OUTCOMES))
 }
-#' Datasets imported by the user, offered next to the simulated traits. An exposure must be marked as already independent (clumping is not built).
+#' Datasets imported by the user, offered next to the simulated traits. An exposure must be marked as already independent, or set to be clumped on this computer (Round 19).
 library_catalogue <- function(root = studies_root()) {
   recs <- tryCatch(library_list(root), error = function(e) list())
   mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?")
@@ -172,7 +172,7 @@ demo_input <- function(exp_id, out_id) {
 #' variants are aligned by allele frequency or dropped). Every instrument that is lost on the way is counted in the `ledger`.
 library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root()) {
   ex <- library_dataset(sub("^lib:", "", exp_id), root); ou <- library_dataset(sub("^lib:", "", out_id), root)
-  if (!isTRUE(ex$recipe$usable_as_exposure)) stop("\"", ex$recipe$trait, "\" is not marked as a set of independent instruments, so it cannot be an exposure yet. Clumping is not built. Import a file that holds only clumped, genome-wide significant variants and answer \"Yes\" to the question about independent variants.")
+  if (!isTRUE(ex$recipe$usable_as_exposure)) stop("\"", ex$recipe$trait, "\" is neither marked as a set of independent instruments nor set to be clumped on this computer, so it cannot be an exposure. Import it again and answer the question about independent variants. Import a file that holds only clumped, genome-wide significant variants and answer \"Yes\" to the question about independent variants.")
   if (!isTRUE(ou$recipe$usable_as_outcome)) stop("\"", ou$recipe$trait, "\" was imported as an exposure only.")
   fe <- ou$recipe$source$for_exposure
   if (!is.null(fe) && !identical(fe, ex$recipe$trait)) stop("\"", ou$recipe$trait, "\" was downloaded only for the instruments of \"", fe, "\", so it cannot be paired with \"", ex$recipe$trait, "\". Download this outcome again for the exposure you want (Data library).")
@@ -182,6 +182,16 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   if (!("p" %in% names(X))) X$p <- 2 * stats::pnorm(-abs(X$beta / X$se))
   led <- list(candidates = nrow(X))
   X <- X[is.finite(X$p) & X$p < pthr, , drop = FALSE]; led$instruments <- nrow(X)
+  sel <- NULL
+  if (identical(ex$recipe$facts$independent, "clump")) {   # Round 19: clump the candidates on this computer (PLINK + 1000 Genomes)
+    f <- ex$recipe$facts; num <- function(v, d) { v <- suppressWarnings(as.numeric(v %||% d)); if (length(v) == 1L && is.finite(v)) v else d }
+    if (!identical(kx$kind, "rsID")) stop("\"", ex$recipe$trait, "\" identifies variants by position only. Clumping needs rsIDs, so it cannot be clumped on this computer.")
+    if (!nrow(X)) stop("No variant in \"", ex$recipe$trait, "\" reaches P < ", format(pthr, scientific = TRUE), ", so there is nothing to clump.")
+    sel <- ld_clump_cached(ex$dir, X$key, X$p, num(f$clump_r2, 0.001), num(f$clump_kb, 10000), f$clump_pop %||% ld_pop_for(f$ancestry))
+    X <- X[X$key %in% sel$variant_id[sel$status == "index"], , drop = FALSE]
+    led$below_threshold <- led$instruments; led$instruments <- nrow(X)
+    led$clump <- c(attr(sel, "settings"), list(clumped = sum(sel$status == "clumped"), not_in_panel = sum(sel$status == "not_in_panel"), kept = nrow(X)))
+  }
   if (nrow(X) < 2L) stop("Fewer than 2 variants in \"", ex$recipe$trait, "\" reach P < ", format(pthr, scientific = TRUE), ". At least 2 instruments are needed.")
   Y <- Y[Y$key %in% X$key, , drop = FALSE]; led$in_outcome <- nrow(Y); led$missing_in_outcome <- led$instruments - nrow(Y); led$by_proxy <- if ("proxy_snp" %in% names(Y)) sum(!is.na(Y$proxy_snp) & nzchar(Y$proxy_snp)) else 0L
   if (nrow(Y) < 2L) stop("Fewer than 2 instruments were found in \"", ou$recipe$trait, "\".")
@@ -208,11 +218,22 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   if (led$kept < 2L) stop("Fewer than 2 instruments remain after harmonisation.")
   sc <- if (identical(ou$recipe$facts$kind, "binary")) "log_or" else "beta"
   scx <- if (identical(ex$recipe$facts$kind, "binary")) "log_or" else "beta"
-  list(exposure_label = ex$recipe$trait, outcome_label = ou$recipe$trait, simulated = FALSE, ledger = led,
+  list(exposure_label = ex$recipe$trait, outcome_label = ou$recipe$trait, simulated = FALSE, ledger = led, selection = sel,
        anc_x = ex$recipe$facts$ancestry %||% "?", anc_y = ou$recipe$facts$ancestry %||% "?", ukb_both = isTRUE(ex$recipe$facts$ukb) && isTRUE(ou$recipe$facts$ukb),
        source_x = ex$recipe$source$id %||% NULL, source_y = ou$recipe$source$id %||% NULL,
        binary = list(x = if (identical(scx, "log_or")) .case_counts(ex$recipe) else NULL, y = if (identical(sc, "log_or")) .case_counts(ou$recipe) else NULL),
        input = list(kind = "pair_iv", data = d, exposure_id = exp_id, outcome_id = out_id, outcome_scale = sc, exposure_scale = scx))
+}
+
+#' Save the clumping record of a pair (every candidate, kept or not, with its index variant) in its 01_data folder and the manifest.
+save_instrument_selection <- function(study_dir, pair_folder, sel) {
+  if (is.null(sel)) return(invisible(NULL))
+  rel <- file.path("03_pairs", pair_folder, "01_data", "instrument_selection.csv")
+  st <- attr(sel, "settings")
+  out <- cbind(sel, clump_r2 = st$r2, clump_kb = st$kb, reference = paste(st$panel, st$pop), plink = st$plink %||% NA_character_)
+  utils::write.csv(out, file.path(study_dir, rel), row.names = FALSE, na = "")
+  manifest_register(study_dir, rel, role = "instrument_selection")
+  invisible(rel)
 }
 
 #' Numbers of cases and controls of a binary dataset: from the import facts, else from the OpenGWAS record (NA when unknown).
@@ -479,6 +500,7 @@ run_diagnostics <- function(root = studies_root(), net = FALSE) {
     chk("Script runner (Rscript)", { r <- default_rscript(); list(ok = file.exists(r), detail = if (file.exists(r)) "found" else paste("missing:", r)) }),
     chk("Studies folder is writable", { dir.create(root, recursive = TRUE, showWarnings = FALSE); f <- tempfile(".mrstudio-check-", root); ok <- tryCatch({ writeLines("x", f); TRUE }, error = function(e) FALSE, warning = function(w) FALSE); unlink(f); list(ok = ok, detail = root) }),
     chk("Studies folder is not synchronised", { p <- study_path_problem(root); list(ok = is.null(p), detail = if (is.null(p)) "local folder" else p) }),
+    chk("PLINK (clumping on this computer)", { v <- if (exists("plink_version")) plink_version() else NA_character_; list(ok = !is.na(v), detail = if (is.na(v)) "not found in this installation" else v) }),
     if (isTRUE(net)) chk("Internet access to OpenGWAS", ogw_ping())
   ))
 }

@@ -11,3 +11,6 @@ prototype/runtime/*
 mr_inventory_v2_backup.json
 __pycache__/
 *.pyc
+# PLINK is put here by the build pipeline (pinned, checksummed official build); not stored in the repository
+prototype/engine/tools/plink/*
+!prototype/engine/tools/plink/README.txt

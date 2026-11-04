@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -240,7 +240,7 @@ expect("library catalogue lists only usable datasets by role", identical(vapply(
 lp <- pair_input("lib:Trait X", "lib:Trait Y", pthr = 1e-4); led <- lp$ledger; ld <- lp$input$data
 expect("harmonisation ledger: 4 instruments missing in the outcome, every other one kept, flipped or dropped with a reason", led$missing_in_outcome == 4 && led$kept + led$dropped_palindromic + led$dropped_mismatch == led$in_outcome && led$flipped >= 10 && !lp$simulated)
 expect("harmonised effects point the same way as the truth after allele alignment", mean(sign(ld$beta_x[ld$mr_keep]) == sign(ld$beta_y[ld$mr_keep])) > 0.9)
-expect("an exposure that is not marked independent is refused with the reason", grepl("Clumping is not built", tryCatch(pair_input("lib:Trait X2", "lib:Trait Y", 1e-4), error = conditionMessage)))
+expect("an exposure that is not marked independent is refused with the reason", grepl("set to be clumped on this computer", tryCatch(pair_input("lib:Trait X2", "lib:Trait Y", 1e-4), error = conditionMessage)))
 expect("a simulated and an imported trait cannot be paired", grepl("cannot be paired", tryCatch(pair_input("expA", "lib:Trait Y"), error = conditionMessage)))
 expect("an exposure with no variant under the threshold is refused", grepl("Fewer than 2 variants", tryCatch(pair_input("lib:Trait X", "lib:Trait Y", 1e-300), error = conditionMessage)))
 hl <- studio_new("Imported run"); rl <- studio_run(hl, lp$exposure_label, lp$outcome_label, lp$input, c("ivw_mre", "egger"), idx = 1L)
@@ -535,4 +535,74 @@ ogw_ca_setup(candidates = c(pem_good, vend), force = TRUE)
 for (nm in c("CURL_CA_BUNDLE", "SSL_CERT_FILE")) if (is.na(ca_old[[nm]])) Sys.unsetenv(nm) else do.call(Sys.setenv, stats::setNames(list(ca_old[[nm]]), nm))
 ogw_ca_setup(force = TRUE)
 options(mrgui.ogw_backend = NULL); ogw_token_set(NULL)
+# ---- Round 19: clumping on this computer (PLINK 1.9 + LD reference panel) ----
+options(mrgui.engine_dir = args_dir)
+fix_dir <- file.path(args_dir, "test_fixtures", "ld_panel")   # synthetic panel: blocks A (rs91..) and B (rs92..), independent rs93.. and rs9400001
+Sys.setenv(MRGUI_LD_DIR = fix_dir)
+expect("clump: PLINK is bundled and runs", !is.na(plink_bin()) && grepl("PLINK v1.9", plink_version()))
+expect("clump: panel status sees the installed ancestry only", isTRUE(ld_panel_status()$installed$EUR) && !isTRUE(ld_panel_status()$installed$EAS))
+cand <- data.frame(snp = c(sprintf("rs91%05d", 1:4), sprintf("rs92%05d", 1:3), sprintf("rs93%05d", 1:5), "rs9400001", "rs9999999"),
+                   p = c(1e-9, 1e-12, 1e-10, 1e-8, 1e-15, 1e-9, 1e-10, rep(1e-9, 5), 1e-9, 1e-20), stringsAsFactors = FALSE)
+cl <- ld_clump_here(cand$snp, cand$p, 0.001, 10000, "EUR")
+st_of <- function(id) cl$status[cl$variant_id == id]
+expect("clump: the strongest variant of each LD block is kept, the rest are removed with their index variant",
+       identical(sort(cl$variant_id[cl$status == "index"]), sort(c("rs9100002", "rs9200001", sprintf("rs93%05d", 1:5), "rs9400001"))) &&
+       all(cl$index_variant[cl$variant_id %in% c("rs9100001", "rs9100003", "rs9100004")] == "rs9100002") && all(cl$index_variant[cl$variant_id %in% c("rs9200002", "rs9200003")] == "rs9200001"))
+expect("clump: a variant missing from the panel is reported as such and not kept", identical(st_of("rs9999999"), "not_in_panel"))
+ie <- ieugwasr::ld_clump_local(data.frame(rsid = cand$snp, pval = cand$p), clump_kb = 10000, clump_r2 = 0.001, clump_p = 1, bfile = file.path(fix_dir, "EUR"), plink_bin = plink_bin())
+expect("clump: keeps exactly the variants ieugwasr::ld_clump_local keeps", identical(sort(ie$rsid), sort(cl$variant_id[cl$status == "index"])))
+expect("clump: a looser r2 (0.99) removes nothing in these blocks, 0.95 still removes the tightest pair", all(ld_clump_here(cand$snp, cand$p, 0.99, 10000, "EUR")$status[1:13] == "index") && sum(ld_clump_here(cand$snp, cand$p, 0.95, 10000, "EUR")$status == "clumped") == 1L)
+expect("clump: a 0.05 kb window cannot reach variants 100 bp apart", all(ld_clump_here(cand$snp, cand$p, 0.001, 0.05, "EUR")$status[1:13] == "index"))
+expect("clump: settings are recorded", identical(attr(cl, "settings")$pop, "EUR") && attr(cl, "settings")$r2 == 0.001 && grepl("PLINK", attr(cl, "settings")$plink))
+expect("clump: clear messages for a missing ancestry, positions only and an unknown ancestry",
+       grepl("not installed", err_of(ld_clump_here(cand$snp, cand$p, pop = "EAS"))) && grepl("rsIDs", err_of(ld_clump_here(c("1:1000", "1:2000"), c(1e-9, 1e-9)))) &&
+       grepl("1000 Genomes ancestries", err_of(ld_clump_here(cand$snp, cand$p, pop = "Mixed"))))
+# whole path: an imported genome-wide exposure file set to be clumped here, and an outcome file
+td19 <- tempfile("clumpfiles-"); dir.create(td19)
+set.seed(19); allsnp <- c(cand$snp, sprintf("rs8%06d", 1:30)); k19 <- length(allsnp)
+pex <- c(cand$p, runif(30, 1e-4, 0.9)); bx19 <- runif(k19, 0.03, 0.08) * sample(c(-1, 1), k19, TRUE); sx19 <- abs(bx19) / stats::qnorm(pex / 2, lower.tail = FALSE)
+utils::write.csv(data.frame(SNP = allsnp, effect_allele = "A", other_allele = "C", eaf = 0.35, beta = signif(bx19, 8), se = signif(sx19, 8), pval = pex, n = 300000), file.path(td19, "exp_full.csv"), row.names = FALSE)
+utils::write.csv(data.frame(SNP = allsnp, effect_allele = "A", other_allele = "C", eaf = 0.35, beta = signif(0.25 * bx19 + rnorm(k19, 0, 0.005), 8), se = 0.006, pval = 0.01, n = 200000), file.path(td19, "out_full.csv"), row.names = FALSE)
+imp19 <- function(f, facts) { hd <- import_read_head(file.path(td19, f)); sg <- import_suggest(hd$columns, hd$rows); mp <- lapply(sg, function(x) x$column); mp <- mp[!vapply(mp, is.null, TRUE)]; import_save(file.path(td19, f), f, hd$sep, hd$columns, mp, facts) }
+b19 <- list(frq = "eaf", scale = "beta", ea_ok = "yes", build = "37", ancestry = "EUR", sex = "both", ukb = FALSE, n = "", kind = "continuous", scope = "genomewide")
+hd19 <- import_read_head(file.path(td19, "exp_full.csv")); mp19 <- lapply(import_suggest(hd19$columns, hd19$rows), function(x) x$column); mp19 <- mp19[!vapply(mp19, is.null, TRUE)]
+expect("clump import: an invalid r2 is refused before saving", !import_validate(file.path(td19, "exp_full.csv"), hd19$sep, hd19$columns, mp19, c(b19, list(role = "exposure", independent = "clump", clump_r2 = 2, clump_kb = 10000, clump_pop = "EUR")))$ok)
+rx19 <- imp19("exp_full.csv", c(b19, list(name = "Full exposure", role = "exposure", independent = "clump", clump_r2 = 0.001, clump_kb = 10000, clump_pop = "EUR")))
+imp19("out_full.csv", c(b19, list(name = "Full outcome", role = "outcome", independent = "no")))
+expect("clump import: a full file set to be clumped is usable as an exposure", isTRUE(rx19$usable_as_exposure) && identical(rx19$facts$independent, "clump"))
+p19 <- pair_input("lib:Full exposure", "lib:Full outcome", 5e-8)
+expect("clump pair: 14 candidates below P, 5 removed for LD, 1 not in the panel, 8 instruments",
+       p19$ledger$below_threshold == 14 && p19$ledger$clump$clumped == 5 && p19$ledger$clump$not_in_panel == 1 && p19$ledger$instruments == 8 && nrow(p19$input$data) == 8)
+Sys.setenv(MRGUI_PLINK = file.path(tempdir(), "no-plink-here"))
+p19b <- tryCatch(pair_input("lib:Full exposure", "lib:Full outcome", 5e-8), error = function(e) e)
+Sys.unsetenv("MRGUI_PLINK")
+expect("clump pair: the same inputs are read from the cache, without running PLINK again", !inherits(p19b, "error") && identical(p19b$selection$status, p19$selection$status))
+h19 <- studio_new("Clumped here")
+r19 <- studio_run(h19, p19$exposure_label, p19$outcome_label, p19$input, c("ivw_mre", "egger"), idx = 1L)
+save_instrument_selection(h19$dir, r19$pair_folder, p19$selection)
+sel_rel <- file.path("03_pairs", r19$pair_folder, "01_data", "instrument_selection.csv")
+sel19 <- utils::read.csv(file.path(h19$dir, sel_rel), stringsAsFactors = FALSE)
+expect("clump study: every candidate is saved with its status and index variant, and listed in the manifest",
+       nrow(sel19) == 14 && all(c("variant_id", "status", "index_variant", "clump_r2", "clump_kb", "reference") %in% names(sel19)) && sel_rel %in% manifest_read(h19$dir)$relative_path && identical(r19$replay$status, "identical"))
+ui_state_set(h19$con, "pairs", list(list(ex = "lib:Full exposure", out = "lib:Full outcome", exName = p19$exposure_label, outName = p19$outcome_label, folder = r19$pair_folder, methods = list("ivw_mre", "egger"), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = p19$ledger, anc_x = "EUR", anc_y = "EUR")))
+pk19 <- build_package(h19, c("report", "text", "refs"), 140)
+htm19 <- paste(readLines(file.path(pk19$dir, "report.html"), warn = FALSE), collapse = "\n"); bib19 <- paste(readLines(file.path(pk19$dir, "references.bib"), warn = FALSE), collapse = "\n")
+expect("clump report: methods say clumped here with PLINK and the 1000 Genomes panel, with counts, and cite both",
+       grepl("clumped with PLINK", htm19, fixed = TRUE) && grepl("5 variants were removed as correlated", htm19, fixed = TRUE) && grepl("Chang2015", bib19, fixed = TRUE) && grepl("1000Genomes2015", bib19, fixed = TRUE))
+# the download job, against a local copy of the fixture packed like the real archive
+dl_src <- tempfile("panel-src-"); dir.create(dl_src); file.copy(file.path(fix_dir, c("EUR.bed", "EUR.bim", "EUR.fam")), dl_src)
+tgz <- file.path(tempdir(), "fake-1kg.tgz"); old_wd <- setwd(dl_src); utils::tar(tgz, files = c("EUR.bed", "EUR.bim", "EUR.fam"), compression = "gzip", tar = "internal"); setwd(old_wd)
+dl_dir <- tempfile("ldref-")
+ld_panel_download_start("EUR", dir = dl_dir, url = paste0("file://", normalizePath(tgz, winslash = "/")), bytes = file.size(tgz), sha256 = digest::digest(file = tgz, algo = "sha256"))
+for (i in 1:60) { js <- .ld_job_read(dl_dir); if (!is.null(js) && js$state %in% c("done", "error")) break; Sys.sleep(1) }
+expect("panel download: the job downloads, checks the checksum, unpacks the chosen ancestry and removes the archive",
+       identical(.ld_job_read(dl_dir)$state, "done") && isTRUE(ld_panel_status(dl_dir)$installed$EUR) && !file.exists(file.path(dl_dir, "1kg.v3.tgz.part")) && file.exists(file.path(dl_dir, "SOURCE.txt")))
+bad_dir <- tempfile("ldref-bad-")
+ld_panel_download_start("EUR", dir = bad_dir, url = paste0("file://", normalizePath(tgz, winslash = "/")), bytes = file.size(tgz), sha256 = strrep("0", 64))
+for (i in 1:60) { js <- .ld_job_read(bad_dir); if (!is.null(js) && js$state %in% c("done", "error")) break; Sys.sleep(1) }
+expect("panel download: a file with the wrong checksum is refused and deleted", identical(.ld_job_read(bad_dir)$state, "error") && grepl("SHA-256", .ld_job_read(bad_dir)$msg) && !isTRUE(ld_panel_status(bad_dir)$installed$EUR))
+ld_panel_remove("EUR", dl_dir)
+expect("panel: an ancestry can be removed", !isTRUE(ld_panel_status(dl_dir)$installed$EUR))
+Sys.unsetenv("MRGUI_LD_DIR")
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

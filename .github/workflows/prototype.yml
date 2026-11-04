@@ -179,6 +179,32 @@ jobs:
           echo "== runtime after trimming: $(du -sm $RT | cut -f1) MB" | tee -a "size-breakdown-${{ matrix.id }}.txt"
           cat "size-breakdown-${{ matrix.id }}.txt"
 
+      - name: Bundle PLINK 1.9 (pinned official build, checksum checked)
+        # Pins must match PLINK_PIN in prototype/engine/ld_core.R. PLINK is GPL-3: its LICENSE is shipped next to the program.
+        run: |
+          case "$RUNNER_OS" in
+            macOS)   PZ=plink_mac_20260927.zip;          PS=927ecadbefb3e0ceefbe4978d71bf63566e9ea422d6595c2ee23a83ad76eeb62; PB=plink ;;
+            Windows) PZ=plink_win64_20260927.zip;        PS=625538e0062eb9fad6c26a47c9f36b19d3ec0afe5053ec68ff5ff877a56676c6; PB=plink.exe ;;
+            *)       PZ=plink_linux_x86_64_20260927.zip; PS=ee4d8616dc64c04ed395e81a7bb04f9b3d92e4bf23d12a8b6233b19f7227eccd; PB=plink ;;
+          esac
+          curl -sfL --retry 3 -o "$RUNNER_TEMP/$PZ" "https://s3.amazonaws.com/plink1-assets/$PZ"
+          python - "$RUNNER_TEMP/$PZ" "$PS" "$PB" <<'PY'
+          import hashlib, sys, zipfile, os
+          z, want, binname = sys.argv[1], sys.argv[2], sys.argv[3]
+          got = hashlib.sha256(open(z, "rb").read()).hexdigest()
+          if got != want:
+              sys.exit(f"PLINK archive checksum differs: {got} (expected {want})")
+          out = os.path.join("prototype", "engine", "tools", "plink")
+          os.makedirs(out, exist_ok=True)
+          with zipfile.ZipFile(z) as f:
+              for name in (binname, "LICENSE"):
+                  open(os.path.join(out, name), "wb").write(f.read(name))
+          os.chmod(os.path.join(out, binname), 0o755)
+          print("PLINK checksum ok:", got)
+          PY
+          if [[ "$RUNNER_OS" == "macOS" ]]; then codesign --force --sign - prototype/engine/tools/plink/plink; fi   # Apple Silicon runs only signed code; ad hoc is enough
+          prototype/engine/tools/plink/$PB --version
+
       - name: Contract tests with the moved runtime
         run: |
           cd contracts

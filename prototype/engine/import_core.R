@@ -103,6 +103,13 @@ import_validate <- function(path, sep, columns, mapping, facts, max_rows = 5e6) 
   if (identical(facts$kind, "binary") && !cases_ok) warn <- c(warn, "Binary trait without the numbers of cases and controls. The Steiger direction test cannot use this dataset until they are known (import it again with them).")
   if (identical(facts$scope, "genomewide") && nr < 100000) warn <- c(warn, sprintf("You said the file is genome-wide but it has only %s rows. If it holds only selected variants, change that answer.", format(nr, big.mark = ",")))
   if (identical(facts$scale, "z")) err <- c(err, "Z-scores are not supported yet. Please supply the effect size and its standard error.")
+  if (identical(facts$independent, "clump") && !identical(facts$role, "outcome")) {
+    if (!("snp" %in% names(d)) || !any(grepl("^rs[0-9]+$", d$snp))) err <- c(err, "Clumping on this computer needs rsIDs (for example rs12345), and this file has none in the chosen column.")
+    r2 <- suppressWarnings(as.numeric(facts$clump_r2 %||% 0.001)); kb <- suppressWarnings(as.numeric(facts$clump_kb %||% 10000))
+    if (length(r2) != 1L || !is.finite(r2) || r2 <= 0 || r2 >= 1) err <- c(err, "The LD threshold r2 must be between 0 and 1.")
+    if (length(kb) != 1L || !is.finite(kb) || kb < 1 || kb > 100000) err <- c(err, "The clumping window must be between 1 and 100,000 kb.")
+    if (!(toupper(facts$clump_pop %||% facts$ancestry %||% "") %in% c("EUR", "EAS", "AFR", "AMR", "SAS"))) err <- c(err, "Choose the 1000 Genomes ancestry to clump with (European, East Asian, African, Admixed American or South Asian).")
+  }
   if (identical(facts$scale, "or") && any(d$beta <= 0, na.rm = TRUE)) err <- c(err, "Odds ratios must be positive, but zero or negative values were found. If the column holds log odds ratios, choose \"Beta or log odds\" instead.")
   keep <- ok_al & !is.na(d$beta) & !is.na(d$se) & d$se > 0 & !duplicated(key)
   list(ok = !length(err), errors = err, warnings = warn, stats = list(rows = nr, kept = sum(keep), palindromic = pal, snps = if ("snp" %in% names(d)) sum(grepl("^rs[0-9]+$", d$snp)) else 0L, has_eaf = "eaf" %in% names(d) && identical(facts$frq, "eaf")))
@@ -138,7 +145,7 @@ import_save <- function(path, orig_name, sep, columns, mapping, facts, root = st
   out <- file.path(dest, "standardised.csv"); utils::write.csv(d, out, row.names = FALSE, na = "")
   rec <- list(trait = nm, role = facts$role, facts = facts, mapping = mp, original = list(file = orig_name, bytes = file.size(path), sha256 = sha256_file(path)),
               rows_in_file = v$stats$rows, rows_kept = nrow(d), warnings = v$warnings, saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-              usable_as_exposure = facts$role %in% c("exposure", "either") && identical(facts$independent, "yes"),
+              usable_as_exposure = isTRUE(facts$role %in% c("exposure", "either")) && (identical(facts$independent, "yes") || identical(facts$independent, "clump")),
               usable_as_outcome = facts$role %in% c("outcome", "either"), usable_in_runs = TRUE)
   atomic_write_text(file.path(dest, "recipe.json"), jsonlite::toJSON(rec, auto_unbox = TRUE, pretty = TRUE, null = "null"))
   rec
@@ -181,5 +188,5 @@ library_dataset <- function(trait, root = studies_root()) {
   rec <- jsonlite::fromJSON(rf, simplifyVector = FALSE)
   hd <- names(utils::read.csv(cf, nrows = 1, check.names = FALSE)); cc <- c(snp = "character", chr = "character", ea = "character", oa = "character")
   d <- utils::read.csv(cf, stringsAsFactors = FALSE, colClasses = cc[intersect(names(cc), hd)])
-  list(recipe = rec, data = d)
+  list(recipe = rec, data = d, dir = dir)
 }
