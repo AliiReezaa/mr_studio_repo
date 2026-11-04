@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -604,5 +604,28 @@ expect("panel download: a file with the wrong checksum is refused and deleted", 
 ld_panel_remove("EUR", dl_dir)
 expect("panel: an ancestry can be removed", !isTRUE(ld_panel_status(dl_dir)$installed$EUR))
 Sys.unsetenv("MRGUI_LD_DIR")
+
+# ---- Round 20: STROBE-MR checklist ----
+expect("strobe: the item list has 20 items with 30 sub-items (10d in two parts), 43 rows", nrow(STROBE_ITEMS) == 43L && !anyDuplicated(STROBE_ITEMS$item) &&
+       length(unique(sub("[a-e](-i+)?$", "", STROBE_ITEMS$item))) == 20L)
+pk20 <- build_package(h19, c("report", "text", "refs", "strobe"), 140)
+c19 <- lapply(ui_state_get(h19$con, "pairs"), function(p) pair_context(h19, p))
+rows19 <- strobe_rows(c19, report_text(c19, "Clumped here"), list(aim = "Does X cause Y?", prereg = FALSE), c("report", "strobe"))
+g19 <- function(i, col = "status") rows19[[col]][rows19$item == i]
+expect("strobe: every row has a known status and the rows follow the checklist order", identical(rows19$item, STROBE_ITEMS$item) && all(rows19$status %in% c("FILLED", "PARTLY", "AUTHOR")))
+expect("strobe: instrument selection is filled with the local clumping and the counts", identical(g19("4c"), "FILLED") && grepl("clumped on the analyst's computer with PLINK", g19("4c", "provides"), fixed = TRUE) && grepl("5 removed by clumping", g19("10a", "provides"), fixed = TRUE))
+expect("strobe: the recorded aim is quoted, one pair needs no multiple-testing correction, no direction test means AUTHOR",
+       identical(g19("3"), "PARTLY") && grepl("Does X cause Y?", g19("3", "provides"), fixed = TRUE) && identical(g19("6e"), "FILLED") && identical(g19("13c"), "AUTHOR"))
+expect("strobe: items only the authors can write stay AUTHOR, and the missing leave-one-out plot is called NOT BUILT",
+       all(vapply(c("1", "2", "4e", "5", "16a", "16b", "16c", "18", "20"), function(i) identical(g19(i), "AUTHOR"), TRUE)) && grepl("NOT BUILT", g19("13e", "provides"), fixed = TRUE))
+expect("strobe: plots count as filled only when figures are in the package", identical(g19("11d"), "FILLED") && identical(strobe_rows(c19, report_text(c19, "x"), list(), c("text"))$status[rows19$item == "11d"], "PARTLY"))
+c15 <- lapply(list(list(ex = "expA", out = "outA", exName = p8$exposure_label, outName = p8$outcome_label, folder = r15$pair_folder, methods = list("ivw_mre", "steiger"), ci = 0.95, pthr = 5e-8, simulated = TRUE)), function(p) pair_context(h15, p))
+r15s <- strobe_rows(c15, report_text(c15, "S"), list(), c("strobe"))
+expect("strobe: a Steiger run fills 13c, and a simulated study is marked as such", identical(r15s$status[r15s$item == "13c"], "FILLED") && isTRUE(attr(r15s, "simulated")) && !isTRUE(attr(rows19, "simulated")))
+sf <- file.path(pk20$dir, "strobe_mr_checklist.docx"); zl <- utils::unzip(sf, list = TRUE)$Name
+td20 <- tempfile(); utils::unzip(sf, exdir = td20); dx <- paste(readLines(file.path(td20, "word", "document.xml"), warn = FALSE), collapse = "")
+expect("strobe: the package holds the checklist as a Word file with every item and the official citations",
+       file.exists(sf) && "word/document.xml" %in% zl && grepl("STROBE-MR checklist", dx, fixed = TRUE) && grepl("10d-ii", dx, fixed = TRUE) && grepl("34702754", dx, fixed = TRUE) && grepl("34698778", dx, fixed = TRUE))
+expect("strobe: the package reports the counts, which add up to 43", !is.null(pk20$strobe) && pk20$strobe$filled + pk20$strobe$partly + pk20$strobe$author == 43L && !any(grepl("was not built", pk20$notes)))
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

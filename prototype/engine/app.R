@@ -179,7 +179,7 @@ mr_server <- function(engine_dir) {
           req(rv$h)
           r <- tryCatch(build_package(rv$h, unlist(a$items), a$width_mm, a$pub), error = function(e) e)
           if (inherits(r, "error")) { ev("package_done", ok = FALSE, msg = conditionMessage(r)); return() }
-          ev("package_done", ok = TRUE, folder = r$folder, files = as.list(r$files), notes = as.list(r$notes), simulated = r$simulated)
+          ev("package_done", ok = TRUE, folder = r$folder, files = as.list(r$files), notes = as.list(r$notes), simulated = r$simulated, strobe = r$strobe)
         },
         open_package = { req(rv$h); open_in_file_manager(file.path(rv$h$dir, "05_publication", a$folder)) },
         open_folder = { req(rv$h); open_in_file_manager(rv$h$dir) },
