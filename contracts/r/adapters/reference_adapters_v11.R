@@ -475,10 +475,15 @@ ADAPTER_RADEGGER_V11 <- mrgui_adapter(
     "fixed seed (this method is deterministic; kept for the record)"),
   column_requirements = .colreq_basic)
 
-# ---- Round 15: MR Steiger directionality test (Hemani, Tilling, Davey Smith 2017, PLoS Genet 13:e1007081). ----
+# ---- MR Steiger directionality test (Hemani, Tilling, Davey Smith 2017, PLoS Genet 13:e1007081). ----
 # A diagnostic-only method (contracts v1.1, additive): it gives no causal estimate, only a check of the assumed direction
-# (does the exposure explain more variance in the instruments than the outcome does?). Continuous traits only in this version:
-# for a binary outcome the variance explained needs the number of cases, controls and the prevalence, which the pair data do not carry.
+# (does the exposure explain more variance in the instruments than the outcome does?). In the app it is shown as part of IVW
+# (Round 16), but it stays its own adapter and script so saved studies and their replay checks are unchanged.
+# Continuous trait: variance explained from effect, SE and sample size (TwoSampleMR::get_r_from_bsen).
+# Binary trait (Round 16): variance explained on the liability scale from the log odds ratio, the allele frequency, the numbers of
+# cases and controls and the population prevalence (TwoSampleMR::get_r_from_lor, logit model; Lee et al. 2012, Genet Epidemiol
+# 36:214, PMID 22714935). The case and control counts and the prevalence are written into the analysis data file as the columns
+# ncase_*, ncontrol_*, prevalence_*; they are present only for a binary trait, and that presence is what the script reads.
 .steiger_r_param <- function(id, label, what, arg) {
   setNames(list(list(
     type = "double", default = 1, min = 0.1, max = 1,
@@ -494,12 +499,32 @@ ADAPTER_RADEGGER_V11 <- mrgui_adapter(
   estimate = numeric(0), se = numeric(0), ci_lower = numeric(0), ci_upper = numeric(0), ci_level = numeric(0),
   ci_method = character(0), p = numeric(0), n_ivs_used = integer(0), stringsAsFactors = FALSE)
 
+# Is this side of the pair binary in the analysis data (case and control counts present)?
+.steiger_is_binary <- function(d, s) paste0("ncase_", s) %in% names(d)
+
+# Signed correlation of each variant with one trait, and the sample size the test uses for that trait.
+.steiger_side <- function(d, s) {
+  b <- d[[paste0("beta_", s)]]; se <- d[[paste0("se_", s)]]
+  if (.steiger_is_binary(d, s)) {
+    nc <- d[[paste0("ncase_", s)]]; nn <- d[[paste0("ncontrol_", s)]]
+    list(r = TwoSampleMR::get_r_from_lor(lor = b, af = d[[paste0("eaf_", s)]], ncase = nc, ncontrol = nn,
+                                         prevalence = d[[paste0("prevalence_", s)]], model = "logit", correction = FALSE),
+         n = nc + nn)
+  } else list(r = TwoSampleMR::get_r_from_bsen(b, se, d[[paste0("n_", s)]]), n = d[[paste0("n_", s)]])
+}
+
+.steiger_scale_note <- function(d, s) {
+  if (.steiger_is_binary(d, s)) sprintf("binary: liability scale (logit model), %s cases, %s controls, prevalence %s",
+                                        format(d[[paste0("ncase_", s)]][1], scientific = FALSE), format(d[[paste0("ncontrol_", s)]][1], scientific = FALSE),
+                                        format(d[[paste0("prevalence_", s)]][1], digits = 15))
+  else "continuous: from effect, standard error and sample size"
+}
+
 .steiger_core <- function(d, r_xxo, r_yyo) {
-  r_exp <- TwoSampleMR::get_r_from_bsen(d$beta_x, d$se_x, d$n_x)
-  r_out <- TwoSampleMR::get_r_from_bsen(d$beta_y, d$se_y, d$n_y)
-  st <- TwoSampleMR::mr_steiger(p_exp = rep(NA_real_, nrow(d)), p_out = rep(NA_real_, nrow(d)), n_exp = d$n_x, n_out = d$n_y,
-                                r_exp = r_exp, r_out = r_out, r_xxo = r_xxo, r_yyo = r_yyo)
-  wrong <- abs(r_out) > abs(r_exp)
+  x <- .steiger_side(d, "x"); y <- .steiger_side(d, "y")
+  st <- TwoSampleMR::mr_steiger(p_exp = rep(NA_real_, nrow(d)), p_out = rep(NA_real_, nrow(d)), n_exp = x$n, n_out = y$n,
+                                r_exp = x$r, r_out = y$r, r_xxo = r_xxo, r_yyo = r_yyo)
+  wrong <- abs(y$r) > abs(x$r)
   rbind(
     diagnostic_row("steiger_r2_exposure", st$r2_exp, NA_real_, NA_real_, "variance in the exposure explained by the variants (sum over variants)"),
     diagnostic_row("steiger_r2_outcome", st$r2_out, NA_real_, NA_real_, "variance in the outcome explained by the same variants (sum over variants)"),
@@ -508,12 +533,51 @@ ADAPTER_RADEGGER_V11 <- mrgui_adapter(
     diagnostic_row("steiger_direction_adjusted", as.double(st$correct_causal_direction_adj), NA_real_, st$steiger_test_adj,
                    "same test after correcting for measurement reliability (r_xxo, r_yyo); equals the unadjusted test when both are 1"),
     diagnostic_row("steiger_variants", nrow(d), NA_real_, NA_real_, "variants used in the test"),
-    diagnostic_row("steiger_variants_wrong_way", sum(wrong), NA_real_, NA_real_, .ids_note(d$variant_id[wrong])))
+    diagnostic_row("steiger_variants_wrong_way", sum(wrong), NA_real_, NA_real_, .ids_note(d$variant_id[wrong])),
+    diagnostic_row("steiger_exposure_binary", as.double(.steiger_is_binary(d, "x")), NA_real_, NA_real_, .steiger_scale_note(d, "x")),
+    diagnostic_row("steiger_outcome_binary", as.double(.steiger_is_binary(d, "y")), NA_real_, NA_real_, .steiger_scale_note(d, "y")))
 }
+
+# What a binary side needs, checked before running. Returns NULL when fine, else list(code, message).
+.steiger_side_problem <- function(d, s, scale, what) {
+  if (!identical(scale, "log_or")) {
+    nn <- d[[paste0("n_", s)]]
+    if (is.null(nn) || any(!is.finite(nn) | nn <= 2))
+      return(list(code = "FEAS_STEIGER_NEEDS_N", msg = sprintf("The Steiger test needs the sample size of the %s for every variant, and some are missing.", what)))
+    return(NULL)
+  }
+  col <- function(k) d[[paste0(k, "_", s)]]
+  nc <- col("ncase"); nn <- col("ncontrol")
+  if (is.null(nc) || is.null(nn) || any(!is.finite(nc) | !is.finite(nn) | nc < 1 | nn < 1))
+    return(list(code = "FEAS_STEIGER_NEEDS_CASES", msg = sprintf("The %s is binary. The Steiger test then needs its numbers of cases and controls, and they are not known for this dataset.", what)))
+  pv <- col("prevalence")
+  if (is.null(pv) || any(!is.finite(pv) | pv <= 0 | pv >= 1))
+    return(list(code = "FEAS_STEIGER_NEEDS_PREVALENCE", msg = sprintf("The %s is binary. The Steiger test then needs its prevalence in the population (a proportion between 0 and 1), and it has not been entered.", what)))
+  af <- col("eaf")
+  if (is.null(af) || any(!is.finite(af) | af <= 0 | af >= 1))
+    return(list(code = "FEAS_STEIGER_NEEDS_EAF", msg = sprintf("The %s is binary. The Steiger test then needs the effect allele frequency of every variant in that dataset, and some are missing.", what)))
+  NULL
+}
+
+.steiger_script_side <- function(s, what) c(
+  sprintf("if (\"ncase_%s\" %%in%% names(dat)) {   # binary %s: case and control counts and prevalence are columns of the data file", s, what),
+  sprintf("  if (any(!is.finite(dat$eaf_%s) | !is.finite(dat$ncase_%s) | !is.finite(dat$ncontrol_%s) | !is.finite(dat$prevalence_%s) | dat$prevalence_%s <= 0 | dat$prevalence_%s >= 1))", s, s, s, s, s, s),
+  sprintf("    stop(\"The binary %s needs eaf_%s, ncase_%s, ncontrol_%s and prevalence_%s (between 0 and 1) for every variant.\")", what, s, s, s, s),
+  sprintf("  r_%s <- TwoSampleMR::get_r_from_lor(lor = dat$beta_%s, af = dat$eaf_%s, ncase = dat$ncase_%s, ncontrol = dat$ncontrol_%s,", s, s, s, s, s),
+  sprintf("    prevalence = dat$prevalence_%s, model = \"logit\", correction = FALSE)   # liability scale (Lee et al. 2012)", s),
+  sprintf("  n_%s_used <- dat$ncase_%s + dat$ncontrol_%s", s, s, s),
+  sprintf("  scale_note_%s <- sprintf(\"binary: liability scale (logit model), %%s cases, %%s controls, prevalence %%s\",", s),
+  sprintf("    format(dat$ncase_%s[1], scientific = FALSE), format(dat$ncontrol_%s[1], scientific = FALSE), format(dat$prevalence_%s[1], digits = 15))", s, s, s),
+  "} else {   # continuous: variance explained from effect, standard error and sample size",
+  sprintf("  if (any(!is.finite(dat$n_%s) | dat$n_%s <= 2)) stop(\"The Steiger test needs the sample size of the %s for every variant (column n_%s).\")", s, s, what, s),
+  sprintf("  r_%s <- TwoSampleMR::get_r_from_bsen(dat$beta_%s, dat$se_%s, dat$n_%s)", s, s, s, s),
+  sprintf("  n_%s_used <- dat$n_%s", s, s),
+  sprintf("  scale_note_%s <- \"continuous: from effect, standard error and sample size\"", s),
+  "}")
 
 ADAPTER_STEIGER_V11 <- NULL
 ADAPTER_STEIGER_V11 <- mrgui_adapter(
-  id = "steiger", adapter_version = "1.1.0", label = "MR Steiger directionality", input_kind = "pair_iv", estimands = character(0),
+  id = "steiger", adapter_version = "1.2.0", label = "MR Steiger directionality", input_kind = "pair_iv", estimands = character(0),
   requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = TRUE,
                   needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
   packages = list(TwoSampleMR = "5e93ee7d8e1f67581acb8134299759389d73efba"), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
@@ -521,12 +585,12 @@ ADAPTER_STEIGER_V11 <- mrgui_adapter(
              .steiger_r_param("r_yyo", "Outcome measurement reliability (r_yyo)", "outcome", "r_yyo"), .minf_param_v11),
   diagnostic_only = TRUE,
   check = function(input, params) {
-    if (identical(input$outcome_scale, "log_or"))
-      return(verdict("block", "FEAS_STEIGER_BINARY", "The Steiger test in this version is for a continuous outcome. This outcome is binary (log odds ratio); the test then needs the number of cases, controls and the disease prevalence, which are not in the data."))
     d <- .usable(input$data)
     if (nrow(d) < 3) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("The Steiger test needs at least 3 usable instruments; %d available.", nrow(d))))
-    if (!all(c("n_x", "n_y") %in% names(d)) || any(!is.finite(d$n_x) | !is.finite(d$n_y) | d$n_x <= 2 | d$n_y <= 2))
-      return(verdict("block", "FEAS_STEIGER_NEEDS_N", "The Steiger test needs the sample size of the exposure and of the outcome for every variant, and some are missing."))
+    for (s in list(list("x", if (is.null(input$exposure_scale)) "beta" else input$exposure_scale, "exposure"), list("y", input$outcome_scale, "outcome"))) {
+      pr <- .steiger_side_problem(d, s[[1]], s[[2]], s[[3]])
+      if (!is.null(pr)) return(verdict("block", pr$code, pr$msg))
+    }
     w <- .common_warnings(d)
     verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
   },
@@ -537,14 +601,14 @@ ADAPTER_STEIGER_V11 <- mrgui_adapter(
   emit_script = function(spec, params, seed) .detector_emit(ADAPTER_STEIGER_V11, spec, params, seed, "TwoSampleMR", c(
     "# ---- 5. Analysis: MR Steiger directionality test (TwoSampleMR::mr_steiger) --------",
     "# Does the exposure explain more variance in the instruments than the outcome does? If so the assumed direction is supported.",
-    "# This method gives no causal estimate; it only checks the direction. It is for a continuous exposure and outcome.",
-    "if (any(!is.finite(dat$n_x) | !is.finite(dat$n_y) | dat$n_x <= 2 | dat$n_y <= 2))",
-    "  stop(\"The Steiger test needs the sample size of the exposure and of the outcome for every variant (columns n_x, n_y).\")",
-    "r_exp <- TwoSampleMR::get_r_from_bsen(dat$beta_x, dat$se_x, dat$n_x)   # signed correlation of each variant with the exposure",
-    "r_out <- TwoSampleMR::get_r_from_bsen(dat$beta_y, dat$se_y, dat$n_y)   # and with the outcome",
+    "# This method gives no causal estimate; it only checks the direction.",
+    "# Variance explained: continuous trait from effect, SE and N; binary trait on the liability scale from the log odds ratio,",
+    "# allele frequency, cases, controls and population prevalence (TwoSampleMR::get_r_from_lor; Lee et al. 2012, PMID 22714935).",
+    .steiger_script_side("x", "exposure"),
+    .steiger_script_side("y", "outcome"),
     "st <- TwoSampleMR::mr_steiger(p_exp = rep(NA_real_, nrow(dat)), p_out = rep(NA_real_, nrow(dat)),",
-    "  n_exp = dat$n_x, n_out = dat$n_y, r_exp = r_exp, r_out = r_out, r_xxo = r_xxo, r_yyo = r_yyo)",
-    "wrong <- abs(r_out) > abs(r_exp)   # variants that explain more variance in the outcome than in the exposure",
+    "  n_exp = n_x_used, n_out = n_y_used, r_exp = r_x, r_out = r_y, r_xxo = r_xxo, r_yyo = r_yyo)",
+    "wrong <- abs(r_y) > abs(r_x)   # variants that explain more variance in the outcome than in the exposure",
     "estimates <- data.frame(estimand = character(0), exposure_id = character(0), outcome_id = character(0), scale = character(0),",
     "  estimate = numeric(0), se = numeric(0), ci_lower = numeric(0), ci_upper = numeric(0), ci_level = numeric(0),",
     "  ci_method = character(0), p = numeric(0), n_ivs_used = integer(0), stringsAsFactors = FALSE)   # no causal estimate by design",
@@ -557,12 +621,17 @@ ADAPTER_STEIGER_V11 <- mrgui_adapter(
     "  dg(\"steiger_direction_adjusted\", st$correct_causal_direction_adj, st$steiger_test_adj,",
     "     \"same test after correcting for measurement reliability (r_xxo, r_yyo); equals the unadjusted test when both are 1\"),",
     "  dg(\"steiger_variants\", nrow(dat), NA_real_, \"variants used in the test\"),",
-    "  dg(\"steiger_variants_wrong_way\", sum(wrong), NA_real_, if (any(wrong)) paste(dat$variant_id[wrong], collapse = \";\") else NA_character_))"),
+    "  dg(\"steiger_variants_wrong_way\", sum(wrong), NA_real_, if (any(wrong)) paste(dat$variant_id[wrong], collapse = \";\") else NA_character_),",
+    "  dg(\"steiger_exposure_binary\", \"ncase_x\" %in% names(dat), NA_real_, scale_note_x),",
+    "  dg(\"steiger_outcome_binary\", \"ncase_y\" %in% names(dat), NA_real_, scale_note_y))"),
     "fixed seed (this method is deterministic; kept for the record)"),
   column_requirements = list(
-    list(column = "beta_x", level = "required", why = "Effect of each variant on the exposure.", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
+    list(column = "beta_x", level = "required", why = "Effect of each variant on the exposure (log odds ratio for a binary exposure).", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
     list(column = "se_x", level = "required", why = "Standard error of the exposure effect.", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
-    list(column = "beta_y", level = "required", why = "Effect of each variant on the outcome.", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
+    list(column = "beta_y", level = "required", why = "Effect of each variant on the outcome (log odds ratio for a binary outcome).", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
     list(column = "se_y", level = "required", why = "Standard error of the outcome effect.", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
-    list(column = "n_x", level = "required", why = "Sample size of the exposure study (variance explained is computed from it).", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_N")),
-    list(column = "n_y", level = "required", why = "Sample size of the outcome study.", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_N"))))
+    list(column = "n_x", level = "required", why = "Sample size of the exposure study (continuous exposure).", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_N")),
+    list(column = "n_y", level = "required", why = "Sample size of the outcome study (continuous outcome).", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_N")),
+    list(column = "ncase_y", level = "recommended", why = "Number of cases, for a binary outcome (also ncontrol_y). Same for a binary exposure (ncase_x, ncontrol_x).", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_CASES")),
+    list(column = "prevalence_y", level = "recommended", why = "Population prevalence, for a binary outcome (prevalence_x for a binary exposure). Entered by the analyst.", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_PREVALENCE")),
+    list(column = "eaf_y", level = "recommended", why = "Effect allele frequency, for a binary outcome (eaf_x for a binary exposure).", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_EAF"))))

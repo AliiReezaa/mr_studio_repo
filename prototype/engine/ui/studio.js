@@ -37,7 +37,6 @@ const METHODS = [
   { id: 'presso', name: 'MR-PRESSO', family: 'Outlier detection', built: true, min: 4, speed: 'minutes', short: 'MR-PRESSO' },
   { id: 'radial', name: 'Radial IVW', family: 'Outlier detection', built: true, min: 3, speed: 'seconds', short: 'Radial IVW' },
   { id: 'radegger', name: 'Radial MR-Egger', family: 'Outlier detection', built: true, min: 4, speed: 'seconds', short: 'Radial Egger' },
-  { id: 'steiger', name: 'MR Steiger directionality', family: 'Diagnostics', built: true, min: 3, speed: 'instant', short: 'Steiger' },
   { id: 'mvivw', name: 'Multivariable IVW', family: 'Multivariable', needEx: 2 }, { id: 'cause', name: 'CAUSE', family: 'Correlated pleiotropy' },
   { id: 'apss', name: 'MR-APSS', family: 'Overlap-aware' }, { id: 'lhc', name: 'LHC-MR', family: 'Bidirectional' },
   { id: 'bma', name: 'MR-BMA', family: 'Variable selection', needEx: 5 }, { id: 'xmr', name: 'XMR', family: 'Cross-population', note: 'Needs both traits in 2 or more ancestries.' },
@@ -45,6 +44,8 @@ const METHODS = [
   { id: 'cis', name: 'cis-MR (cML)', family: 'Drug target', note: 'Needs a single gene region as the exposure.' },
   { id: 'coloc', name: 'Colocalisation', family: 'Drug target', note: 'Needs a gene region with full summary data.' }
 ];
+// The Steiger direction test is part of IVW on screen (Round 16). In the engine it stays its own scripted method, so saved studies are unchanged.
+const STEIGER = { id: 'steiger', name: 'Steiger direction test', family: 'Part of IVW', built: true, min: 3, short: 'Steiger' };
 const SZ = [['Single column', '84 to 90 mm', 36, 'One simple plot: a scatter, funnel or leave-one-out plot with few variants.', 'Nature-family, Elsevier, Springer and Cell Press journals', 'left:0'],
   ['1.5 column', '114 to 140 mm', 62, 'A forest plot with many methods, or a two-panel figure.', 'Elsevier, Springer and Cell Press journals', 'left:0'],
   ['Double column', '174 to 190 mm', 100, 'Multi-panel composite figures: forest, scatter and leave-one-out together.', 'The full-page width in most major journals, including Nature-family, Cell Press, Elsevier and Springer', 'right:0']];
@@ -56,7 +57,7 @@ const EXPORT_ITEMS = [['scripts', 'Scripts and data tables', 'The R scripts, the
   ['capsule', 'Reproducibility capsule', 'Every pair folder with scripts, data, results and the replay check, plus the R version', 'ZIP', true]];
 
 const S = { screen: 'boot', overlap: {}, ovl: null, theme: 'aurora', settings: {}, studies: [], cat: { exposures: [], outcomes: [] }, schemas: {}, study: null, maxStep: 0,
-  kind: 'basic', name: '', aim: '', prereg: false, err: null, notice: null, q: '', pthr: '5e-8', factErr: [], ex: [], out: [], pop: 'EUR', methods: ['ivw_mre', 'egger'], mfilter: 'all',
+  kind: 'basic', name: '', aim: '', prereg: false, err: null, notice: null, q: '', pthr: '5e-8', factErr: [], ex: [], out: [], pop: 'EUR', methods: ['ivw_mre', 'egger'], steiger: true, prev: {}, mfilter: 'all',
   params: { ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, custom: null, facts: null, pairs: [], run: null, payloads: {}, rp: 0, size: 'Double column', pub: null, xsel: ['scripts', 'report', 'figs', 'tables', 'text', 'refs', 'capsule'], pkg: null,
   info: null, diag: null, editFolder: false, folderErr: null, root: '', dialog: null, lost: false, cmp: null, inst: null, sel: [], sens: [], sensBusy: false, lib: [], tmpls: [], imp: null, sq: '', sf: 'all',
   ogw: { token: { set: false }, cat: { have: false }, offline: false, q: '', pop: '', minN: '', kind: 'any', mr: true, res: null, total: 0, busyCat: false, busyDl: false, tokBusy: false, tokMsg: null, panel: null } };
@@ -259,6 +260,8 @@ function vImport() {
       '<div style="grid-column:1/-1;padding:16px;border-radius:14px;background:var(--panel2);border:1px solid ' + (F.ea_ok === 'yes' ? 'var(--line)' : 'var(--warn)') + '">' + field('Which allele is the effect allele?', 'This is the most common source of wrong MR results, so please check it against your first row.', '<div style="margin:6px 0">In your first row the file says: effect allele <b class="mono">' + esc(ea || '?') + '</b>, other allele <b class="mono">' + esc(oa || '?') + '</b>.</div>' + chips('ea_ok', [['yes', 'Yes, the effect size is for ' + esc(ea || 'the effect allele')], ['swap', 'No, it is for ' + esc(oa || 'the other allele') + ' (swap them)']], F.ea_ok)) + '</div>' +
       field('The frequency column is', I.mapping.eaf ? 'A minor allele frequency cannot be used as the effect allele frequency.' : 'No frequency column was chosen.', chips('frq', [['eaf', 'Effect allele frequency'], ['maf', 'Minor allele frequency'], ['none', 'No frequency']], F.frq)) +
       field('Sample size' + (I.mapping.n ? ' (the file has a column)' : ''), 'Total number of people. Leave empty if unknown.', '<input id="f_n" inputmode="numeric" value="' + esc(F.n) + '" placeholder="For example 250000" style="' + inStyle + '">') +
+      (F.kind === 'binary' ? field('Number of cases', 'People with the condition in this GWAS. Needed for the Steiger direction test of a binary trait. Leave empty if unknown.', '<input id="f_ncase" inputmode="numeric" value="' + esc(F.ncase || '') + '" placeholder="For example 60801" style="' + inStyle + '">') +
+        field('Number of controls', 'People without the condition in this GWAS.', '<input id="f_ncontrol" inputmode="numeric" value="' + esc(F.ncontrol || '') + '" placeholder="For example 123504" style="' + inStyle + '">') : '') +
       field('Genome build', 'Not detected automatically yet.', chips('build', [['37', 'GRCh37 (hg19)'], ['38', 'GRCh38 (hg38)'], ['unknown', 'Unknown']], F.build)) +
       field('Ancestry', '', chips('ancestry', [['EUR', 'European'], ['EAS', 'East Asian'], ['AFR', 'African'], ['SAS', 'South Asian'], ['AMR', 'American'], ['Mixed', 'Mixed']], F.ancestry)) +
       field('Which variants are in the file?', '', chips('scope', [['genomewide', 'Genome-wide'], ['selected', 'Only selected variants']], F.scope)) +
@@ -343,14 +346,45 @@ function pthrNum() { const v = Number(String(S.pthr).trim().replace(',', '.')); 
 function selKinds() { const k = {}; S.ex.concat(S.out).forEach((id) => { k[isLib(id) ? 'imp' : 'sim'] = true; }); return k; }
 function minInst() { return S.facts ? Math.min.apply(null, S.facts.map((f) => f.instruments)) : null; }
 function methodState(m) {
-  if (m.id === 'steiger' && S.facts && S.facts.length) {
-    if (S.facts.some((x) => x.scale === 'log_or' || x.scale === 'or')) return { st: 'locked', why: 'This version tests a continuous outcome only. At least one outcome is binary (log odds): the test then needs the number of cases and controls and the disease prevalence, which the data do not carry.' };
-    if (S.facts.some((x) => !x.has_n)) return { st: 'locked', why: 'Needs the sample size of the exposure and of the outcome for every variant, and some are missing.' };
-  }
   if (m.built) { const mi = minInst(); if (mi != null && mi < m.min) return { st: 'locked', why: 'Needs ' + m.min + ' or more instruments. The smallest pair has ' + mi + '.' };
     return { st: 'ok', why: m.min >= 3 ? 'Needs ' + m.min + ' or more instruments. You have ' + (mi == null ? '…' : mi) + '.' : 'Runs with ' + (mi == null ? '…' : mi) + ' instruments.' }; }
   if (m.needEx) return { st: 'locked', why: 'Planned. Needs ' + m.needEx + ' or more exposures; you selected ' + S.ex.length + '.' };
   return { st: 'locked', why: (m.note ? m.note + ' ' : '') + 'Planned. Not built yet.' };
+}
+// ---- Steiger direction test, as part of IVW -------------------------------------------------------------------------------------
+// Binary traits of the selected pairs (they need a prevalence), as [{ id, name }], from the engine facts.
+function steigerBinTraits() {
+  const out = [], seen = {};
+  (S.facts || []).forEach((f) => { if (!f.steiger) return; [[f.steiger.bin_x, f.ex_id, f.exposure], [f.steiger.bin_y, f.out_id, f.outcome]].forEach((x) => { if (x[0] && !seen[x[1]]) { seen[x[1]] = 1; out.push({ id: x[1], name: x[2] }); } }); });
+  return out;
+}
+const prevOk = (v) => typeof v === 'number' && isFinite(v) && v > 0 && v < 1;
+// Can the test run for this pair (facts f)? Returns { ok, why }.
+function steigerPair(f) {
+  if (!f) return { ok: false, why: 'Checking the data…' };
+  if (f.instruments < STEIGER.min) return { ok: false, why: 'Needs ' + STEIGER.min + ' or more instruments; this pair has ' + f.instruments + '.' };
+  if (f.steiger && f.steiger.why) return { ok: false, why: f.steiger.why };
+  const miss = [];
+  if (f.steiger && f.steiger.bin_x && !prevOk(S.prev[f.ex_id])) miss.push(f.exposure);
+  if (f.steiger && f.steiger.bin_y && !prevOk(S.prev[f.out_id])) miss.push(f.outcome);
+  if (miss.length) return { ok: false, need: true, why: 'Needs the population prevalence of ' + miss.join(' and ') + ' (IVW card, Customise).' };
+  return { ok: true, why: '' };
+}
+// Study-wide state: st = off | ok | partial | needs | locked.
+function steigerState() {
+  if (S.methods.indexOf('ivw_mre') < 0) return { st: 'off', why: 'Runs together with IVW. Select IVW to use it.' };
+  if (!S.steiger) return { st: 'off', why: 'Turned off. The draft text will report directionality as not tested.' };
+  const fc = S.facts || []; if (!fc.length) return { st: 'ok', why: 'Checks whether the exposure, rather than the outcome, explains more variance in the instruments.' };
+  const rs = fc.map((f) => ({ f: f, r: steigerPair(f) })), ok = rs.filter((x) => x.r.ok), bad = rs.filter((x) => !x.r.ok), pre = (x) => (fc.length > 1 ? x.f.exposure + ' → ' + x.f.outcome + ': ' : '');
+  if (!bad.length) return { st: 'ok', why: 'Checks whether the exposure, rather than the outcome, explains more variance in the instruments.' };
+  if (bad.every((x) => x.r.need)) return { st: 'needs', why: Array.from(new Set(bad.map((x) => x.r.why))).join(' ') };
+  if (!ok.length && !bad.some((x) => x.r.need)) return { st: 'locked', why: bad.map((x) => pre(x) + x.r.why).join(' ') };
+  return { st: 'partial', why: bad.map((x) => pre(x) + x.r.why).join(' ') + ' ' + (ok.length ? 'It runs for the other pairs.' : '') };
+}
+const STEIGER_TAG = { ok: ['ON', 'var(--accent)'], partial: ['PARTLY', 'var(--warn)'], needs: ['NEEDS INPUT', 'var(--warn)'], locked: ['NOT POSSIBLE', 'var(--mute)'], off: ['OFF', 'var(--mute)'] };
+function steigerSwitch() {
+  const ss = steigerState(), on = S.steiger, tg = STEIGER_TAG[ss.st];
+  return '<button type="button" role="switch" aria-checked="' + on + '" data-a="steiger_toggle" title="' + esc(ss.why) + '" aria-label="Steiger direction test, part of IVW: ' + tg[0] + '. ' + esc(ss.why) + '" style="display:inline-flex;max-width:100%;box-sizing:border-box;align-items:center;gap:8px;padding:6px 10px 6px 6px;border-radius:999px;border:1px solid var(--line);background:var(--panel);color:var(--text);font-size:12px;font-weight:550"><span style="position:relative;flex:none;width:28px;height:16px;border-radius:999px;background:' + (on ? 'var(--accent)' : 'var(--line)') + '"><span style="position:absolute;top:2px;left:' + (on ? '14px' : '2px') + ';width:12px;height:12px;border-radius:50%;background:' + (on ? 'var(--accentInk)' : 'var(--panel)') + '"></span></span>Direction test (Steiger)<span class="mono" style="font-size:10px;color:' + tg[1] + '">' + tg[0] + '</span></button>';
 }
 function vMethods() {
   const all = METHODS.map((m) => Object.assign({}, m, methodState(m))), avail = all.filter((m) => m.st !== 'locked');
@@ -358,7 +392,8 @@ function vMethods() {
   const sel = S.methods.filter((id) => avail.some((m) => m.id === id));
   const cards = list.map((m) => { const locked = m.st === 'locked', on = sel.indexOf(m.id) >= 0, col = locked ? 'var(--mute)' : 'var(--accent)';
     const custom = (!locked && on) ? '<span role="button" tabindex="0" data-a="customise" data-v="' + m.id + '" style="margin-top:4px;font-size:12px;font-weight:550;color:var(--accent);text-decoration:underline;cursor:pointer">Customise</span>' : '';
-    return '<div style="position:relative"><button type="button" class="card" ' + (locked ? 'disabled' : '') + ' data-a="pick_method" data-v="' + m.id + '" aria-pressed="' + on + '" style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;box-sizing:border-box;width:100%;height:100%;padding:16px;border-radius:16px;color:var(--text);opacity:' + (locked ? .55 : 1) + ';background:' + (on ? 'var(--panel2)' : 'var(--panel)') + ';border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + ';transition:border-color .15s"><span style="display:flex;align-items:center;gap:8px;width:100%"><span style="width:8px;height:8px;border-radius:50%;background:' + (locked ? 'transparent' : col) + ';border:1.5px solid ' + col + '"></span><span class="mono" style="font-size:11px;color:' + col + '">' + (locked ? 'LOCKED' : 'AVAILABLE') + '</span><span style="flex-grow:1"></span><span class="mono" style="font-size:11px;color:var(--mute)">' + (m.speed || '') + '</span></span><span style="display:block;text-align:left;font-size:16px;font-weight:600;letter-spacing:-0.01em">' + m.name + '</span><span style="display:block;text-align:left;font-size:12px;color:var(--mute)">' + m.family + '</span><span style="display:block;text-align:left;font-size:13px;color:' + (locked ? 'var(--mute)' : 'var(--text)') + '">' + esc(m.why) + '</span></button>' + (custom ? '<div style="position:absolute;right:16px;bottom:14px">' + custom + '</div>' : '') + '</div>'; }).join('');
+    const stz = (m.id === 'ivw_mre' && !locked && on) ? '<div style="position:absolute;left:16px;right:16px;bottom:46px">' + steigerSwitch() + '</div>' : '';
+    return '<div style="position:relative"><button type="button" class="card" ' + (locked ? 'disabled' : '') + ' data-a="pick_method" data-v="' + m.id + '" aria-pressed="' + on + '" style="display:flex;flex-direction:column;gap:6px;align-items:flex-start;box-sizing:border-box;width:100%;height:100%;padding:16px;border-radius:16px;color:var(--text);opacity:' + (locked ? .55 : 1) + ';background:' + (on ? 'var(--panel2)' : 'var(--panel)') + ';border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + ';transition:border-color .15s' + (stz ? ';padding-bottom:88px' : '') + '"><span style="display:flex;align-items:center;gap:8px;width:100%"><span style="width:8px;height:8px;border-radius:50%;background:' + (locked ? 'transparent' : col) + ';border:1.5px solid ' + col + '"></span><span class="mono" style="font-size:11px;color:' + col + '">' + (locked ? 'LOCKED' : 'AVAILABLE') + '</span><span style="flex-grow:1"></span><span class="mono" style="font-size:11px;color:var(--mute)">' + (m.speed || '') + '</span></span><span style="display:block;text-align:left;font-size:16px;font-weight:600;letter-spacing:-0.01em">' + m.name + '</span><span style="display:block;text-align:left;font-size:12px;color:var(--mute)">' + m.family + '</span><span style="display:block;text-align:left;font-size:13px;color:' + (locked ? 'var(--mute)' : 'var(--text)') + '">' + esc(m.why) + '</span></button>' + (custom ? '<div style="position:absolute;right:16px;bottom:14px">' + custom + '</div>' : '') + stz + '</div>'; }).join('');
   const fl = [['all', 'All', all.length], ['ok', 'Available', avail.length], ['locked', 'Locked', all.length - avail.length]].map((x) => { const on = f === x[0]; return '<button type="button" data-a="mfilter" data-v="' + x[0] + '" style="padding:8px 16px;border-radius:999px;font-size:13px;font-weight:550;color:' + (on ? 'var(--accentInk)' : 'var(--text)') + ';background:' + (on ? 'var(--accent)' : 'transparent') + ';border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + '">' + x[1] + '<span class="mono" style="margin-left:8px;font-size:12px;opacity:.75">' + x[2] + '</span></button>'; }).join('');
   const fc = S.facts || [], rng = (k, d) => { if (!fc.length) return '…'; const v = fc.map((x) => x[k]); const a = Math.min.apply(null, v), b = Math.max.apply(null, v); return a === b ? a.toFixed(d || 0) : a.toFixed(d || 0) + ' to ' + b.toFixed(d || 0); };
   const head = fc.length === 1 ? esc(fc[0].exposure + ' → ' + fc[0].outcome) : S.pairs.length + ' pairs';
@@ -373,8 +408,9 @@ function vMethods() {
   return frame('study', 'methods', main) + (S.custom ? vCustomise() : '');
 }
 const PRESETS = { ci_level: [[0.9, '90%'], [0.95, '95%'], [0.99, '99%']], min_f: [[0, 'Off'], [10, '10']], nboot: [[500, '500'], [1000, '1000'], [5000, '5000']], phi: [[0.25, '0.25'], [0.5, '0.5'], [1, '1']], nbdist: [[1000, '1000'], [5000, '5000'], [10000, '10000']], signif: [[0.01, '0.01'], [0.05, '0.05']], alpha: [[0.001, '0.001'], [0.01, '0.01'], [0.05, '0.05']] };
-const MSHORT = (id) => { const m = METHODS.find((x) => x.id === id); return m ? m.short : id; };
+const MSHORT = (id) => { const m = METHODS.find((x) => x.id === id) || (id === 'steiger' ? STEIGER : null); return m ? m.short : id; };
 const MCOL = { ivw_mre: 'var(--accent)', egger: 'var(--warn)', wm: '#6aa7ff', smed: '#c58cff', mode: '#ff8fb1', smode: '#5fd0b8', presso: '#e6b422', radial: '#7bd36b', radegger: '#c9776b' };
+const schOf = (k) => (S.schemas[S.custom] || {})[k] || (S.custom === 'ivw_mre' ? (S.schemas.steiger || {})[k] : undefined);
 const pcur = (k, p) => (S.params[k] == null ? p.default : S.params[k]);
 const pisdef = (k, p) => (p.type === 'double' ? Number(pcur(k, p)) === Number(p.default) : String(pcur(k, p)) === String(p.default));
 function pshow(k, p, v) {
@@ -402,22 +438,32 @@ function paramCtl(k, p) {
   return '<div style="display:flex;flex-direction:column;gap:10px"><div><div style="font-weight:550;margin-bottom:4px">' + esc(p.label) + '</div><div style="font-size:12px;color:var(--mute)">' + esc(p.hint) + '</div></div>' + ctl + '</div>';
 }
 const NOT_ADJUSTABLE = {
-  ivw_mre: 'Not adjustable here yet: instrument P-value threshold, clumping (r² and window), handling of palindromic variants and Steiger filtering. They belong to data preparation, need real GWAS data and are planned for the data download step.',
+  ivw_mre: 'Not adjustable here: instrument P-value threshold, clumping (r² and window) and handling of palindromic variants. They belong to data preparation and are set when the data are downloaded. Steiger filtering (removing variants by the Steiger test) is not offered: the guidelines warn against removing variants on the basis of the data. The direction test below checks the direction without removing any variant.',
   wm: 'The weighted median in TwoSampleMR has no other adjustable arguments: each variant is weighted by the inverse of the second-order variance of its single-variant ratio, as the package defines it. It needs at least 3 variants and at least half of the weight to come from valid instruments.',
   smed: 'The simple median in TwoSampleMR has no other adjustable arguments: all variants get equal weight. At least half of the variants must be valid instruments.',
   mode: 'Besides the bootstrap size and the bandwidth multiplier, the weighted mode in TwoSampleMR has no other adjustable arguments. The NOME variant is a separate method and is not built.',
   presso: 'Besides the number of simulated datasets and the significance threshold, MR-PRESSO has no other adjustable arguments in this app. The outlier test and the distortion test are always run, because the outlier list is what the Instrument review screen uses. MR-PRESSO can take several minutes with many variants.',
   radial: 'Radial IVW in RadialMR is adjustable through the outlier level, the weights and the convergence tolerance. Other arguments of the package only change plotting.',
   radegger: 'Radial MR-Egger in RadialMR is adjustable through the outlier level and the weights. Other arguments of the package only change plotting.',
-  steiger: 'Besides the two measurement-reliability values and the instrument-strength filter, the Steiger test in TwoSampleMR has no other adjustable arguments. Variance explained is computed from each variant\'s effect, standard error and sample size, and summed over the variants. It is for a continuous exposure and outcome; a binary outcome is not built. The test gives no causal estimate: it only checks the assumed direction.',
+  steiger: 'Besides the two measurement-reliability values, the Steiger test in TwoSampleMR has no other adjustable arguments. It uses the same variants as IVW (the minimum F above applies to both). Variance explained is summed over the variants: for a continuous trait from each variant\'s effect, standard error and sample size; for a binary trait on the liability scale from the log odds ratio, the effect allele frequency, the numbers of cases and controls and the prevalence. The test gives no causal estimate: it only checks the assumed direction.',
   smode: 'Besides the bootstrap size and the bandwidth multiplier, the simple mode in TwoSampleMR has no other adjustable arguments: all variants get equal weight, so it ignores how precise each ratio estimate is.',
   egger: 'MR-Egger regression in TwoSampleMR has no other adjustable arguments: variants are oriented to a positive exposure effect and the standard error is not allowed below the fixed-effect value, as the package defines it. Instrument P-value, clumping, palindromic handling and Steiger filtering are planned for the data download step.'
 };
+// Steiger section of IVW's Customise panel: on/off, its own settings (minimum F is shared with IVW, so the same variants are used),
+// and the population prevalence of every binary trait (a fact about the population, written into the analysis data, not a setting).
+function steigerPanel() {
+  const ss = steigerState(), sch = S.schemas.steiger || {}, keys = Object.keys(sch).filter((k) => k !== 'min_f'), bins = steigerBinTraits();
+  const prevs = bins.map((b, i) => { const okv = prevOk(S.prev[b.id]); return '<div style="display:flex;flex-direction:column;gap:8px"><label for="prev_' + i + '" style="font-weight:550">Prevalence of ' + esc(b.name) + '</label><div style="font-size:12px;color:var(--mute)">Share of the general population that has this condition (not the share of cases in the GWAS). Take it from a population study of the same ancestry and give the source in your methods. It turns the odds ratios of a case-control study into variance explained on the liability scale (Lee et al. 2012); a different value can change the result.</div><span style="display:flex;align-items:center;gap:8px"><input id="prev_' + i + '" data-prev="' + esc(b.id) + '" type="number" step="any" min="0.0001" max="99.99" inputmode="decimal" value="' + (okv ? esc(Math.round(S.prev[b.id] * 1e8) / 1e6) : '') + '" placeholder="e.g. 6.2" aria-label="Prevalence of ' + esc(b.name) + ' in percent" style="width:130px;box-sizing:border-box;height:40px;padding:0 12px;border-radius:12px;border:1px solid ' + (okv ? 'var(--line)' : 'var(--warn)') + ';background:var(--bg);color:var(--text);font:inherit"><span style="color:var(--mute)">%</span><span class="mono" style="font-size:12px;color:' + (okv ? 'var(--accent)' : 'var(--warn)') + '">' + (okv ? 'ENTERED' : 'REQUIRED') + '</span></span></div>'; }).join('');
+  return '<div style="border-top:1px solid var(--line);padding-top:20px;display:flex;flex-direction:column;gap:18px"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;justify-content:space-between"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:4px">PART OF IVW</div><div style="font-size:18px;font-weight:600">Direction test (Steiger)</div></div>' + steigerSwitch() + '</div>' +
+    '<div style="font-size:13px;color:' + (ss.st === 'ok' || ss.st === 'off' ? 'var(--mute)' : 'var(--warn)') + '">' + esc(ss.why) + '</div>' +
+    (S.steiger ? keys.map((k) => paramCtl(k, sch[k])).join('') + prevs + cmpParams(keys, sch) + '<div style="font-size:12px;color:var(--mute)">' + esc(NOT_ADJUSTABLE.steiger) + '</div>' : '') + '</div>';
+}
 function vCustomise() {
   const m = METHODS.find((x) => x.id === S.custom), sch = (S.schemas[S.custom] || {});
   const keys = Object.keys(sch);
   const body = keys.length ? keys.map((k) => paramCtl(k, sch[k])).join('') : '<div style="color:var(--mute)">This method has no adjustable settings. It is run exactly as the package defines it, and the script says so.</div>';
-  return '<div class="modal-bg" data-a="custom_close_bg"><div role="dialog" aria-modal="true" aria-label="Customise ' + esc(m.name) + '" style="width:100%;max-width:520px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:20px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">CUSTOMISE</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">' + esc(m.name) + '</div></div>' + body + cmpParams(keys, sch) + (NOT_ADJUSTABLE[S.custom] ? '<div style="font-size:12px;color:var(--mute)">' + esc(NOT_ADJUSTABLE[S.custom]) + '</div>' : '') + '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Every value you set is written into the script, and results from changed settings are marked as customised.</div><div style="display:flex;gap:12px;justify-content:flex-end">' + cta('Done', 'custom_close', '', 'height:44px') + '</div></div></div>';
+  const stz = S.custom === 'ivw_mre' ? steigerPanel() : '';
+  return '<div class="modal-bg" data-a="custom_close_bg"><div role="dialog" aria-modal="true" aria-label="Customise ' + esc(m.name) + '" style="width:100%;max-width:520px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:20px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">CUSTOMISE</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">' + esc(m.name) + '</div></div>' + body + cmpParams(keys, sch) + (NOT_ADJUSTABLE[S.custom] ? '<div style="font-size:12px;color:var(--mute)">' + esc(NOT_ADJUSTABLE[S.custom]) + '</div>' : '') + stz + '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Every value you set is written into the script, and results from changed settings are marked as customised.</div><div style="display:flex;gap:12px;justify-content:flex-end">' + cta('Done', 'custom_close', '', 'height:44px') + '</div></div></div>';
 }
 // ---- Steiger directionality (diagnostic only: no causal estimate) ----------------------------------------------------------
 function steigerInfo(pay) {
@@ -433,18 +479,20 @@ function steigerLine(si) {
 }
 function steigerTile(pay, tile, big) {
   const si = steigerInfo(pay);
-  if (!si) return tile('Direction of effect (Steiger)', '<div style="font-size:20px;font-weight:600;margin:12px 0 2px;color:var(--mute)">Not run</div>', '<div style="font-size:12px;color:var(--mute)">Add MR Steiger directionality on the Methods screen, then run again.</div>');
+  if (!si) return tile('Direction of effect (Steiger)', '<div style="font-size:20px;font-weight:600;margin:12px 0 2px;color:var(--mute)">Not run</div>', '<div style="font-size:12px;color:var(--mute)">Turn on the direction test in the IVW card on the Methods screen, then run again.</div>');
   return tile('Direction of effect (Steiger)', '<div style="font-size:20px;font-weight:600;margin:12px 0 2px;color:' + (si.good ? 'var(--accent)' : 'var(--warn)') + '">' + si.label + '</div>', '<div style="font-size:12px;color:var(--mute)">R² ' + fx(si.r2x, 3) + ' (exposure) vs ' + fx(si.r2y, 3) + ' (outcome), P = ' + fp(si.p) + '. ' + (si.good ? 'Consistent with the assumed direction.' : (si.ok ? 'Does not separate the two.' : 'Opposite to the assumed direction.')) + '</div>', '', si.good ? '' : 'var(--warn)');
 }
 function steigerCheckRow() {
-  const sm = methodState(METHODS.find((x) => x.id === 'steiger')), infos = (S.pairs || []).map((p) => ({ p: p, si: steigerInfo(S.payloads[p.folder]) })).filter((r) => r.si);
+  const sm = steigerState(), infos = (S.pairs || []).map((p) => ({ p: p, si: steigerInfo(S.payloads[p.folder]) })).filter((r) => r.si);
   if (infos.length && infos.length === S.pairs.length) {
     const good = infos.every((r) => r.si.good);
     return ['Direction of effect', infos.map((r) => (S.pairs.length > 1 ? r.p.exName + ' → ' + r.p.outName + ': ' : '') + steigerLine(r.si)).join(' ') + ' The Steiger test assumes the variants act on the outcome through the exposure, and measurement error or pleiotropy can mislead it.', good ? 'PASS' : 'REVIEW'];
   }
-  if (sm.st === 'locked') return ['Direction of effect', 'The Steiger directionality test cannot be run for these pairs. ' + sm.why + ' The draft text reports this as a limitation.', 'NOT RUN'];
-  if (S.methods.indexOf('steiger') >= 0) return ['Direction of effect', 'The Steiger directionality test is selected and runs with the analysis. Its result then appears here and on the Results screen.', 'NOT RUN'];
-  return ['Direction of effect', 'The Steiger directionality test is not selected. Add it on the Methods screen to test whether the exposure, rather than the outcome, explains more variance in the instruments. Otherwise the draft text reports directionality as not tested.', 'NOT RUN'];
+  if (sm.st === 'locked') return ['Direction of effect', 'The Steiger direction test (part of IVW) cannot be run for these pairs. ' + sm.why + ' The draft text reports this as a limitation.', 'NOT RUN'];
+  if (sm.st === 'needs') return ['Direction of effect', 'The Steiger direction test (part of IVW) is on, but it needs a prevalence first. ' + sm.why + ' Without it the test is skipped and the draft text reports directionality as not tested.', 'REVIEW'];
+  if (sm.st === 'partial') return ['Direction of effect', 'The Steiger direction test (part of IVW) runs for some pairs only. ' + sm.why, 'REVIEW'];
+  if (sm.st === 'ok') return ['Direction of effect', 'The Steiger direction test is on and runs with IVW. Its result then appears here and on the Results screen.', 'NOT RUN'];
+  return ['Direction of effect', 'The Steiger direction test is off. Turn it on in the IVW card on the Methods screen to test whether the exposure, rather than the outcome, explains more variance in the instruments. Otherwise the draft text reports directionality as not tested.', 'NOT RUN'];
 }
 function ovKey(x) { return x.ex_id + ' | ' + x.out_id; }
 function checks() {
@@ -539,7 +587,7 @@ function scatter(pay) {
 }
 function pairLevel(pay) { const e = causal(pay)[0]; return e ? e.ci_level : 0.95; }
 function diffSettings(pay, pair) {
-  const st = pay.settings || {}, out = {}, ms = pair.methods || S.methods;
+  const st = pay.settings || {}, out = {}, ms0 = pair.methods || S.methods, ms = ms0.indexOf('steiger') < 0 && steigerInfo(pay) ? ms0.concat(['steiger']) : ms0;
   const show = (k, p, v) => (k === 'ci_level' ? (Math.round(Number(v) * 1000) / 10) + '%' : (p.type === 'enum' && p.value_labels && p.value_labels[v] ? p.value_labels[v] : String(v)));
   ms.forEach((m) => { const sch = S.schemas[m] || {}; Object.keys(sch).forEach((k) => { if (out[k] || st[k] == null) return; const p = sch[k], d = p.default;
     const same = p.type === 'enum' ? String(st[k]) === String(d) : Math.abs(Number(st[k]) - Number(d)) <= 1e-12 * Math.max(1, Math.abs(Number(d)));
@@ -583,7 +631,7 @@ function vResults() {
   const nav = S.pairs.length > 1 ? '<div style="display:flex;flex-wrap:wrap;gap:8px">' + S.pairs.map((p, i) => '<button type="button" data-a="rpair" data-v="' + i + '" style="padding:6px 14px;border-radius:999px;font-size:13px;font-weight:550;color:' + (i === S.rp ? 'var(--accentInk)' : 'var(--text)') + ';background:' + (i === S.rp ? 'var(--accent)' : 'transparent') + ';border:1px solid ' + (i === S.rp ? 'var(--accent)' : 'var(--line)') + '">Pair ' + (i + 1) + '</button>').join('') + '</div>' : '';
   const sentence = iv ? 'The ' + (iv.method === 'ivw_mre' ? 'IVW' : esc(MSHORT(iv.method)).toLowerCase()) + ' estimate is ' + fx(iv.estimate, 3) + ' (' + (Math.round(iv.ci_level * 1000) / 10) + '% CI ' + fx(iv.ci_lower, 3) + ' to ' + fx(iv.ci_upper, 3) + ') ' + esc(pair.outName) + ' per unit of ' + esc(pair.exName) + '; ' + same + ' of ' + ce.length + ' methods agree on direction.' : '';
   const main = '<header style="min-width:0">' + eyebrow('STEP 6 OF 7 · RESULTS · PAIR ' + (S.rp + 1) + ' OF ' + S.pairs.length) + h1pair(pair.exName, pair.outName) + '<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between"><div style="max-width:660px">' + sub(sentence) + '</div>' + '<div style="display:flex;flex-wrap:wrap;gap:10px">' + ghost('Review instruments', 'to_outliers') + ghost('Open in RStudio', 'open_rstudio', pair.folder) + cta('Export publication package', 'to_export', '', 'height:44px;padding:0 20px') + '</div></div></header>' + nav + cmpBanner(pay, pair) + cmpPanel(pair) + tiles +
-    '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start"><section style="flex:1 1 440px;min-width:0;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Forest plot across methods</h2><span class="mono" style="font-size:11px;color:var(--mute)">beta per unit, linear scale</span></div>' + forest(pay) + '</section>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start"><section style="flex:1 1 440px;min-width:0;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Forest plot across methods</h2><span class="mono" style="font-size:11px;color:var(--mute)">' + ((causal(pay)[0] || {}).scale === 'log_or' ? 'log odds ratio per unit (OR = exp), linear scale' : 'beta per unit, linear scale') + '</span></div>' + forest(pay) + '</section>' +
     '<section style="flex:1 1 440px;min-width:0;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Scatter plot with fitted lines</h2><span class="mono" style="font-size:11px;color:var(--mute)">one line per method</span></div>' + scatter(pay) + '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:14px;font-size:12px;color:var(--mute)">' + ce.filter((e) => e.method !== 'radegger').map((e) => e.method === 'ivw_mre' ? '<span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:3px;background:var(--accent)"></span>IVW</span>' : '<span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:0;border-top:3px ' + (e.method === 'egger' ? 'dashed' : 'dotted') + ' ' + MCOL[e.method] + '"></span>' + esc(MSHORT(e.method)) + '</span>').join('') + '<span>x: SNP effect on exposure · y: SNP effect on outcome, oriented to a positive exposure effect</span></div></section></div>' +
     '<section style="box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Publication readiness</h2><span class="mono" style="font-size:12px;color:var(--mute)">STROBE-MR checklist: not built yet</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">' + ready + '</div></section>' + DEMO_NOTE;
   return frame('study', 'results', main);
@@ -714,7 +762,9 @@ function runNext() {
   if (r.i >= r.total) { r.state = 'done'; render(); return; }
   if (r.paused) { render(); return; }
   const p = S.pairs[r.i]; r.t0 = Date.now(); r.log.push('Pair ' + (r.i + 1) + ': starting ' + p.exName + ' → ' + p.outName); render();
-  send('run_pair', { i: r.i, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && (m !== 'steiger' || methodState(x).st !== 'locked'))), params: S.params });
+  const f = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out), withSt = S.steiger && S.methods.indexOf('ivw_mre') >= 0 && steigerPair(f).ok;
+  send('run_pair', { i: r.i, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built)).concat(withSt ? ['steiger'] : []), params: S.params,
+    prev: { x: prevOk(S.prev[p.ex]) ? S.prev[p.ex] : null, y: prevOk(S.prev[p.out]) ? S.prev[p.out] : null } });
 }
 function impNext() {
   const I = S.imp;
@@ -727,6 +777,8 @@ function impNext() {
   } else if (I.step === 3) {
     if (!I.facts.name.trim()) { S.notice = { kind: 'err', msg: 'Give the trait a name.' }; render(); return; }
     if (I.facts.n && !(Number(I.facts.n) > 0)) { S.notice = { kind: 'err', msg: 'Sample size must be a positive number, or empty.' }; render(); return; }
+    if (I.facts.kind === 'binary' && ['ncase', 'ncontrol'].some((k) => I.facts[k] && !(Number(I.facts[k]) >= 1 && Number.isInteger(Number(I.facts[k]))))) { S.notice = { kind: 'err', msg: 'Cases and controls must be whole numbers of 1 or more, or empty.' }; render(); return; }
+    if (I.facts.kind === 'binary' && !!I.facts.ncase !== !!I.facts.ncontrol) { S.notice = { kind: 'err', msg: 'Give both the number of cases and the number of controls, or leave both empty.' }; render(); return; }
     if (I.facts.ea_ok === 'swap') { const a = I.mapping.ea; I.mapping.ea = I.mapping.oa; I.mapping.oa = a; I.facts.ea_ok = 'yes'; }
     S.notice = null; I.step = 4; I.report = null; render(); send('import_check', { mapping: I.mapping, facts: I.facts });
   }
@@ -758,8 +810,9 @@ function onClick(e) {
     case 'customise': e.stopPropagation(); S.custom = v; render(); break;
     case 'custom_close': S.custom = null; render(); break;
     case 'custom_close_bg': if (e.target === t) { S.custom = null; render(); } break;
-    case 'param_set': { const kv = v.split('|'), sch = (S.schemas[S.custom] || {})[kv[0]]; if (sch) { S.params[kv[0]] = sch.type === 'enum' ? kv[1] : Number(kv[1]); render(); } break; }
-    case 'param_reset': { const sch = S.schemas[S.custom] || {}; S.params[v] = sch[v].default; render(); break; }
+    case 'param_set': { const kv = v.split('|'), sch = schOf(kv[0]); if (sch) { S.params[kv[0]] = sch.type === 'enum' ? kv[1] : Number(kv[1]); render(); } break; }
+    case 'param_reset': { S.params[v] = schOf(v).default; render(); break; }
+    case 'steiger_toggle': e.stopPropagation(); S.steiger = !S.steiger; render(); break;
     case 'm_next': S.maxStep = Math.max(S.maxStep, 3); go('check'); break;
     case 'c_next': startRun(); break;
     case 'ovl_open': S.ovl = { items: (S.facts || []).map((x) => { const o = S.overlap[ovKey(x)] || {}; return { ex: x.ex_id, out: x.out_id, name: x.exposure + ' and ' + x.outcome, answer: o.answer || '', pct: o.pct != null ? String(o.pct) : '', note: o.note || '' }; }) }; render(); break;
@@ -834,7 +887,7 @@ function onClick(e) {
 }
 function onInput(e) {
   const t = e.target;
-  if (t.id === 'f_name') S.imp.facts.name = t.value; else if (t.id === 'f_n') S.imp.facts.n = t.value; else if (t.id === 'f_tmpl') S.imp.tmplName = t.value;
+  if (t.id === 'f_name') S.imp.facts.name = t.value; else if (t.id === 'f_n') S.imp.facts.n = t.value; else if (t.id === 'f_ncase') S.imp.facts.ncase = t.value; else if (t.id === 'f_ncontrol') S.imp.facts.ncontrol = t.value; else if (t.id === 'f_tmpl') S.imp.tmplName = t.value;
 
   if (t.id === 'oq' || t.id === 'ogw_minn') { if (t.id === 'oq') S.ogw.q = t.value; else S.ogw.minN = t.value; clearTimeout(S._ogwT); S._ogwT = setTimeout(ogwSearch, 250); return; }
   if (t.id && t.id.indexOf('ovl_') === 0 && S.ovl) { const m = /^ovl_(pct|note)_(\d+)$/.exec(t.id), it = m && S.ovl.items[Number(m[2])]; if (it) { it[m[1]] = t.value; if (m[1] === 'pct') { focusId = t.id; render(); focusId = null; } } return; }
@@ -842,16 +895,18 @@ function onInput(e) {
   else if (t.id === 'f_pthr') { S.pthr = t.value; focusId = 'f_pthr'; render(); focusId = null; }
   else if (t.id === 'q') { S.q = t.value; focusId = 'q'; render(); focusId = null; }
   else if (t.id === 'sq') { S.sq = t.value; focusId = 'sq'; render(); focusId = null; }
-  else if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = (S.schemas[S.custom] || {})[k], val = paramVal(t); if (sch && isFinite(val) && val >= sch.min && val <= sch.max) { S.params[k] = val; } }
+  else if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = schOf(k), val = paramVal(t); if (sch && isFinite(val) && val >= sch.min && val <= sch.max) { S.params[k] = val; } }
+  else if (t.getAttribute && t.getAttribute('data-prev')) { const id = t.getAttribute('data-prev'), v = parseFloat(String(t.value).replace(',', '.')) / 100; if (prevOk(v)) S.prev[id] = v; else delete S.prev[id]; }
 }
 function paramVal(t) { const v = parseFloat(t.value); return t.getAttribute('data-pct') ? Math.round(v * 10) / 1000 : v; }
-function onChange(e) { const t = e.target; if (t.id === 'ogw_pop' || t.id === 'ogw_kind') { if (t.id === 'ogw_pop') S.ogw.pop = t.value; else S.ogw.kind = t.value; ogwSearch(); return; } if (t.getAttribute && t.getAttribute('data-map')) { const r = t.getAttribute('data-map'); S.imp.mapping[r] = t.value; S.imp.conf[r] = undefined; render(); return; } if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = (S.schemas[S.custom] || {})[k], val = paramVal(t); if (sch && !(isFinite(val) && val >= sch.min && val <= sch.max)) { const pc = t.getAttribute('data-pct'); S.notice = { kind: 'err', msg: sch.label + ' must be between ' + (pc ? sch.min * 100 + '%' : sch.min) + ' and ' + (pc ? sch.max * 100 + '%' : sch.max) + '. The previous value was kept.' }; } render(); } }
+function onChange(e) { const t = e.target; if (t.getAttribute && t.getAttribute('data-prev')) { if (String(t.value).trim() && !prevOk(S.prev[t.getAttribute('data-prev')])) S.notice = { kind: 'err', msg: 'The prevalence must be a percentage above 0 and below 100, for example 6.2.' }; render(); return; } if (t.id === 'ogw_pop' || t.id === 'ogw_kind') { if (t.id === 'ogw_pop') S.ogw.pop = t.value; else S.ogw.kind = t.value; ogwSearch(); return; } if (t.getAttribute && t.getAttribute('data-map')) { const r = t.getAttribute('data-map'); S.imp.mapping[r] = t.value; S.imp.conf[r] = undefined; render(); return; } if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = schOf(k), val = paramVal(t); if (sch && !(isFinite(val) && val >= sch.min && val <= sch.max)) { const pc = t.getAttribute('data-pct'); S.notice = { kind: 'err', msg: sch.label + ' must be between ' + (pc ? sch.min * 100 + '%' : sch.min) + ' and ' + (pc ? sch.max * 100 + '%' : sch.max) + '. The previous value was kept.' }; } render(); } }
 function applyStudy(m) {
   S.study = { name: m.name, dir: m.dir }; S.root = m.root || S.root; S.overlap = Array.isArray(m.overlap) ? {} : (m.overlap || {}); S.ovl = null;
   const plan = m.plan || {}; S.name = m.name; S.aim = plan.aim || ''; S.prereg = !!plan.prereg; S.kind = plan.kind || 'basic';
   const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder, pthr: p.pthr || null }));
   S.ex = Array.from(new Set(S.pairs.map((p) => p.ex))); S.out = Array.from(new Set(S.pairs.map((p) => p.out)));
-  if (pairs.length && pairs[0].methods) S.methods = pairs[0].methods; if (pairs.length && pairs[0].params) S.params = Object.assign({ ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, pairs[0].params); else if (pairs.length && pairs[0].ci) S.params.ci_level = pairs[0].ci;
+  if (pairs.length && pairs[0].methods) { S.steiger = pairs[0].methods.indexOf('steiger') >= 0; S.methods = pairs[0].methods.filter((x) => x !== 'steiger'); }
+  S.prev = {}; pairs.forEach((p) => { const pv = p.prev || {}; if (prevOk(pv.x)) S.prev[p.ex] = pv.x; if (prevOk(pv.y)) S.prev[p.out] = pv.y; }); if (pairs.length && pairs[0].params) S.params = Object.assign({ ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, pairs[0].params); else if (pairs.length && pairs[0].ci) S.params.ci_level = pairs[0].ci;
   S.payloads = m.payloads || {}; S.sens = m.sens || []; S.inst = null; S.sel = []; S.facts = null; S.factsBusy = false; S.run = null; S.pkg = null; S.pkgBusy = false;
   S.maxStep = pairs.length ? (Object.keys(S.payloads).length ? 5 : 1) : 0;
 }

@@ -114,7 +114,7 @@ demo_pair <- function(engine_dir) {
   d$mr_keep <- as.logical(d$mr_keep)
   list(exposure_label = "Demo exposure", outcome_label = "Demo outcome",
        input = list(kind = "pair_iv", data = d, exposure_id = "demo:simulated-exposure",
-                    outcome_id = "demo:simulated-outcome", outcome_scale = "beta"))
+                    outcome_id = "demo:simulated-outcome", outcome_scale = "beta", exposure_scale = "beta"))
 }
 
 # ---- demo catalogue: SIMULATED traits so every screen can be tested before the real catalogue exists --------------------
@@ -158,7 +158,7 @@ demo_input <- function(exp_id, out_id) {
                   p_y = signif(2 * pnorm(-abs(by / sy)), 6), n_x = DEMO_EXPOSURES$n[ei], n_y = DEMO_OUTCOMES$n[oi],
                   harmonise_action = "aligned", mr_keep = TRUE, stringsAsFactors = FALSE)
   list(exposure_label = DEMO_EXPOSURES$name[ei], outcome_label = DEMO_OUTCOMES$name[oi],
-       input = list(kind = "pair_iv", data = d, exposure_id = paste0("demo:", exp_id), outcome_id = paste0("demo:", out_id), outcome_scale = "beta"))
+       input = list(kind = "pair_iv", data = d, exposure_id = paste0("demo:", exp_id), outcome_id = paste0("demo:", out_id), outcome_scale = "beta", exposure_scale = "beta"))
 }
 
 .vkey <- function(d) {
@@ -207,10 +207,39 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   led$dropped_mismatch <- sum(d$harmonise_action == "dropped_allele_mismatch"); led$kept <- sum(d$mr_keep); led$threshold <- pthr; led$id_kind <- kx$kind
   if (led$kept < 2L) stop("Fewer than 2 instruments remain after harmonisation.")
   sc <- if (identical(ou$recipe$facts$kind, "binary")) "log_or" else "beta"
+  scx <- if (identical(ex$recipe$facts$kind, "binary")) "log_or" else "beta"
   list(exposure_label = ex$recipe$trait, outcome_label = ou$recipe$trait, simulated = FALSE, ledger = led,
        anc_x = ex$recipe$facts$ancestry %||% "?", anc_y = ou$recipe$facts$ancestry %||% "?", ukb_both = isTRUE(ex$recipe$facts$ukb) && isTRUE(ou$recipe$facts$ukb),
        source_x = ex$recipe$source$id %||% NULL, source_y = ou$recipe$source$id %||% NULL,
-       input = list(kind = "pair_iv", data = d, exposure_id = exp_id, outcome_id = out_id, outcome_scale = sc))
+       binary = list(x = if (identical(scx, "log_or")) .case_counts(ex$recipe) else NULL, y = if (identical(sc, "log_or")) .case_counts(ou$recipe) else NULL),
+       input = list(kind = "pair_iv", data = d, exposure_id = exp_id, outcome_id = out_id, outcome_scale = sc, exposure_scale = scx))
+}
+
+#' Numbers of cases and controls of a binary dataset: from the import facts, else from the OpenGWAS record (NA when unknown).
+.case_counts <- function(rec) {
+  num <- function(v) { v <- suppressWarnings(as.numeric(v %||% NA)); if (length(v) == 1L && is.finite(v) && v >= 1) v else NA_real_ }
+  list(ncase = num(rec$facts$ncase %||% rec$source$ncase), ncontrol = num(rec$facts$ncontrol %||% rec$source$ncontrol))
+}
+
+#' The input the Steiger test reads: the pair input plus, for each binary side, its numbers of cases and controls and the population
+#' prevalence entered by the analyst (columns ncase_*, ncontrol_*, prevalence_*). A continuous side gets no extra columns, so the
+#' analysis file of a continuous pair is unchanged. `prevalence` is list(x = , y = ) (NULL or NA when not entered).
+steiger_input <- function(p, prevalence = list()) {
+  inp <- p$input; d <- inp$data
+  for (s in c("x", "y")) {
+    b <- p$binary[[s]]; if (is.null(b)) next
+    pv <- suppressWarnings(as.numeric(prevalence[[s]] %||% NA)); if (length(pv) != 1L) pv <- NA_real_
+    d[[paste0("ncase_", s)]] <- b$ncase; d[[paste0("ncontrol_", s)]] <- b$ncontrol; d[[paste0("prevalence_", s)]] <- pv
+  }
+  inp$data <- d; inp
+}
+
+#' Why the Steiger test cannot run for a pair whatever prevalence is entered (NULL when the data allow it), and which sides are binary.
+steiger_readiness <- function(p) {
+  probe <- steiger_input(p, list(x = 0.5, y = 0.5))   # a placeholder prevalence, only to test everything else
+  v <- ADAPTER_STEIGER_V11$check(probe, list())
+  list(bin_x = !is.null(p$binary$x), bin_y = !is.null(p$binary$y),
+       why = if (identical(v$status, "block")) paste(v$messages, collapse = " ") else "")
 }
 
 #' One pair as the methods need it, from the simulated catalogue or from imported datasets (never a mixture).
@@ -229,21 +258,23 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
   list(ex_id = exp_id, out_id = out_id, exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(kept), mean_f = round(mean(Fs), 1), min_f = round(min(Fs), 1),
        n_weak = sum(Fs < 10), palindromic = pal, scale = p$input$outcome_scale,
        has_n = nrow(kept) > 0 && all(c("n_x", "n_y") %in% names(kept)) && all(is.finite(kept$n_x) & is.finite(kept$n_y) & kept$n_x > 2 & kept$n_y > 2),
-       simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y))
+       simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y),
+       scale_x = p$input$exposure_scale %||% "beta", steiger = steiger_readiness(p))
 }
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger", "MR Steiger directionality" = "steiger")
 
 param_adapters <- function() list(ivw_mre = ADAPTER_IVW_MRE_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11, steiger = ADAPTER_STEIGER_V11)
 
-studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx = NULL, params = NULL) {
+studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx = NULL, params = NULL, steiger_in = NULL) {
   params <- c(params[setdiff(names(params), "ci_level")], list(ci_level = if (!is.null(params$ci_level)) params$ci_level else ci_level))
   if (!length(methods)) stop("Choose at least one method.")
   exposure_label <- trimws(exposure_label); outcome_label <- trimws(outcome_label)
   if (!nzchar(exposure_label) || !nzchar(outcome_label)) stop("Give the exposure and the outcome a name.")
   ad <- param_adapters()
-  if ("steiger" %in% methods) { v <- ad$steiger$check(input, list()); if (identical(v$status, "block")) stop(paste(v$messages, collapse = " ")) }   # the script would stop on missing sample sizes but could not tell a binary outcome
-  spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = input,
+  if (is.null(steiger_in)) steiger_in <- input   # a continuous pair needs nothing extra; a binary one gets steiger_input()
+  if ("steiger" %in% methods) { v <- ad$steiger$check(steiger_in, list()); if (identical(v$status, "block")) stop(paste(v$messages, collapse = " ")) }   # the script would stop on missing sample sizes but could not tell a binary outcome
+  spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = if (identical(m, "steiger")) steiger_in else input,
                                            params = params[intersect(names(params), names(ad[[m]]$params))]))
   if (is.null(idx)) idx <- studio_pair_index(h$dir, exposure_label, outcome_label)
   r <- run_script_task(h$con, h$dir, idx, exposure_label, outcome_label, spec)

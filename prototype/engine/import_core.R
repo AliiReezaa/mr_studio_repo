@@ -95,7 +95,12 @@ import_validate <- function(path, sep, columns, mapping, facts, max_rows = 5e6) 
     if (identical(facts$frq, "maf")) warn <- c(warn, "You said the frequency column is a minor allele frequency. It will not be used as an effect allele frequency.")
   }
   if (pal > 0 && !("eaf" %in% names(d) && identical(facts$frq, "eaf"))) warn <- c(warn, sprintf("%s palindromic variants (A/T or C/G) and no usable effect allele frequency. Palindromic variants cannot be aligned to another dataset by alleles alone, so they will have to be left out when the datasets are harmonised.", format(pal, big.mark = ",")))
-  if (!("n" %in% names(d)) && !(is.finite(num(facts$n)) && num(facts$n) > 0)) warn <- c(warn, "No sample size column and no total sample size given. Methods that need N (for example the Steiger test) will not be offered.")
+  one <- function(x) { v <- if (is.null(x)) NA_real_ else num(x); if (length(v) == 1L && is.finite(v)) v else NA_real_ }
+  cases_ok <- isTRUE(one(facts$ncase) >= 1 && one(facts$ncontrol) >= 1)
+  given <- nzchar(paste0(if (is.null(facts$ncase)) "" else facts$ncase, if (is.null(facts$ncontrol)) "" else facts$ncontrol))
+  if (identical(facts$kind, "binary") && given && !cases_ok) err <- c(err, "The numbers of cases and controls must both be whole numbers of 1 or more.")
+  if (!("n" %in% names(d)) && !(is.finite(num(facts$n)) && num(facts$n) > 0) && !(identical(facts$kind, "binary") && cases_ok)) warn <- c(warn, "No sample size column and no total sample size given. Methods that need N (for example the Steiger test) will not be offered.")
+  if (identical(facts$kind, "binary") && !cases_ok) warn <- c(warn, "Binary trait without the numbers of cases and controls. The Steiger direction test cannot use this dataset until they are known (import it again with them).")
   if (identical(facts$scope, "genomewide") && nr < 100000) warn <- c(warn, sprintf("You said the file is genome-wide but it has only %s rows. If it holds only selected variants, change that answer.", format(nr, big.mark = ",")))
   if (identical(facts$scale, "z")) err <- c(err, "Z-scores are not supported yet. Please supply the effect size and its standard error.")
   if (identical(facts$scale, "or") && any(d$beta <= 0, na.rm = TRUE)) err <- c(err, "Odds ratios must be positive, but zero or negative values were found. If the column holds log odds ratios, choose \"Beta or log odds\" instead.")
@@ -123,6 +128,8 @@ import_save <- function(path, orig_name, sep, columns, mapping, facts, root = st
   if (identical(facts$scale, "or")) { if (any(d$beta <= 0)) stop("Odds ratios must be positive."); d$beta <- log(d$beta) }
   if (!identical(facts$frq, "eaf")) d$eaf <- NULL
   if (!("n" %in% names(d)) && is.finite(suppressWarnings(as.numeric(facts$n)))) d$n <- as.numeric(facts$n)
+  nc <- suppressWarnings(as.numeric(if (is.null(facts$ncase)) NA else facts$ncase)); nn <- suppressWarnings(as.numeric(if (is.null(facts$ncontrol)) NA else facts$ncontrol))
+  if (!("n" %in% names(d)) && identical(facts$kind, "binary") && length(nc) == 1L && length(nn) == 1L && is.finite(nc) && is.finite(nn)) d$n <- nc + nn   # total N of a case-control study
   nm <- clean_study_name(facts$name); if (!nzchar(nm)) stop("Give the trait a name.")
   dest <- file.path(library_dir(root), nm)
   if (dir.exists(dest)) stop("A dataset named \"", nm, "\" already exists in the Data library. Choose another name.")

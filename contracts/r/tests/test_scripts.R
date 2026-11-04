@@ -174,8 +174,43 @@ r15 <- read_method_results(pair15, "steiger"); o15 <- ADAPTER_STEIGER_V11$run(in
 expect("steiger: script result equals oracle (1e-12)", cmp(r15$diagnostics, o15$diagnostics) && nrow(r15$estimates) == 0L && nrow(o15$estimates) == 0L)
 expect("steiger: replay is identical (header-only estimates file)", identical(replay_check(pair15, "steiger", list(steiger = r15))$status, "identical"))
 expect("steiger: schema complete and flagged diagnostic-only", length(validate_param_schema(ADAPTER_STEIGER_V11)) == 0 && isTRUE(ADAPTER_STEIGER_V11$diagnostic_only) && !isTRUE(ADAPTER_IVW_MRE_V11$diagnostic_only))
-expect("steiger: blocks a binary outcome and missing sample sizes", identical(ADAPTER_STEIGER_V11$check(modifyList(input10, list(outcome_scale = "log_or")), list())$status, "block") &&
+expect("steiger: blocks a binary outcome without cases, controls and prevalence, and missing sample sizes", identical(ADAPTER_STEIGER_V11$check(modifyList(input10, list(outcome_scale = "log_or")), list())$status, "block") &&
        identical(ADAPTER_STEIGER_V11$check(modifyList(input10, list(data = transform(dat10, n_y = NA_real_))), list())$status, "block"))
+
+# ---- Round 16: Steiger with a binary outcome and a binary exposure (liability scale, TwoSampleMR::get_r_from_lor; Lee 2012) ----
+datb <- transform(dat10, eaf_y = 0.3, ncase_y = 20000, ncontrol_y = 80000, prevalence_y = 0.05)
+inputb <- modifyList(input10, list(data = datb, outcome_scale = "log_or"))
+expect("steiger binary: check passes when cases, controls, prevalence and frequency are given", identical(ADAPTER_STEIGER_V11$check(inputb, list())$status, "ok") || identical(ADAPTER_STEIGER_V11$check(inputb, list())$status, "warn"))
+pair16 <- file.path(out_dir, "P16_steiger_binary")
+m16 <- list(list(adapter = ADAPTER_STEIGER_V11, input = inputb, params = list(r_xxo = 1, r_yyo = 1)))
+materialise_pair(pair16, m16, SEED)
+run16 <- run_in_dir(pair16, run_pair_script(pair16))
+expect("steiger binary: master script runs in a fresh R", run16$status == 0L)
+r16 <- read_method_results(pair16, "steiger"); o16 <- ADAPTER_STEIGER_V11$run(inputb, resolve_params(ADAPTER_STEIGER_V11, m16[[1]]$params), list(seed = SEED))
+expect("steiger binary: script result equals oracle (1e-12)", cmp(r16$diagnostics, o16$diagnostics))
+expect("steiger binary: replay is identical", identical(replay_check(pair16, "steiger", list(steiger = r16))$status, "identical"))
+rx16 <- TwoSampleMR::get_r_from_bsen(datb$beta_x, datb$se_x, datb$n_x)
+ry16 <- TwoSampleMR::get_r_from_lor(datb$beta_y, datb$eaf_y, 20000, 80000, 0.05, model = "logit", correction = FALSE)
+st16 <- TwoSampleMR::mr_steiger(rep(NA_real_, nrow(datb)), rep(NA_real_, nrow(datb)), datb$n_x, rep(100000, nrow(datb)), rx16, ry16, 1, 1)
+g16 <- function(n) r16$diagnostics$value[r16$diagnostics$name == n]
+expect("steiger binary: equals get_r_from_lor and mr_steiger called directly", abs(g16("steiger_r2_outcome") - st16$r2_out) < 1e-12 && abs(g16("steiger_r2_exposure") - st16$r2_exp) < 1e-12 &&
+       abs(r16$diagnostics$p[r16$diagnostics$name == "steiger_direction"] - st16$steiger_test) < 1e-12 && g16("steiger_outcome_binary") == 1 && g16("steiger_exposure_binary") == 0)
+expect("steiger binary: the script says liability scale and names the prevalence", grepl("get_r_from_lor", paste(readLines(file.path(pair16, "02_scripts", "01_steiger.R")), collapse = "\n"), fixed = TRUE) &&
+       grepl("prevalence 0.05", r16$diagnostics$note[r16$diagnostics$name == "steiger_outcome_binary"], fixed = TRUE))
+expect("steiger binary: blocked without prevalence, without frequency, without case counts",
+       identical(ADAPTER_STEIGER_V11$check(modifyList(inputb, list(data = transform(datb, prevalence_y = NA_real_))), list())$codes, "FEAS_STEIGER_NEEDS_PREVALENCE") &&
+       identical(ADAPTER_STEIGER_V11$check(modifyList(inputb, list(data = transform(datb, eaf_y = NA_real_))), list())$codes, "FEAS_STEIGER_NEEDS_EAF") &&
+       identical(ADAPTER_STEIGER_V11$check(modifyList(inputb, list(data = transform(datb, ncase_y = NA_real_))), list())$codes, "FEAS_STEIGER_NEEDS_CASES"))
+datbx <- transform(dat10, eaf_x = 0.3, ncase_x = 15000, ncontrol_x = 150000, prevalence_x = 0.1)
+inputbx <- modifyList(input10, list(data = datbx, exposure_scale = "log_or"))
+obx <- ADAPTER_STEIGER_V11$run(inputbx, resolve_params(ADAPTER_STEIGER_V11, list()), list(seed = SEED))
+stbx <- TwoSampleMR::mr_steiger(rep(NA_real_, nrow(datbx)), rep(NA_real_, nrow(datbx)), rep(165000, nrow(datbx)), datbx$n_y,
+         TwoSampleMR::get_r_from_lor(datbx$beta_x, datbx$eaf_x, 15000, 150000, 0.1, model = "logit", correction = FALSE), TwoSampleMR::get_r_from_bsen(datbx$beta_y, datbx$se_y, datbx$n_y), 1, 1)
+expect("steiger binary exposure: equals mr_steiger called directly, and a binary exposure without counts is blocked",
+       abs(obx$diagnostics$value[obx$diagnostics$name == "steiger_r2_exposure"] - stbx$r2_exp) < 1e-12 &&
+       identical(ADAPTER_STEIGER_V11$check(modifyList(input10, list(exposure_scale = "log_or")), list())$codes, "FEAS_STEIGER_NEEDS_CASES"))
+expect("steiger continuous: the two scale rows say continuous", all(r15$diagnostics$value[r15$diagnostics$name %in% c("steiger_exposure_binary", "steiger_outcome_binary")] == 0) &&
+       sum(r15$diagnostics$name %in% c("steiger_exposure_binary", "steiger_outcome_binary")) == 2L)
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail))
 quit(status = if (n_fail) 1L else 0L)
