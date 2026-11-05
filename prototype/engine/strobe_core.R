@@ -62,7 +62,7 @@ strobe_rows <- function(ctxs, txt, plan = list(), items = character()) {
   src <- function(s) if (!is.null(s$og)) sprintf("OpenGWAS %s (%s%s)", s$og$id, s$ancestry, if (nzchar(as.character(s$n))) sprintf(", N %s", format(as.numeric(s$n), big.mark = ",", scientific = FALSE)) else "") else if (!is.na(s$file)) sprintf("file %s (%s)", s$file, s$ancestry) else "simulated demonstration trait"
   inst <- function(cx) { L <- cx$ledger
     sel <- if (!is.null(L$clump)) sprintf("P < %s, clumped on the analyst's computer with PLINK (r2 < %s within %s kb, 1000 Genomes %s)", format(L$threshold), L$clump$r2, format(L$clump$kb, big.mark = ","), L$clump$pop)
-           else if (!is.null(cx$src_x$og)) sprintf("P < %s, clumped on the OpenGWAS server (r2 < %s within %s kb, %s panel)", format(cx$src_x$og$params$pval), cx$src_x$og$params$r2, format(cx$src_x$og$params$kb, big.mark = ","), cx$src_x$og$params$pop)
+           else if (!is.null(cx$src_x$og)) sprintf("P < %s, %s (r2 < %s within %s kb, %s panel)", format(cx$src_x$og$params$pval), if (identical(cx$src_x$og$params$where, "server_live")) "clumped live on the OpenGWAS server" else if (ogw_stored_clumps(cx$src_x$og$params)) "from the stored, pre-computed clumps of OpenGWAS" else "clumped on the OpenGWAS server", cx$src_x$og$params$r2, format(cx$src_x$og$params$kb, big.mark = ","), cx$src_x$og$params$pop)
            else if (!is.null(L)) sprintf("P < %s from a file declared independent by the analyst", format(L$threshold)) else "simulated instruments"
     sprintf("%s; %d instruments used, mean F %.1f (minimum %.1f, %d below 10)", sel, nrow(cx$kept), cx$mean_f, cx$min_f, cx$n_weak) }
   r <- function(item, status, provides, where = "") list(item = item, status = status, provides = provides, where = where)

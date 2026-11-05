@@ -478,7 +478,7 @@ h12 <- studio_new("OpenGWAS pair"); r12 <- studio_run(h12, pp12$exposure_label, 
 expect("opengwas pair: the analysis runs from downloaded data, replay identical, IVW estimate near the planted 0.25", all(vapply(r12$results, function(x) x$status, "") == "ok") && identical(r12$replay$status, "identical") && abs(pair_results(h12$dir, r12$pair_folder)$estimate[1] - 0.25) < 0.08)
 ui_state_set(h12$con, "pairs", list(list(ex = paste0("lib:", rx$trait), out = paste0("lib:", ro$trait), exName = pp12$exposure_label, outName = pp12$outcome_label, folder = r12$pair_folder, methods = as.list(c("ivw_mre", "egger")), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = pp12$ledger, anc_x = "EUR", anc_y = "EUR")))
 pk12 <- build_package(h12, c("report", "refs"), 140); htm12 <- paste(readLines(file.path(pk12$dir, "report.html"), warn = FALSE), collapse = "\n")
-expect("opengwas report: the methods name the OpenGWAS datasets, the date, the clumping settings, the proxy rule and the package versions", grepl("obtained from the OpenGWAS database (dataset sim-exp-1", htm12, fixed = TRUE) && grepl("clumped on the OpenGWAS server with ieugwasr::tophits", htm12, fixed = TRUE) && grepl("within 10,000 kb, 1000 Genomes EUR", htm12, fixed = TRUE) && grepl("of at least 0.8", htm12, fixed = TRUE) && grepl("found only through proxy variants", htm12, fixed = TRUE) && !grepl("were were", htm12, fixed = TRUE) && grepl("sample size 300,000", htm12, fixed = TRUE))
+expect("opengwas report: the methods name the OpenGWAS datasets, the date, the clumping settings, the proxy rule and the package versions", grepl("obtained from the OpenGWAS database (dataset sim-exp-1", htm12, fixed = TRUE) && grepl("from the stored, pre-computed clumps of OpenGWAS (default settings, preclumped = 1)", htm12, fixed = TRUE) && grepl("within 10,000 kb, 1000 Genomes EUR", htm12, fixed = TRUE) && grepl("of at least 0.8", htm12, fixed = TRUE) && grepl("found only through proxy variants", htm12, fixed = TRUE) && !grepl("were were", htm12, fixed = TRUE) && grepl("sample size 300,000", htm12, fixed = TRUE))
 expect("opengwas report: no wrong claim that the analyst declared independence, the limitations say the panel is a reference sample, data availability names the public source", !grepl("did not perform clumping", htm12, fixed = TRUE) && !grepl("rests on the analyst", htm12, fixed = TRUE) && grepl("reference sample", htm12, fixed = TRUE) && grepl("public OpenGWAS database (api.opengwas.io), dataset IDs: sim-exp-1; sim-out-1", htm12, fixed = TRUE) && !grepl("Add the public source", htm12, fixed = TRUE))
 DBI::dbDisconnect(h12$con)
 rx_b <- ogw_get_exposure("sim-exp-1", tok_ok, p = 5e-6, name = "Second exposure")
@@ -657,7 +657,7 @@ th22$se <- abs(th22$beta) / stats::qnorm(th22$p / 2, lower.tail = FALSE)
 th22 <- rbind(th22, transform(th22[1, ], rsid = "rs9100099", ea = "AT"))     # an indel: dropped before clumping
 mock22 <- new.env(); mock22$calls <- list()
 BE22 <- list(info = BE$info,
-  tophits = function(id, p, r2, kb, pop, jwt, clump = 1) { chk(jwt); mock22$calls[[length(mock22$calls) + 1L]] <- list("tophits", id, p, clump); if (clump == 0) th22 else th22[th22$rsid %in% c("rs9100002", "rs9200001"), ] },
+  tophits = function(id, p, r2, kb, pop, jwt, clump = 1, force = FALSE) { chk(jwt); mock22$calls[[length(mock22$calls) + 1L]] <- list("tophits", id, p, clump, force); if (clump == 0) th22 else th22[th22$rsid %in% c("rs9100002", "rs9200001", "rs9300001"), ] },
   outcome = function(snps, id, proxies, rsq, maf, jwt) { chk(jwt); mock22$calls[[length(mock22$calls) + 1L]] <- list("outcome", id, length(snps)); i <- match(snps, th22$rsid)
     data.frame(SNP = snps, chr = "1", pos = th22$position[i], beta.outcome = 0.3 * th22$beta[i] + rnorm(length(i), 0, 0.003), se.outcome = 0.008, samplesize.outcome = 230000, pval.outcome = 0.01, eaf.outcome = 0.35,
                effect_allele.outcome = "A", other_allele.outcome = "C", outcome = "Simulated heart disease", id.outcome = id, proxy.outcome = FALSE, target_snp.outcome = NA_character_, proxy_snp.outcome = NA_character_, stringsAsFactors = FALSE) })
@@ -701,6 +701,29 @@ expect("opengwas local clump report: methods say downloaded unclumped (clump = 0
        grepl("downloaded from OpenGWAS without clumping", htm22, fixed = TRUE) && grepl("clumped with PLINK", htm22, fixed = TRUE) && grepl("extract_outcome_data", htm22, fixed = TRUE) &&
        grepl("5 variants were removed as correlated", htm22, fixed = TRUE) && !grepl("clumped on the OpenGWAS server with", htm22, fixed = TRUE) && identical(r22$replay$status, "identical") &&
        file.exists(file.path(h22$dir, "03_pairs", r22$pair_folder, "01_data", "instrument_selection.csv")))
+# ---- Round 25: three places to clump, outcome names, ties at P = 0 ----
+lv <- ogw_get_exposure("sim-exp-1", tok_ok, where = "server_live")
+c25 <- tail(Filter(function(x) x[[1]] == "tophits", mock22$calls), 1)[[1]]
+expect("clump choice: live server clumping asks OpenGWAS with force_server, is named '... live clump' and says so in its record",
+       isTRUE(c25[[5]]) && identical(c25[[4]], 1) && grepl("live clump$", lv$trait) && identical(lv$source$params$where, "server_live") && grepl("force_server = TRUE", lv$source$note) && is.null(lv$clump))
+expect("clump choice: stored clumps are recognised only for a plain server request with the default settings",
+       ogw_stored_clumps(sx22$source$params) && !ogw_stored_clumps(lv$source$params) && !ogw_stored_clumps(lx$source$params) && !ogw_stored_clumps(modifyList(sx22$source$params, list(kb = 10001))) && grepl("stored, pre-computed clumps", sx22$source$note))
+lo_lv <- ogw_get_outcome("sim-out-1", lv$trait, tok_ok); lo_sx <- ogw_get_outcome("sim-out-1", "Server clumped 22", tok_ok)
+expect("outcome names: copies of one exposure (live, renamed, clumped here) get different default outcome names; the default-named exposure keeps the old ID tag",
+       !identical(lo_lv$trait, lo_sx$trait) && grepl("for sim-exp-1 live clump$", lo_lv$trait) && grepl("for sim-exp-1 clumped here$", ogw_get_outcome("sim-out-1", lx$trait, tok_ok)$trait) && grepl("for Server clumped 22$", lo_sx$trait) &&
+       { e0 <- .ogw_label("Simulated body mass", "sim-exp-1"); dn <- if (dir.exists(file.path(library_dir(), e0))) ogw_get_outcome("sim-out-1", e0, tok_ok)$trait else "for sim-exp-1"; grepl("for sim-exp-1$", dn) })
+p25 <- pair_input(paste0("lib:", lv$trait), paste0("lib:", lo_lv$trait), 5e-8)
+h25 <- studio_new("OpenGWAS live clump"); r25 <- studio_run(h25, p25$exposure_label, p25$outcome_label, p25$input, c("ivw_mre"), idx = 1L)
+ui_state_set(h25$con, "pairs", list(list(ex = paste0("lib:", lv$trait), out = paste0("lib:", lo_lv$trait), exName = p25$exposure_label, outName = p25$outcome_label, folder = r25$pair_folder, methods = list("ivw_mre"), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = p25$ledger, anc_x = "EUR", anc_y = "EUR")))
+pk25 <- build_package(h25, c("report", "strobe"), 140); htm25 <- paste(readLines(file.path(pk25$dir, "report.html"), warn = FALSE), collapse = "\n")
+expect("clump choice report: live server clumping is described as such (force_server), not as stored clumps", grepl("clumped live on the OpenGWAS server with ieugwasr::tophits (force_server = TRUE)", htm25, fixed = TRUE) && !grepl("pre-computed", htm25, fixed = TRUE))
+# ties: two variants of LD block A with P = 0; the larger |beta/SE| leads, whichever comes first
+t1 <- ld_clump_here(c("rs9100001", "rs9100003", "rs9300001"), c(0, 0, 1e-9), z = c(5, 50, 6))
+t2 <- ld_clump_here(c("rs9100001", "rs9100003", "rs9300001"), c(0, 0, 1e-9), z = c(50, 5, 6))
+expect("ties at P = 0: the variant with the larger |beta/SE| becomes the lead, and the tie-break is recorded",
+       identical(t1$variant_id[t1$status == "index"][1], "rs9100003") && identical(t2$variant_id[t2$status == "index"][1], "rs9100001") && grepl("beta/SE", attr(t1, "settings")$tie_break))
+pu <- cand$p * (1 + seq_along(cand$p) / 1000); nz <- ld_clump_here(cand$snp, pu, 0.001, 10000, "EUR", z = rev(seq_along(pu))); n0 <- ld_clump_here(cand$snp, pu, 0.001, 10000, "EUR")
+expect("ties: when no P values are equal, giving beta/SE changes nothing", identical(nz$status, n0$status) && identical(nz$index_variant, n0$index_variant) && identical(attr(nz, "settings")$tie_break, "none needed"))
 options(mrgui.ogw_backend = NULL); ogw_token_set(NULL)
 Sys.unsetenv("MRGUI_LD_DIR")
 

@@ -187,7 +187,7 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
     f <- ex$recipe$facts; num <- function(v, d) { v <- suppressWarnings(as.numeric(v %||% d)); if (length(v) == 1L && is.finite(v)) v else d }
     if (!identical(kx$kind, "rsID")) stop("\"", ex$recipe$trait, "\" identifies variants by position only. Clumping needs rsIDs, so it cannot be clumped on this computer.")
     if (!nrow(X)) stop("No variant in \"", ex$recipe$trait, "\" reaches P < ", format(pthr, scientific = TRUE), ", so there is nothing to clump.")
-    sel <- ld_clump_cached(ex$dir, X$key, X$p, num(f$clump_r2, 0.001), num(f$clump_kb, 10000), f$clump_pop %||% ld_pop_for(f$ancestry))
+    sel <- ld_clump_cached(ex$dir, X$key, X$p, num(f$clump_r2, 0.001), num(f$clump_kb, 10000), f$clump_pop %||% ld_pop_for(f$ancestry), z = X$beta / X$se)
     X <- X[X$key %in% sel$variant_id[sel$status == "index"], , drop = FALSE]
     led$below_threshold <- led$instruments; led$instruments <- nrow(X)
     led$clump <- c(attr(sel, "settings"), list(clumped = sum(sel$status == "clumped"), not_in_panel = sum(sel$status == "not_in_panel"), kept = nrow(X)))
@@ -199,7 +199,7 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
       # Clumping keeps variants in order of P, so the clumped set of the candidates below a stricter threshold is exactly the
       # clumped set restricted to that threshold: the selection is cut, not clumped again.
       sel <- s0[is.finite(s0$p) & s0$p < pthr, , drop = FALSE]; rownames(sel) <- NULL
-      attr(sel, "settings") <- ex$recipe$clump[c("r2", "kb", "pop", "panel", "plink", "command")]
+      attr(sel, "settings") <- ex$recipe$clump[intersect(c("r2", "kb", "pop", "panel", "plink", "command", "tie_break"), names(ex$recipe$clump))]
       led$below_threshold <- nrow(sel)
       led$clump <- c(attr(sel, "settings"), list(clumped = sum(sel$status == "clumped"), not_in_panel = sum(sel$status == "not_in_panel"), kept = sum(sel$status == "index"), at_download = TRUE))
     }

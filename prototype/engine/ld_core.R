@@ -245,7 +245,11 @@ ld_pop_for <- function(ancestry) { a <- toupper(as.character(ancestry %||% ""));
 #' The candidates are already below the instrument P threshold, so p1 = p2 = 1 keeps every one of them in play (as in
 #' TwoSampleMR::clump_data). Returns every candidate with its status: "index" (kept), "clumped" (with the index variant it is in
 #' LD with) or "not_in_panel" (absent from the reference, so its LD cannot be judged; dropped, as ieugwasr does).
-ld_clump_here <- function(snp, p, r2 = 0.001, kb = 10000, pop = "EUR", dir = ld_panel_dir(), bin = plink_bin()) {
+#' `z` (beta / SE, optional) breaks ties in P (Round 25): P values below about 1e-308 are stored as 0, and PLINK cannot rank equal
+#' P values, so the order is then arbitrary. With `z`, PLINK is given the rank of each variant by (P, then larger |z| first) scaled
+#' into (0, 1) instead of P itself. PLINK uses P only to order the variants (p1 = p2 = 1 keeps them all), so without ties the result
+#' is exactly that of clumping on P.
+ld_clump_here <- function(snp, p, r2 = 0.001, kb = 10000, pop = "EUR", dir = ld_panel_dir(), bin = plink_bin(), z = NULL) {
   if (is.na(bin)) stop("PLINK is not available in this installation, so variants cannot be clumped on this computer.", call. = FALSE)
   pop <- ld_pop_for(pop)
   if (is.na(pop)) stop("Clumping needs one of the 1000 Genomes ancestries (European, East Asian, African, Admixed American, South Asian).", call. = FALSE)
@@ -257,7 +261,9 @@ ld_clump_here <- function(snp, p, r2 = 0.001, kb = 10000, pop = "EUR", dir = ld_
   if (anyDuplicated(snp[ok])) stop("The candidate variants contain duplicated rsIDs. Each variant may appear only once.", call. = FALSE)
   tmp <- tempfile("clump-"); dir.create(tmp); on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
   inp <- file.path(tmp, "candidates.txt"); out <- file.path(tmp, "clumped")
-  utils::write.table(data.frame(SNP = snp[ok], P = formatC(p[ok], digits = 15, format = "g")), inp, row.names = FALSE, col.names = TRUE, quote = FALSE)
+  ties <- !is.null(z) && anyDuplicated(p[ok]) > 0
+  pp <- if (ties) { zz <- abs(z[ok]); zz[!is.finite(zz)] <- 0; o <- order(p[ok], -zz, method = "radix"); rk <- integer(sum(ok)); rk[o] <- seq_along(o); rk / (sum(ok) + 1) } else p[ok]
+  utils::write.table(data.frame(SNP = snp[ok], P = formatC(pp, digits = 15, format = "g")), inp, row.names = FALSE, col.names = TRUE, quote = FALSE)
   args <- c("--bfile", shQuote(bfile), "--clump", shQuote(inp), "--clump-p1", "1", "--clump-p2", "1",
             "--clump-r2", format(r2, scientific = FALSE), "--clump-kb", format(kb, scientific = FALSE), "--threads", "1", "--out", shQuote(out))
   log <- suppressWarnings(system2(bin, args, stdout = TRUE, stderr = TRUE))
@@ -276,20 +282,20 @@ ld_clump_here <- function(snp, p, r2 = 0.001, kb = 10000, pop = "EUR", dir = ld_
     stop("PLINK could not clump the variants (exit status ", st, "). End of its log: ", paste(utils::tail(log, 5), collapse = " "), call. = FALSE)
   }
   res$index_variant[res$status == "index"] <- res$variant_id[res$status == "index"]
-  attr(res, "settings") <- list(r2 = r2, kb = kb, pop = pop, panel = LD_PANEL$name, plink = plink_version(bin),
+  attr(res, "settings") <- list(r2 = r2, kb = kb, pop = pop, panel = LD_PANEL$name, plink = plink_version(bin), tie_break = if (ties) "equal P ordered by |beta/SE|" else "none needed",
                                 command = paste("plink --bfile", pop, "--clump candidates.txt --clump-p1 1 --clump-p2 1 --clump-r2", format(r2, scientific = FALSE), "--clump-kb", format(kb, scientific = FALSE)))
   res
 }
 
 #' Clumping result for a dataset, cached in the dataset's library folder (the same inputs never run PLINK twice).
-ld_clump_cached <- function(ds_dir, snp, p, r2, kb, pop) {
-  key <- substr(digest::digest(list(snp = snp, p = p, r2 = r2, kb = kb, pop = pop, panel = LD_PANEL$sha256, plink = PLINK_PIN$build), algo = "sha256"), 1, 16)
+ld_clump_cached <- function(ds_dir, snp, p, r2, kb, pop, z = NULL) {
+  key <- substr(digest::digest(list(snp = snp, p = p, r2 = r2, kb = kb, pop = pop, panel = LD_PANEL$sha256, plink = PLINK_PIN$build, z = if (!is.null(z) && anyDuplicated(p)) signif(z, 10)), algo = "sha256"), 1, 16)
   f <- file.path(ds_dir, "clumping", paste0(key, ".csv")); fs <- file.path(ds_dir, "clumping", paste0(key, ".json"))
   if (file.exists(f) && file.exists(fs)) {
     res <- utils::read.csv(f, stringsAsFactors = FALSE, colClasses = c(variant_id = "character", status = "character", index_variant = "character"))
     attr(res, "settings") <- jsonlite::fromJSON(fs); return(res)
   }
-  res <- ld_clump_here(snp, p, r2, kb, pop)
+  res <- ld_clump_here(snp, p, r2, kb, pop, z = z)
   dir.create(dirname(f), recursive = TRUE, showWarnings = FALSE)
   utils::write.csv(res, f, row.names = FALSE); writeLines(jsonlite::toJSON(attr(res, "settings"), auto_unbox = TRUE), fs)
   res
