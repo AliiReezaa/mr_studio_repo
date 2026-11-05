@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -627,5 +627,49 @@ td20 <- tempfile(); utils::unzip(sf, exdir = td20); dx <- paste(readLines(file.p
 expect("strobe: the package holds the checklist as a Word file with every item and the official citations",
        file.exists(sf) && "word/document.xml" %in% zl && grepl("STROBE-MR checklist", dx, fixed = TRUE) && grepl("10d-ii", dx, fixed = TRUE) && grepl("34702754", dx, fixed = TRUE) && grepl("34698778", dx, fixed = TRUE))
 expect("strobe: the package reports the counts, which add up to 43", !is.null(pk20$strobe) && pk20$strobe$filled + pk20$strobe$partly + pk20$strobe$author == 43L && !any(grepl("was not built", pk20$notes)))
+
+# ---- Round 21: feasibility engine ----
+fr <- feas_rules(); spec_ids <- utils::read.csv(file.path(dirname(dirname(args_dir)), "mr_feasibility_rules.csv"), stringsAsFactors = FALSE)$rule_id
+known_tests <- c("several_pairs", "ancestry_differs", "steiger_data", "iv_below_min", "iv_below_recommended", "mean_f_below", "i2gx_below", "overlap", "palindromic_dropped", "binary_exposure", "presso_nbdist", "heavy_runtime", "q_significant", "egger_intercept", "steiger_reversed")
+expect("feasibility: every rule id is unique and comes from the project's rule list, every active rule has a known test and a source",
+       !anyDuplicated(fr$rule_id) && all(fr$rule_id %in% spec_ids) && all(fr$test[fr$active_v1 == "yes"] %in% known_tests) && all(nzchar(fr$source)) && all(spec_ids %in% fr$rule_id))
+fx_base <- pair_facts("expA", "outA")
+fz <- feasibility(list(fx_base))
+expect("feasibility: the demo pair (40 strong instruments) leaves every method available, IVW without any rule", all(vapply(fz$methods, `[[`, "", "state") %in% c("ok", "check")) && identical(fz$methods$ivw_mre$state, "ok") && !length(fz$methods$ivw_mre$reasons))
+mk <- function(...) modifyList(fx_base, list(...))
+f3 <- feasibility(list(mk(instruments = 3)))
+expect("feasibility: 3 instruments lock MR-PRESSO and radial MR-Egger (R20) and warn for MR-Egger (R21), IVW stays available",
+       f3$methods$presso$state == "locked" && f3$methods$radegger$state == "locked" && f3$methods$egger$state == "check" && "R21" %in% vapply(f3$methods$egger$reasons, `[[`, "", "rule") && f3$methods$ivw_mre$state == "ok")
+fw <- feasibility(list(mk(mean_f = 8.2, i2gx = 0.8)))
+rl <- function(fe, m) vapply(fe$methods[[m]]$reasons, `[[`, "", "rule")
+expect("feasibility: mean F below 10 warns every estimator (R23); I2GX below 0.9 warns the Egger methods only (R24)",
+       all(vapply(FEAS_CAUSAL, function(m) "R23" %in% rl(fw, m), TRUE)) && !("R23" %in% rl(fw, "steiger")) && "R24" %in% rl(fw, "egger") && "R24" %in% rl(fw, "radegger") && !("R24" %in% rl(fw, "ivw_mre")))
+expect("feasibility: the F message does not claim that F above 10 means no bias", grepl("does not rule out bias", fw$methods$ivw_mre$reasons[[1]]$msg, fixed = TRUE))
+freal <- mk(simulated = FALSE, ex_id = "lib:A", out_id = "lib:B", ukb_both = FALSE)
+fo1 <- feasibility(list(freal)); fo2 <- feasibility(list(freal), overlap = setNames(list(list(answer = "none")), "lib:A | lib:B"))
+fo3 <- feasibility(list(freal), overlap = setNames(list(list(answer = "some", pct = 20)), "lib:A | lib:B"))
+expect("feasibility: sample overlap warns until answered 'none' (R28), and quotes a stated share", "R28" %in% rl(fo1, "ivw_mre") && !("R28" %in% rl(fo2, "ivw_mre")) && grepl("about 20%", fo3$methods$ivw_mre$reasons[[1]]$msg, fixed = TRUE))
+expect("feasibility: different declared ancestries warn (R13)", "R13" %in% rl(feasibility(list(mk(anc_x = "EUR", anc_y = "EAS"))), "wm"))
+fp <- feasibility(list(fx_base), params = list(nbdist = 30))
+expect("feasibility: too few MR-PRESSO simulated datasets lock it with the fix (R31)", fp$methods$presso$state == "locked" && grepl("Raise the number of simulated datasets", fp$methods$presso$reasons[[which(rl(fp, "presso") == "R31")]]$msg, fixed = TRUE))
+f2p <- feasibility(list(fx_base, pair_facts("expA", "outC")))
+expect("feasibility: several pairs give the multiple-testing note once (R05b) and name the pair in pair-level messages", sum(rl(f2p, "ivw_mre") == "R05b") == 1L && grepl("Bonferroni", f2p$methods$ivw_mre$reasons[[1]]$msg, fixed = TRUE))
+expect("feasibility: a binary exposure adds the interpretation note (R30), not a lock", "R30" %in% rl(feasibility(list(mk(scale_x = "log_or"))), "ivw_mre") && feasibility(list(mk(scale_x = "log_or")))$methods$ivw_mre$state == "ok")
+# consistency with the adapters' own checks: a method is locked by the engine exactly when its adapter blocks
+din <- demo_input("expA", "outA"); dd <- din$input$data[din$input$data$mr_keep, ]
+agree <- TRUE
+for (k in 2:6) {
+  sub_in <- din$input; sub_in$data <- dd[seq_len(k), ]   # not modifyList: it would merge the data frame column by column
+  fk <- feasibility(list(mk(instruments = k, mean_f = mean((dd$beta_x[1:k] / dd$se_x[1:k])^2), i2gx = feas_i2gx(dd$beta_x[1:k], dd$se_x[1:k]), steiger = steiger_readiness(list(input = sub_in, binary = NULL)))))
+  for (m in FEAS_METHODS) { a <- param_adapters()[[m]]; blk <- identical(a$check(sub_in, resolve_params(a, list()))$status, "block")
+    if (blk != identical(fk$methods[[m]]$state, "locked")) { agree <- FALSE; cat("  disagree:", m, "k =", k, "\n") } }
+}
+expect("feasibility: the engine and every adapter agree on what is blocked, for 2 to 6 instruments", agree)
+expect("feasibility: results rules match the saved diagnostics (R25 heterogeneity)", {
+  q <- Filter(function(d) d$method == "ivw_mre" && d$name == "cochran_q", pl10$diagnostics)[[1]]; adv <- feasibility_results(pl10)
+  identical("R25" %in% vapply(adv, `[[`, "", "rule"), q$p < 0.05) && !is.null(pair_payload(h10$dir, r10$pair_folder)$advice) })
+expect("feasibility: the Steiger result rule fires only when the direction is not clearly supported (R27)", {
+  sg <- Filter(function(d) d$method == "steiger" && d$name == "steiger_direction", pl15$diagnostics)[[1]]
+  identical("R27" %in% vapply(feasibility_results(pl15), `[[`, "", "rule"), !(sg$value == 1 && sg$p < 0.05)) })
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

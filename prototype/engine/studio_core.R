@@ -280,7 +280,8 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
        n_weak = sum(Fs < 10), palindromic = pal, scale = p$input$outcome_scale,
        has_n = nrow(kept) > 0 && all(c("n_x", "n_y") %in% names(kept)) && all(is.finite(kept$n_x) & is.finite(kept$n_y) & kept$n_x > 2 & kept$n_y > 2),
        simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y),
-       scale_x = p$input$exposure_scale %||% "beta", steiger = steiger_readiness(p))
+       scale_x = p$input$exposure_scale %||% "beta", steiger = steiger_readiness(p),
+       i2gx = if (exists("feas_i2gx")) feas_i2gx(kept$beta_x, kept$se_x) else NA_real_)
 }
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger", "MR Steiger directionality" = "steiger")
@@ -482,8 +483,10 @@ pair_payload <- function(study, pair_folder) {
   }
   v <- rd(Sys.glob(file.path(pd, "01_data", "analysis_data_*.csv"))[1])
   vars <- if (!is.null(v)) lapply(seq_len(nrow(v)), function(i) list(id = v$variant_id[i], bx = v$beta_x[i], by = v$beta_y[i], sx = v$se_x[i], sy = v$se_y[i], keep = isTRUE(as.logical(v$mr_keep[i])))) else list()
-  list(folder = pair_folder, estimates = unname(unlist(est, recursive = FALSE)), diagnostics = unname(unlist(dg, recursive = FALSE)), variants = vars, settings = pair_settings(study, pair_folder),
+  out <- list(folder = pair_folder, estimates = unname(unlist(est, recursive = FALSE)), diagnostics = unname(unlist(dg, recursive = FALSE)), variants = vars, settings = pair_settings(study, pair_folder),
        replay = pair_replay(study, pair_folder))
+  if (exists("feasibility_results")) out$advice <- feasibility_results(out)   # rules that need results (R25 to R27)
+  out
 }
 
 folder_size_bytes <- function(path) {

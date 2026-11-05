@@ -1,0 +1,32 @@
+rule_id,stage,active_v1,applies_to,test,level,threshold,message,recommend,source
+R01,selection,no,all,,HIDE,,Individual-level analyses are not supported (summary data only).,,design decision 2026-10-29
+R02,selection,no,all,,BLOCK,,No public implementation of this method exists; shown as literature only.,,inventory impl_verification
+R03,selection,no,all,,HIDE,,Shown as guidance only.,,design decision
+R04,selection,no,all,,BLOCK,,Needs an AI service key; excluded by project rule.,,user requirement
+R05,selection,no,joint,,BLOCK,,Method needs {min}-{max} exposures in one model; you selected {n}. (No multivariable method is built in v1.),,inventory
+R05b,selection,yes,causal,several_pairs,INFO,,"Runs separately for each of the {n} exposure-outcome pairs. MR Studio applies no multiple-testing correction: report your approach (for example Bonferroni, P < {bonf}).",,design decision; STROBE-MR item 6e (PMID 34698778)
+R06,selection,no,joint,,BLOCK,,Method needs {min}-{max} outcomes. (No multi-outcome method is built in v1.),,inventory
+R07,selection,no,joint,,BLOCK,,Method needs at least {min} traits. (No such method is built in v1.),,inventory
+R08,selection,no,cis,,BLOCK,,cis-MR needs a molecular (QTL) exposure with a gene region. (Not built in v1.),,method definition
+R09,selection,no,full_sumstats,,BLOCK,,Needs full genome-wide summary statistics. (No built method needs them in v1.),,method definition
+R10,selection,no,ld,,BLOCK,,No matching LD reference for {ancestry}. (No built estimator needs an LD matrix in v1.),,method definition
+R11,selection,no,ldsc,,BLOCK,,LD scores are missing for {ancestry}. (Not built in v1.),,method definition
+R12,selection,no,cross_pop,,BLOCK,,Cross-population methods need datasets of two or more ancestries. (Not built in v1.),,method definition
+R13,selection,yes,all,ancestry_differs,WARN,,"Exposure ({ax}) and outcome ({ay}) samples have different declared ancestries. Two-sample MR assumes both samples come from the same population.",matched datasets,Burgess 2023 guidelines (PMID 32760811)
+R14,selection,yes,steiger,steiger_data,BLOCK,,{why},,Hemani 2017 (PMID 29149188); Lee 2012 (PMID 22714935)
+R15,selection,no,all,,BLOCK,,Method supports {type} outcomes only. (No built method is limited by trait type in v1.),,inventory
+R20,data,yes,all,iv_below_min,BLOCK,,Needs {min} or more instruments; this pair has {n}.,,adapter requires$min_ivs (package code)
+R21,data,yes,"egger,wm,smed,mode,smode,presso,radial,radegger",iv_below_recommended,WARN,10,"Runs, but {n} instruments is few for this method (rule of thumb: {thr} or more); its estimate can be unstable and imprecise.",,inventory min_ivs_recommended (heuristic; to be calibrated by simulation)
+R22,data,no,all,,BLOCK,,Method is limited to {max} instruments. (No built method has a maximum.),,package code
+R23,data,yes,causal,mean_f_below,WARN,10,"Mean F statistic is {f} (below {thr}): weak instruments bias two-sample estimates toward the null. Note that F above 10 does not rule out bias.",robust weak-instrument methods (dIVW; MR-RAPS: NOT BUILT),Burgess 2011 (PMID 21414999)
+R24,data,yes,"egger,radegger",i2gx_below,WARN,0.9,"I2GX is {i2} (below {thr}): the MR-Egger estimate is diluted toward the null (NOME violation). Interpret it with caution.",SIMEX correction (NOT BUILT),Bowden 2016 (PMID 27616674)
+R25,result,yes,ivw_mre,q_significant,WARN,0.05,"Cochran's Q P = {p}: the variants disagree more than chance allows, which suggests pleiotropy. The multiplicative random-effects IVW allows for this; compare with the robust methods.",MR-Egger; weighted median; weighted mode,Bowden 2017 (PMID 28114746)
+R26,result,yes,egger,egger_intercept,WARN,0.05,"MR-Egger intercept P = {p}: evidence of directional pleiotropy. Give weight to methods robust to it.",weighted median; weighted mode,Bowden 2015 (PMID 26050253)
+R27,result,yes,steiger,steiger_reversed,WARN,,"The Steiger test does not support the assumed direction{detail}. Reverse causation is possible.",bidirectional MR (NOT BUILT),Hemani 2017 (PMID 29149188)
+R28,data,yes,causal,overlap,WARN,,"{why} Sample overlap biases a two-sample estimate toward the observational association, more so with weak instruments.",overlap-robust methods (MRlap; MR-APSS: NOT BUILT),Burgess 2016 (PMID 27625185)
+R29,data,yes,causal,palindromic_dropped,INFO,,{n} palindromic variants with ambiguous strand were left out during harmonisation.,,TwoSampleMR harmonise_data
+R30,data,yes,causal,binary_exposure,INFO,,"The exposure is binary: the estimate is per unit increase in its log odds (multiply by 0.693 for a doubling of the odds) and is best read for the underlying continuous liability.",,Burgess and Labrecque 2018 (PMID 30039250)
+R31,data,yes,presso,presso_nbdist,BLOCK,,MR-PRESSO needs more simulated datasets ({nb}) than variants ({n}). Raise the number of simulated datasets in Customise.,,MR-PRESSO code
+R32,data,no,ld,,BLOCK,,LD reference inconsistent with the GWAS. (No built estimator uses an LD matrix in v1.),,Chen 2021 (PMID 34880243)
+R40,runtime,yes,presso,heavy_runtime,INFO,,MR-PRESSO can take several minutes with many variants; finished pairs are saved as they finish.,,design decision
+R41,runtime,no,all,,BLOCK,,An external program is missing. (PLINK for clumping is checked in diagnostics.),,design decision

@@ -135,7 +135,8 @@ mr_server <- function(engine_dir) {
         },
         facts = {
           pt <- as.numeric(a$pthr %||% 5e-8); f <- lapply(a$pairs, function(p) tryCatch(pair_facts(p[[1]], p[[2]], pt), error = function(e) list(error = conditionMessage(e))))
-          ev("facts", facts = f)
+          rv$facts <- Filter(function(x) is.null(x$error), f)
+          ev("facts", facts = f, feas = feasibility(rv$facts, run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list()))
         },
         run_pair = {
           req(rv$h)
@@ -191,6 +192,7 @@ mr_server <- function(engine_dir) {
           if (inherits(r, "error")) { ev("compare", folder = a$folder, ok = FALSE, msg = conditionMessage(r)); return() }
           ev("compare", folder = a$folder, ok = TRUE, rows = r$rows, rerun = r$rerun)
         },
+        feas = { req(rv$facts); ev("feas", feas = feasibility(rv$facts, run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list())) },
         ld_status = ev("ld", status = ld_panel_status()),
         ld_download = { r <- tryCatch(ld_panel_download_start(unlist(a$pops) %||% "EUR"), error = function(e) e); if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ld", status = ld_panel_status()) },
         ld_remove = { ld_panel_remove(as.character(a$pop)); ev("ld", status = ld_panel_status()) },
