@@ -195,6 +195,9 @@ mr_server <- function(engine_dir) {
         feas = { req(rv$facts); ev("feas", feas = feasibility(rv$facts, run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list())) },
         ld_status = ev("ld", status = ld_panel_status()),
         ld_download = { r <- tryCatch(ld_panel_download_start(unlist(a$pops) %||% "EUR"), error = function(e) e); if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ld", status = ld_panel_status()) },
+        ld_find = ev("ld_found", items = ld_archive_find()),
+        ld_use_file = { r <- tryCatch(ld_panel_download_start(unlist(a$pops) %||% "EUR", local_file = a$path), error = function(e) e)
+          if (inherits(r, "error")) ev("ld_file_err", msg = conditionMessage(r)); ev("ld", status = ld_panel_status()) },
         ld_remove = { ld_panel_remove(as.character(a$pop)); ev("ld", status = ld_panel_status()) },
         ogw_state = ogw_ev(),
         ogw_token_save = {

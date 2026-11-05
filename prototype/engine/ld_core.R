@@ -46,7 +46,7 @@ ld_panel_status <- function(dir = ld_panel_dir()) {
   have <- vapply(pops, function(p) all(file.exists(file.path(dir, paste0(p, c(".bed", ".bim", ".fam"))))), TRUE)
   size <- vapply(pops, function(p) sum(file.size(file.path(dir, paste0(p, c(".bed", ".bim", ".fam")))), na.rm = TRUE), 0)
   st <- .ld_job_read(dir)
-  if (!is.null(st) && st$state %in% c("downloading", "verifying", "unpacking") && !ld_job_active(dir)) { st$state <- "stopped"; st$msg <- "The download stopped (for example because MR Studio was closed). Start it again to continue where it stopped." }
+  if (!is.null(st) && st$state %in% c("downloading", "verifying", "unpacking") && !ld_job_active(dir)) { st$state <- "stopped"; st$msg <- if (identical(st$mode, "local")) "Checking and unpacking your file stopped (for example because MR Studio was closed). Choose the file again to restart." else "The download stopped (for example because MR Studio was closed). Start it again to continue where it stopped." }
   part <- file.path(dir, "1kg.v3.tgz.part")
   list(dir = dir, partial_bytes = if (file.exists(part)) file.size(part) else 0, installed = as.list(setNames(have, pops)), bytes = as.list(setNames(ifelse(have, size, 0), pops)),
        total_bytes = sum(size[have]), plink = plink_bin(), plink_version = plink_version(),
@@ -65,18 +65,28 @@ ld_panel_status <- function(dir = ld_panel_dir()) {
 #' Start the one-time panel download in a separate R process, so the app stays usable. The download resumes where it stopped
 #' (also after the app was closed), retries when the connection stalls, checks the size (and the SHA-256 once it is pinned), and
 #' unpacks only the ancestries asked for (each is about 2 GB unpacked; all five need about 10 GB). Progress is read from files.
-ld_panel_download_start <- function(pops = "EUR", dir = ld_panel_dir(), url = LD_PANEL$url, bytes = LD_PANEL$bytes, sha256 = LD_PANEL$sha256) {
+#' With `local_file`, nothing is downloaded: the archive the user downloaded in a browser is checked and unpacked in place
+#' (Round 23). The user's file is never moved or deleted.
+ld_panel_download_start <- function(pops = "EUR", dir = ld_panel_dir(), url = LD_PANEL$url, bytes = LD_PANEL$bytes, sha256 = LD_PANEL$sha256, local_file = NULL) {
   pops <- intersect(toupper(pops), LD_PANEL$pops); if (!length(pops)) stop("Choose at least one ancestry to install.")
+  if (!is.null(local_file)) { p <- ld_archive_problem(local_file, bytes); if (!is.null(p)) stop(p, call. = FALSE); local_file <- normalizePath(local_file, winslash = "/") }
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
   if (ld_job_active(dir)) return(invisible(.ld_job_read(dir)))
   job <- file.path(dir, "download_job.R")
   writeLines(c(
-    "args <- commandArgs(TRUE); dir <- args[1]; url <- args[2]; bytes <- as.numeric(args[3]); sha <- args[4]; pops <- strsplit(args[5], ',')[[1]]",
-    "st <- function(state, msg = '') writeLines(jsonlite::toJSON(list(state = state, msg = msg, pops = pops, time = format(Sys.time(), '%Y-%m-%d %H:%M:%S')), auto_unbox = TRUE), file.path(dir, 'download_status.json'))",
-    "part <- file.path(dir, '1kg.v3.tgz.part')",
+    "args <- commandArgs(TRUE); dir <- args[1]; url <- args[2]; bytes <- as.numeric(args[3]); sha <- args[4]; pops <- strsplit(args[5], ',')[[1]]; loc <- if (length(args) >= 6) args[6] else ''",
+    "mode <- if (nzchar(loc)) 'local' else 'download'",
+    "st <- function(state, msg = '', ...) writeLines(jsonlite::toJSON(c(list(state = state, msg = msg, pops = pops, mode = mode, time = format(Sys.time(), '%Y-%m-%d %H:%M:%S')), list(...)), auto_unbox = TRUE), file.path(dir, 'download_status.json'))",
+    "part <- if (mode == 'local') loc else file.path(dir, '1kg.v3.tgz.part')",
+    "bedcheck <- function(b) {   # PLINK .bed: 3 signature bytes, then ceiling(people / 4) bytes per variant",
+    "  nl <- function(f) { con <- file(f, 'rb'); on.exit(close(con)); n <- 0; repeat { x <- readBin(con, 'raw', 1e7); if (!length(x)) break; n <- n + sum(x == as.raw(10)) }; n }",
+    "  sig <- readBin(paste0(b, '.bed'), 'raw', 3); nv <- nl(paste0(b, '.bim')); ni <- nl(paste0(b, '.fam'))",
+    "  if (!identical(sig, as.raw(c(0x6c, 0x1b, 0x01)))) stop(basename(b), '.bed is not a PLINK genotype file (wrong signature). The archive may be damaged.')",
+    "  if (file.size(paste0(b, '.bed')) != 3 + nv * ceiling(ni / 4)) stop(basename(b), '.bed does not match its .bim and .fam (', nv, ' variants, ', ni, ' people). The archive may be damaged.')",
+    "  c(variants = nv, people = ni) }",
     "tryCatch({",
-    "  st('downloading')",
-    "  for (attempt in 1:50) {   # resume after a stall or a dropped connection",
+    "  st(if (mode == 'local') 'verifying' else 'downloading')",
+    "  if (mode == 'download') for (attempt in 1:50) {   # resume after a stall or a dropped connection",
     "    have <- if (file.exists(part)) file.size(part) else 0",
     "    if (have >= bytes) break",
     "    h <- curl::new_handle(resume_from = have, low_speed_limit = 100, low_speed_time = 120, connecttimeout = 60)",
@@ -84,24 +94,48 @@ ld_panel_download_start <- function(pops = "EUR", dir = ld_panel_dir(), url = LD
     "    if (!ok) Sys.sleep(10)",
     "  }",
     "  st('verifying')",
-    "  if (file.size(part) != bytes) stop(sprintf('The download stopped at %s of %s bytes. Start it again to continue where it stopped.', file.size(part), bytes))",
+    "  if (file.size(part) != bytes) stop(if (mode == 'local') sprintf('The file has %s bytes, not %s: it is incomplete or a different file. Let the browser finish, or download it again.', file.size(part), bytes) else sprintf('The download stopped at %s of %s bytes. Start it again to continue where it stopped.', file.size(part), bytes))",
     "  h <- digest::digest(file = part, algo = 'sha256')",
-    "  if (!identical(sha, 'PANEL_SHA256_PENDING') && !identical(h, sha)) { unlink(part); stop('The downloaded file does not match the published panel (SHA-256 differs). It was deleted and not used. Please try again.') }",
+    "  if (!identical(sha, 'PANEL_SHA256_PENDING') && !identical(h, sha)) { if (mode == 'download') unlink(part); stop(if (mode == 'local') 'The file does not match the published panel (SHA-256 differs), so it was not used. Your file was left where it is.' else 'The downloaded file does not match the published panel (SHA-256 differs). It was deleted and not used. Please try again.') }",
     "  st('unpacking'); tmp <- file.path(dir, 'unpack'); unlink(tmp, recursive = TRUE); dir.create(tmp)",
     "  want <- as.vector(outer(pops, c('.bed', '.bim', '.fam'), paste0))",
     "  utils::untar(part, files = want, exdir = tmp, tar = 'internal')",
     "  got <- file.exists(file.path(tmp, want)); if (!all(got)) stop('The archive did not hold ', paste(want[!got], collapse = ', '), '.')",
+    "  dims <- lapply(pops, function(p) bedcheck(file.path(tmp, p)))",
     "  for (f in want) file.rename(file.path(tmp, f), file.path(dir, f))",
-    "  unlink(tmp, recursive = TRUE); unlink(part)",
-    "  writeLines(c(paste('source:', url), paste('sha256 of the archive:', h), paste('installed:', format(Sys.time(), '%Y-%m-%d')), paste('ancestries:', paste(pops, collapse = ' '))), file.path(dir, 'SOURCE.txt'))",
-    "  st('done')",
+    "  unlink(tmp, recursive = TRUE); if (mode == 'download') unlink(part)",
+    "  chk <- if (identical(sha, 'PANEL_SHA256_PENDING')) 'size and file structure checked; no official SHA-256 pinned yet, so the hash is recorded only' else 'size, SHA-256 and file structure checked'",
+    "  writeLines(c(paste('source:', if (mode == 'local') paste0('archive downloaded by the user in a browser (', loc, '), from ', url) else url), paste('sha256 of the archive:', h), paste('checked:', chk), paste('installed:', format(Sys.time(), '%Y-%m-%d')), paste('ancestries:', paste(pops, collapse = ' ')),",
+    "    vapply(seq_along(pops), function(i) sprintf('%s: %s variants, %s people', pops[i], format(dims[[i]][['variants']], big.mark = ','), dims[[i]][['people']]), '')), file.path(dir, 'SOURCE.txt'))",
+    "  st('done', sha256 = h, pinned = !identical(sha, 'PANEL_SHA256_PENDING'))",
     "}, error = function(e) st('error', conditionMessage(e)))"), job)
-  writeLines(jsonlite::toJSON(list(state = "downloading", msg = "", pops = pops, time = format(Sys.time(), "%Y-%m-%d %H:%M:%S")), auto_unbox = TRUE), .ld_job_file(dir))
+  writeLines(jsonlite::toJSON(list(state = if (is.null(local_file)) "downloading" else "verifying", msg = "", pops = pops, mode = if (is.null(local_file)) "download" else "local", time = format(Sys.time(), "%Y-%m-%d %H:%M:%S")), auto_unbox = TRUE), .ld_job_file(dir))
   old <- Sys.getenv("RHOME", unset = NA); Sys.setenv(RHOME = R.home())
   on.exit(if (is.na(old)) Sys.unsetenv("RHOME") else Sys.setenv(RHOME = old), add = TRUE)
-  system2(default_rscript(), c("--vanilla", shQuote(job), shQuote(dir), shQuote(url), format(bytes, scientific = FALSE), sha256, paste(pops, collapse = ",")),
+  system2(default_rscript(), c("--vanilla", shQuote(job), shQuote(dir), shQuote(url), format(bytes, scientific = FALSE), sha256, paste(pops, collapse = ","), if (!is.null(local_file)) shQuote(local_file)),
           stdout = file.path(dir, "download.log"), stderr = file.path(dir, "download.log"), wait = FALSE)
   invisible(.ld_job_read(dir))
+}
+
+#' Why a file the user points to cannot be the panel archive (NULL when it can be used).
+ld_archive_problem <- function(path, bytes = LD_PANEL$bytes) {
+  if (is.null(path) || !nzchar(trimws(path))) return("Give the path of the downloaded 1kg.v3.tgz file.")
+  path <- path.expand(trimws(gsub('^["\']|["\']$', "", trimws(path))))
+  if (!file.exists(path)) return("No file was found at that path. On a Mac, select the file in Finder and press Option+Cmd+C to copy its path.")
+  if (dir.exists(path)) return(if (grepl("\\.download$", path)) "This is an unfinished Safari download. Wait until Safari has finished, then use the 1kg.v3.tgz file." else "This is a folder, not the archive. Your browser may have unpacked it: point to the 1kg.v3.tgz file itself (in Safari, turn off \"Open safe files after downloading\" and download again).")
+  if (grepl("\\.(crdownload|part|download)$", path)) return("This is an unfinished browser download. Wait until the browser has finished, then use the 1kg.v3.tgz file.")
+  if (grepl("\\.tar$", path)) return("This is the unpacked .tar, not the .tgz archive (Safari unpacks archives by itself). Turn off \"Open safe files after downloading\" in Safari's settings and download again, or use another browser.")
+  b <- file.size(path)
+  if (!isTRUE(b == bytes)) return(sprintf("The file has %s bytes, but the panel archive has %s. It is incomplete or a different file.", format(b, big.mark = ","), format(bytes, big.mark = ",")))
+  NULL
+}
+
+#' Panel archives already on this computer, in the usual places a browser saves to (newest first), each with a verdict.
+ld_archive_find <- function(places = path.expand(c("~/Downloads", "~/Desktop", "~")), bytes = LD_PANEL$bytes) {
+  fs <- unique(unlist(lapply(places[dir.exists(places)], function(d) list.files(d, pattern = "^1kg\\.v3", full.names = TRUE, include.dirs = TRUE))))
+  if (!length(fs)) return(list())
+  fs <- fs[order(file.mtime(fs), decreasing = TRUE)]
+  lapply(fs, function(f) { p <- ld_archive_problem(f, bytes); list(path = normalizePath(f, winslash = "/"), name = basename(f), bytes = if (dir.exists(f)) 0 else file.size(f), ok = is.null(p), why = p %||% "") })
 }
 
 #' Is a download job still working? Judged by its files changing recently (the .part file grows while it downloads).

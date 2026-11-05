@@ -603,6 +603,31 @@ for (i in 1:60) { js <- .ld_job_read(bad_dir); if (!is.null(js) && js$state %in%
 expect("panel download: a file with the wrong checksum is refused and deleted", identical(.ld_job_read(bad_dir)$state, "error") && grepl("SHA-256", .ld_job_read(bad_dir)$msg) && !isTRUE(ld_panel_status(bad_dir)$installed$EUR))
 ld_panel_remove("EUR", dl_dir)
 expect("panel: an ancestry can be removed", !isTRUE(ld_panel_status(dl_dir)$installed$EUR))
+# ---- Round 23: an archive the user downloaded in a browser ----
+wait_job <- function(d) { for (i in 1:60) { js <- .ld_job_read(d); if (!is.null(js) && js$state %in% c("done", "error")) break; Sys.sleep(1) }; .ld_job_read(d) }
+tb <- file.size(tgz); pend <- "PANEL_SHA256_PENDING"
+own <- tempfile("browser-"); dir.create(own); own_tgz <- file.path(own, "1kg.v3.tgz"); file.copy(tgz, own_tgz)
+file.copy(tgz, file.path(own, "1kg.v3 (1).tgz.crdownload")); dir.create(file.path(own, "1kg.v3")); writeBin(as.raw(1:10), file.path(own, "1kg.v3.tar"))
+expect("own archive: missing path, folder, unfinished download, unpacked .tar and wrong size each get their own sentence; the right file passes",
+       grepl("No file was found", ld_archive_problem(file.path(own, "nope.tgz"), tb)) && grepl("folder, not the archive", ld_archive_problem(file.path(own, "1kg.v3"), tb)) &&
+       grepl("unfinished browser download", ld_archive_problem(file.path(own, "1kg.v3 (1).tgz.crdownload"), tb)) && grepl("unpacked .tar", ld_archive_problem(file.path(own, "1kg.v3.tar"), tb)) &&
+       grepl("incomplete or a different file", ld_archive_problem(own_tgz)) && is.null(ld_archive_problem(paste0('"', own_tgz, '"'), tb)))
+fnd <- ld_archive_find(own, tb)
+expect("own archive: files named 1kg.v3... are found with a verdict each, only the complete .tgz is usable",
+       length(fnd) == 4L && sum(vapply(fnd, `[[`, TRUE, "ok")) == 1L && basename(Filter(function(x) x$ok, fnd)[[1]]$path) == "1kg.v3.tgz" && length(ld_archive_find(file.path(own, "none"), tb)) == 0L)
+od <- tempfile("ldref-own-")
+expect("own archive: a wrong file is refused before any job starts", grepl("incomplete", err_of(ld_panel_download_start("EUR", dir = od, bytes = tb + 1, sha256 = pend, local_file = own_tgz))) && !file.exists(.ld_job_file(od)))
+ld_panel_download_start("EUR", dir = od, bytes = tb, sha256 = pend, local_file = own_tgz); jo <- wait_job(od); src_txt <- readLines(file.path(od, "SOURCE.txt"))
+expect("own archive: checked and unpacked without downloading, the user's file is left in place, SHA-256 recorded (not called verified), sizes listed",
+       identical(jo$state, "done") && identical(jo$mode, "local") && isTRUE(ld_panel_status(od)$installed$EUR) && file.exists(own_tgz) && !file.exists(file.path(od, "1kg.v3.tgz.part")) &&
+       identical(jo$sha256, digest::digest(file = own_tgz, algo = "sha256")) && !isTRUE(jo$pinned) && any(grepl("browser", src_txt)) && any(grepl("recorded only", src_txt)) && any(grepl("^EUR: 13 variants", src_txt)))
+expect("own archive: the installed panel clumps exactly as the fixture", { o <- Sys.getenv("MRGUI_LD_DIR"); Sys.setenv(MRGUI_LD_DIR = od); r <- identical(ld_clump_here(cand$snp, cand$p, 0.001, 10000, "EUR")$status, cl$status); Sys.setenv(MRGUI_LD_DIR = o); r })
+od2 <- tempfile("ldref-own-bad-"); ld_panel_download_start("EUR", dir = od2, bytes = tb, sha256 = strrep("0", 64), local_file = own_tgz); jo2 <- wait_job(od2)
+expect("own archive: when a SHA-256 is pinned and differs, the file is refused but not deleted", identical(jo2$state, "error") && grepl("SHA-256 differs", jo2$msg) && file.exists(own_tgz) && !isTRUE(ld_panel_status(od2)$installed$EUR))
+dmg <- tempfile("dmg-"); dir.create(dmg); file.copy(file.path(fix_dir, c("EUR.bim", "EUR.fam")), dmg); bb <- readBin(file.path(fix_dir, "EUR.bed"), "raw", file.size(file.path(fix_dir, "EUR.bed"))); writeBin(bb[-length(bb)], file.path(dmg, "EUR.bed"))
+dtgz <- file.path(tempdir(), "damaged-1kg.tgz"); old_wd <- setwd(dmg); utils::tar(dtgz, files = c("EUR.bed", "EUR.bim", "EUR.fam"), compression = "gzip", tar = "internal"); setwd(old_wd)
+od3 <- tempfile("ldref-own-dmg-"); ld_panel_download_start("EUR", dir = od3, bytes = file.size(dtgz), sha256 = pend, local_file = dtgz); jo3 <- wait_job(od3)
+expect("panel check: a .bed that does not match its .bim and .fam (one byte short) is refused and not installed", identical(jo3$state, "error") && grepl("does not match its .bim and .fam", jo3$msg) && !isTRUE(ld_panel_status(od3)$installed$EUR))
 # ---- Round 22: OpenGWAS exposure clumped on this computer ----
 set.seed(22); k22 <- nrow(cand)
 th22 <- data.frame(rsid = cand$snp, chr = "1", position = 1e6 * seq_len(k22), ea = "A", nea = "C", eaf = 0.35, beta = runif(k22, 0.03, 0.08) * sample(c(-1, 1), k22, TRUE), se = NA_real_, p = cand$p, n = 300000, stringsAsFactors = FALSE)
