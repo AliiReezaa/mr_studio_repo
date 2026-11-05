@@ -218,7 +218,7 @@ mr_server <- function(engine_dir) {
           pl <- ogw_search_payload(res); ev("ogw_results", q = a$q, total = pl$total, rows = pl$rows, nocat = FALSE)
         },
         ogw_dl_exposure = {
-          r <- tryCatch(ogw_get_exposure(a$id, ogw_token_get(), as.numeric(a$p), as.numeric(a$r2), as.numeric(a$kb), a$pop, a$name, isTRUE(settings_read()$offline)), error = function(e) e)
+          r <- tryCatch(ogw_get_exposure(a$id, ogw_token_get(), as.numeric(a$p), as.numeric(a$r2), as.numeric(a$kb), a$pop, a$name, isTRUE(settings_read()$offline), where = if (identical(a$where, "local")) "local" else "server"), error = function(e) e)
           if (inherits(r, "error")) { ev("ogw_dl", ok = FALSE, msg = conditionMessage(r)); return() }
           ev("ogw_dl", ok = TRUE, rec = r, reused = isTRUE(r$reused), items = library_list(), templates = template_list(), catalogue = catalogue_all())
         },

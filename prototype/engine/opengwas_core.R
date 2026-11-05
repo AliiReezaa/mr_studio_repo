@@ -99,7 +99,7 @@ ogw_ca_next <- function() {
 # ---- talking to OpenGWAS (replaceable for tests) --------------------------------------------------------------------------------------
 .ogw_real_backend <- function() { ogw_ca_setup(); list(
   info = function(jwt, id = NULL) as.data.frame(ieugwasr::gwasinfo(id, opengwas_jwt = jwt), stringsAsFactors = FALSE),
-  tophits = function(id, p, r2, kb, pop, jwt) as.data.frame(ieugwasr::tophits(id, pval = p, clump = 1, r2 = r2, kb = kb, pop = pop, opengwas_jwt = jwt), stringsAsFactors = FALSE),
+  tophits = function(id, p, r2, kb, pop, jwt, clump = 1) as.data.frame(ieugwasr::tophits(id, pval = p, clump = clump, r2 = r2, kb = kb, pop = pop, opengwas_jwt = jwt), stringsAsFactors = FALSE),
   outcome = function(snps, id, proxies, rsq, maf, jwt) as.data.frame(suppressMessages(TwoSampleMR::extract_outcome_data(snps, id, proxies = proxies, rsq = rsq, maf_threshold = maf, opengwas_jwt = jwt)), stringsAsFactors = FALSE)) }
 ogw_backend <- function() getOption("mrgui.ogw_backend", .ogw_real_backend())
 
@@ -226,8 +226,13 @@ ogw_meta <- function(id, jwt, backend = ogw_backend()) {
 }
 .ogw_same <- function(a, b) isTRUE(all.equal(unclass(a), unclass(b)))
 
-#' Independent instruments for an exposure, clumped on the OpenGWAS server against the reference panel of the chosen ancestry.
-ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NULL, name = NULL, offline = FALSE, root = studies_root(), backend = ogw_backend()) {
+#' Independent instruments for an exposure, clumped against the 1000 Genomes reference panel of the chosen ancestry, either on the
+#' OpenGWAS server (where = "server", ieugwasr::tophits with clump = 1) or on this computer (where = "local", Round 22): every variant
+#' below the threshold is downloaded unclumped (tophits with clump = 0) and clumped at once with the bundled PLINK (ld_clump_here, the
+#' same call as ieugwasr::ld_clump_local). Clumping at download keeps outcome lookups as small as with server clumping. The full
+#' candidate list and the status of every candidate are kept in the dataset folder (candidates.csv, instrument_selection.csv).
+ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NULL, name = NULL, offline = FALSE, root = studies_root(), backend = ogw_backend(), where = "server") {
+  where <- if (identical(where, "local")) "local" else "server"
   .ogw_need(jwt, offline)
   if (!is.finite(p) || p < 1e-30 || p > 1e-3) stop("The instrument P-value threshold must be between 1e-30 and 0.001.", call. = FALSE)
   if (!is.finite(r2) || r2 <= 0 || r2 > 0.5) stop("The clumping r² must be above 0 and at most 0.5.", call. = FALSE)
@@ -235,21 +240,33 @@ ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NU
   meta <- ogw_meta(id, jwt, backend)
   pop <- pop %||% ogw_pop_code(meta$population)
   if (is.null(pop) || is.na(pop) || !pop %in% names(OGW_POPS)) stop("The ancestry of this dataset (\"", meta$population %||% "not reported", "\") has no clumping reference panel. Choose the reference population yourself.", call. = FALSE)
-  nm <- clean_study_name(if (is.null(name) || !nzchar(name)) .ogw_label(meta$trait, id) else name); if (!nzchar(nm)) stop("Give the dataset a name.", call. = FALSE)
-  params <- list(pval = p, clump = 1, r2 = r2, kb = kb, pop = pop)
+  nm <- clean_study_name(if (is.null(name) || !nzchar(name)) paste0(.ogw_label(meta$trait, id, if (where == "local") 48L else 60L), if (where == "local") " clumped here" else "") else name); if (!nzchar(nm)) stop("Give the dataset a name.", call. = FALSE)
+  if (where == "local") {   # check before asking the server, so nothing is downloaded that cannot be clumped
+    if (is.na(plink_bin())) stop("PLINK was not found in this installation, so the variants cannot be clumped on this computer. Clump on the OpenGWAS server, or run diagnostics in Settings.", call. = FALSE)
+    if (!isTRUE(ld_panel_status()$installed[[pop]])) stop(sprintf("The %s (%s) LD reference panel is not installed, so the variants cannot be clumped on this computer. Download it in Settings > Data and access, or clump on the OpenGWAS server.", LD_POP_NAMES[[pop]], pop), call. = FALSE)
+  }
+  params <- if (where == "local") list(pval = p, clump = 0, r2 = r2, kb = kb, pop = pop, where = "local") else list(pval = p, clump = 1, r2 = r2, kb = kb, pop = pop)
   dest <- file.path(library_dir(root), nm)
   if (dir.exists(dest)) {
     old <- tryCatch(jsonlite::fromJSON(file.path(dest, "recipe.json"), simplifyVector = FALSE), error = function(e) NULL)
     if (!is.null(old) && identical(old$source$id, id) && identical(old$source$role, "exposure") && .ogw_same(old$source$params, params)) { old$reused <- TRUE; return(old) }
     stop("A dataset named \"", nm, "\" is already in the Data library, with other settings or another source. Choose another name.", call. = FALSE)
   }
-  d <- .ogw_do(backend$tophits(id, p, r2, kb, pop, jwt))
-  if (!is.data.frame(d) || !nrow(d)) stop("No variants reach P < ", format(p, scientific = TRUE), " in this dataset after clumping. A less strict threshold (for example 5e-6) would find some, but they are weaker instruments.", call. = FALSE)
+  d <- if (where == "local") .ogw_do(backend$tophits(id, p, r2, kb, pop, jwt, clump = 0)) else .ogw_do(backend$tophits(id, p, r2, kb, pop, jwt))
+  if (!is.data.frame(d) || !nrow(d)) stop("No variants reach P < ", format(p, scientific = TRUE), " in this dataset", if (where == "server") " after clumping", ". A less strict threshold (for example 5e-6) would find some, but they are weaker instruments.", call. = FALSE)
   std <- data.frame(snp = as.character(d$rsid), chr = as.character(d$chr), pos = suppressWarnings(as.numeric(d$position)), ea = d$ea, oa = d$nea, eaf = suppressWarnings(as.numeric(d$eaf)),
                     beta = suppressWarnings(as.numeric(d$beta)), se = suppressWarnings(as.numeric(d$se)), p = suppressWarnings(as.numeric(d$p)), n = suppressWarnings(as.numeric(d$n)), stringsAsFactors = FALSE)
   std$n[!is.finite(std$n)] <- meta$sample_size
   cl <- .ogw_clean_rows(std, "exposure"); std <- cl$d; std <- std[order(std$p), , drop = FALSE]; rownames(std) <- NULL
   w <- cl$warnings
+  cand <- NULL; sel <- NULL; crec <- NULL
+  if (where == "local") {
+    if (!nrow(std)) stop("None of the variants below the threshold could be used (see the reasons above), so there is nothing to clump.", call. = FALSE)
+    cand <- std; sel <- ld_clump_here(std$snp, std$p, r2, kb, pop)
+    std <- std[std$snp %in% sel$variant_id[sel$status == "index"], , drop = FALSE]; rownames(std) <- NULL
+    crec <- c(attr(sel, "settings"), list(candidates = nrow(cand), clumped = sum(sel$status == "clumped"), not_in_panel = sum(sel$status == "not_in_panel"), no_rsid = sum(sel$status == "no_rsid"), kept = nrow(std)))
+    if (crec$not_in_panel > 0) w <- c(w, sprintf("%d of %d candidate %s not in the reference panel, so %s LD could not be judged and %s removed (as the OpenGWAS server does).", crec$not_in_panel, crec$candidates, if (crec$not_in_panel == 1) "variant is" else "variants are", if (crec$not_in_panel == 1) "its" else "their", if (crec$not_in_panel == 1) "it was" else "they were"))
+  }
   if (nrow(std) < 2L) stop("Fewer than 2 usable instruments remained (", nrow(std), "). A less strict threshold would find more, but weaker, instruments.", call. = FALSE)
   if (nrow(std) < 10L) w <- c(w, sprintf("Only %d instruments. MR-Egger, the median methods and the outlier detectors need more variants to be informative.", nrow(std)))
   if (!is.finite(meta$sample_size)) w <- c(w, "The catalogue does not give a sample size for this dataset.")
@@ -261,8 +278,15 @@ ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NU
               usable_as_exposure = TRUE, usable_as_outcome = FALSE, usable_in_runs = TRUE,
               source = list(type = "opengwas", role = "exposure", id = id, trait = meta$trait, population = meta$population, sample_size = meta$sample_size, ncase = meta$ncase, ncontrol = meta$ncontrol,
                             consortium = meta$consortium, author = meta$author, year = meta$year, pmid = meta$pmid, unit = meta$unit, params = params, downloaded_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-                            packages = .ogw_versions(), note = "Instruments clumped on the OpenGWAS server (ieugwasr::tophits) against the 1000 Genomes reference panel of the chosen population."))
-  .ogw_write(nm, std, rec, root)
+                            packages = .ogw_versions(), note = if (where == "local") "Every variant below the threshold was downloaded without clumping (ieugwasr::tophits, clump = 0) and clumped on this computer with PLINK against the 1000 Genomes reference panel of the chosen population. candidates.csv holds the downloaded variants and instrument_selection.csv the status of each." else "Instruments clumped on the OpenGWAS server (ieugwasr::tophits) against the 1000 Genomes reference panel of the chosen population."))
+  if (!is.null(crec)) rec$clump <- crec
+  rec <- .ogw_write(nm, std, rec, root)
+  if (!is.null(sel)) {
+    dest <- file.path(library_dir(root), nm)
+    utils::write.csv(cand, file.path(dest, "candidates.csv"), row.names = FALSE, na = "")
+    utils::write.csv(sel, file.path(dest, "instrument_selection.csv"), row.names = FALSE, na = "")
+  }
+  rec
 }
 
 #' The same variants looked up in an outcome. Variants the outcome lacks are replaced by proxies (r² at least `rsq`) when asked.

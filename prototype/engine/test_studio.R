@@ -603,6 +603,58 @@ for (i in 1:60) { js <- .ld_job_read(bad_dir); if (!is.null(js) && js$state %in%
 expect("panel download: a file with the wrong checksum is refused and deleted", identical(.ld_job_read(bad_dir)$state, "error") && grepl("SHA-256", .ld_job_read(bad_dir)$msg) && !isTRUE(ld_panel_status(bad_dir)$installed$EUR))
 ld_panel_remove("EUR", dl_dir)
 expect("panel: an ancestry can be removed", !isTRUE(ld_panel_status(dl_dir)$installed$EUR))
+# ---- Round 22: OpenGWAS exposure clumped on this computer ----
+set.seed(22); k22 <- nrow(cand)
+th22 <- data.frame(rsid = cand$snp, chr = "1", position = 1e6 * seq_len(k22), ea = "A", nea = "C", eaf = 0.35, beta = runif(k22, 0.03, 0.08) * sample(c(-1, 1), k22, TRUE), se = NA_real_, p = cand$p, n = 300000, stringsAsFactors = FALSE)
+th22$se <- abs(th22$beta) / stats::qnorm(th22$p / 2, lower.tail = FALSE)
+th22 <- rbind(th22, transform(th22[1, ], rsid = "rs9100099", ea = "AT"))     # an indel: dropped before clumping
+mock22 <- new.env(); mock22$calls <- list()
+BE22 <- list(info = BE$info,
+  tophits = function(id, p, r2, kb, pop, jwt, clump = 1) { chk(jwt); mock22$calls[[length(mock22$calls) + 1L]] <- list("tophits", id, p, clump); if (clump == 0) th22 else th22[th22$rsid %in% c("rs9100002", "rs9200001"), ] },
+  outcome = function(snps, id, proxies, rsq, maf, jwt) { chk(jwt); mock22$calls[[length(mock22$calls) + 1L]] <- list("outcome", id, length(snps)); i <- match(snps, th22$rsid)
+    data.frame(SNP = snps, chr = "1", pos = th22$position[i], beta.outcome = 0.3 * th22$beta[i] + rnorm(length(i), 0, 0.003), se.outcome = 0.008, samplesize.outcome = 230000, pval.outcome = 0.01, eaf.outcome = 0.35,
+               effect_allele.outcome = "A", other_allele.outcome = "C", outcome = "Simulated heart disease", id.outcome = id, proxy.outcome = FALSE, target_snp.outcome = NA_character_, proxy_snp.outcome = NA_character_, stringsAsFactors = FALSE) })
+options(mrgui.ogw_backend = BE22); ogw_token_set(tok_ok); mock$fail <- NULL; unlink(ogw_cache_file()); ogw_catalogue_update(tok_ok)
+lx <- ogw_get_exposure("sim-exp-1", tok_ok, where = "local")
+expect("opengwas local clump: the server is asked for unclumped hits (clump = 0) with the user's P threshold",
+       { c1 <- Filter(function(x) x[[1]] == "tophits", mock22$calls)[[1]]; identical(c1[[4]], 0) && c1[[3]] == 5e-8 })
+expect("opengwas local clump: 15 rows, 1 indel dropped, 14 candidates clumped here: 5 removed for LD, 1 not in the panel, 8 instruments (as ld_clump_here)",
+       lx$rows_in_file == 15L && lx$clump$candidates == 14L && lx$clump$clumped == 5L && lx$clump$not_in_panel == 1L && lx$rows_kept == 8L && lx$clump$kept == 8L &&
+       identical(sort(library_dataset(lx$trait)$data$snp), sort(cl$variant_id[cl$status == "index"])))
+lxd <- file.path(library_dir(), lx$trait)
+expect("opengwas local clump: saved with its own name, where = local, the candidates and every candidate's status kept in the dataset folder",
+       grepl("clumped here$", lx$trait) && identical(lx$source$params$where, "local") && identical(lx$facts$independent, "yes") && isTRUE(lx$usable_as_exposure) &&
+       nrow(utils::read.csv(file.path(lxd, "candidates.csv"))) == 14L && setequal(utils::read.csv(file.path(lxd, "instrument_selection.csv"))$status, c("index", "clumped", "not_in_panel")) && grepl("clumped on this computer", lx$source$note))
+expect("opengwas local clump: a not-in-panel candidate is explained in the warnings", any(grepl("not in the reference panel", unlist(lx$warnings))))
+n22 <- length(mock22$calls); lx2 <- ogw_get_exposure("sim-exp-1", tok_ok, where = "local")
+expect("opengwas local clump: the same request reuses the saved copy without asking the server", isTRUE(lx2$reused) && length(mock22$calls) == n22)
+sx22 <- ogw_get_exposure("sim-exp-1", tok_ok, name = "Server clumped 22")
+expect("opengwas local clump: server clumping still sends clump = 1 and keeps its old settings (no where field)", is.null(sx22$source$params$where) && sx22$source$params$clump == 1 && is.null(sx22$clump))
+expect("opengwas local clump: an ancestry whose panel is not installed is refused before anything is downloaded",
+       { n0 <- length(mock22$calls); m <- err_of(ogw_get_exposure("sim-eas-1", tok_ok, where = "local", name = "EAS local")); grepl("East Asian \\(EAS\\) LD reference panel is not installed", m) && length(mock22$calls) == n0 })
+expect("opengwas local clump: without PLINK it is refused before anything is downloaded",
+       { Sys.setenv(MRGUI_PLINK = file.path(tempdir(), "no-plink-here")); n0 <- length(mock22$calls); m <- err_of(ogw_get_exposure("sim-exp-1", tok_ok, where = "local", name = "No plink")); Sys.unsetenv("MRGUI_PLINK"); grepl("PLINK was not found", m) && length(mock22$calls) == n0 })
+lo <- ogw_get_outcome("sim-out-1", lx$trait, tok_ok, name = "Outcome for local")
+expect("opengwas local clump: the outcome lookup sends only the 8 clumped instruments, not the 14 candidates", tail(Filter(function(x) x[[1]] == "outcome", mock22$calls), 1)[[1]][[3]] == 8L && lo$lookup$requested == 8L)
+p22 <- pair_input(paste0("lib:", lx$trait), "lib:Outcome for local", 5e-8)
+expect("opengwas local clump pair: the ledger shows the clumping (14 below P, 5 for LD, 1 not in panel, 8 kept) and the selection is passed on",
+       p22$ledger$below_threshold == 14L && p22$ledger$clump$clumped == 5L && p22$ledger$clump$not_in_panel == 1L && p22$ledger$clump$kept == 8L && p22$ledger$instruments == 8L && nrow(p22$selection) == 14L)
+p22s <- pair_input(paste0("lib:", lx$trait), "lib:Outcome for local", 5e-10)
+fresh <- ld_clump_here(cand$snp[cand$p < 5e-10], cand$p[cand$p < 5e-10], 0.001, 10000, "EUR")
+expect("opengwas local clump pair: a stricter study threshold cuts the saved selection, and the result equals clumping those candidates afresh",
+       p22s$ledger$below_threshold == nrow(fresh) && p22s$ledger$clump$kept == sum(fresh$status == "index") && p22s$ledger$clump$clumped == sum(fresh$status == "clumped") &&
+       setequal(p22s$input$data$variant_id, fresh$variant_id[fresh$status == "index"]) && p22s$ledger$instruments == sum(fresh$status == "index"))
+h22 <- studio_new("OpenGWAS clumped here")
+r22 <- studio_run(h22, p22$exposure_label, p22$outcome_label, p22$input, c("ivw_mre", "egger"), idx = 1L)
+save_instrument_selection(h22$dir, r22$pair_folder, p22$selection)
+ui_state_set(h22$con, "pairs", list(list(ex = paste0("lib:", lx$trait), out = "lib:Outcome for local", exName = p22$exposure_label, outName = p22$outcome_label, folder = r22$pair_folder, methods = list("ivw_mre", "egger"), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = p22$ledger, anc_x = "EUR", anc_y = "EUR")))
+pk22 <- build_package(h22, c("report", "text", "refs", "strobe"), 140)
+htm22 <- paste(readLines(file.path(pk22$dir, "report.html"), warn = FALSE), collapse = "\n")
+expect("opengwas local clump report: methods say downloaded unclumped (clump = 0) and clumped here with PLINK, with the outcome lookup, and never 'clumped on the OpenGWAS server'",
+       grepl("downloaded from OpenGWAS without clumping", htm22, fixed = TRUE) && grepl("clumped with PLINK", htm22, fixed = TRUE) && grepl("extract_outcome_data", htm22, fixed = TRUE) &&
+       grepl("5 variants were removed as correlated", htm22, fixed = TRUE) && !grepl("clumped on the OpenGWAS server with", htm22, fixed = TRUE) && identical(r22$replay$status, "identical") &&
+       file.exists(file.path(h22$dir, "03_pairs", r22$pair_folder, "01_data", "instrument_selection.csv")))
+options(mrgui.ogw_backend = NULL); ogw_token_set(NULL)
 Sys.unsetenv("MRGUI_LD_DIR")
 
 # ---- Round 20: STROBE-MR checklist ----

@@ -192,6 +192,18 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
     led$below_threshold <- led$instruments; led$instruments <- nrow(X)
     led$clump <- c(attr(sel, "settings"), list(clumped = sum(sel$status == "clumped"), not_in_panel = sum(sel$status == "not_in_panel"), kept = nrow(X)))
   }
+  if (!is.null(ex$recipe$clump) && identical(ex$recipe$source$params$where, "local")) {   # Round 22: an OpenGWAS exposure clumped on this computer at download
+    sf <- file.path(ex$dir, "instrument_selection.csv")
+    if (file.exists(sf)) {
+      s0 <- utils::read.csv(sf, stringsAsFactors = FALSE, colClasses = c(variant_id = "character", status = "character", index_variant = "character"))
+      # Clumping keeps variants in order of P, so the clumped set of the candidates below a stricter threshold is exactly the
+      # clumped set restricted to that threshold: the selection is cut, not clumped again.
+      sel <- s0[is.finite(s0$p) & s0$p < pthr, , drop = FALSE]; rownames(sel) <- NULL
+      attr(sel, "settings") <- ex$recipe$clump[c("r2", "kb", "pop", "panel", "plink", "command")]
+      led$below_threshold <- nrow(sel)
+      led$clump <- c(attr(sel, "settings"), list(clumped = sum(sel$status == "clumped"), not_in_panel = sum(sel$status == "not_in_panel"), kept = sum(sel$status == "index"), at_download = TRUE))
+    }
+  }
   if (nrow(X) < 2L) stop("Fewer than 2 variants in \"", ex$recipe$trait, "\" reach P < ", format(pthr, scientific = TRUE), ". At least 2 instruments are needed.")
   Y <- Y[Y$key %in% X$key, , drop = FALSE]; led$in_outcome <- nrow(Y); led$missing_in_outcome <- led$instruments - nrow(Y); led$by_proxy <- if ("proxy_snp" %in% names(Y)) sum(!is.na(Y$proxy_snp) & nzchar(Y$proxy_snp)) else 0L
   if (nrow(Y) < 2L) stop("Fewer than 2 instruments were found in \"", ou$recipe$trait, "\".")
