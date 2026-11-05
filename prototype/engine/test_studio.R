@@ -628,6 +628,28 @@ dmg <- tempfile("dmg-"); dir.create(dmg); file.copy(file.path(fix_dir, c("EUR.bi
 dtgz <- file.path(tempdir(), "damaged-1kg.tgz"); old_wd <- setwd(dmg); utils::tar(dtgz, files = c("EUR.bed", "EUR.bim", "EUR.fam"), compression = "gzip", tar = "internal"); setwd(old_wd)
 od3 <- tempfile("ldref-own-dmg-"); ld_panel_download_start("EUR", dir = od3, bytes = file.size(dtgz), sha256 = pend, local_file = dtgz); jo3 <- wait_job(od3)
 expect("panel check: a .bed that does not match its .bim and .fam (one byte short) is refused and not installed", identical(jo3$state, "error") && grepl("does not match its .bim and .fam", jo3$msg) && !isTRUE(ld_panel_status(od3)$installed$EUR))
+# ---- Round 24: panel files the user already has unpacked ----
+fixp <- c(EUR = 300, EAS = 504, AFR = 661, AMR = 347, SAS = 489)     # the synthetic fixture has 300 people
+unp <- tempfile("unpacked-"); dir.create(file.path(unp, "1000G_EUR"), recursive = TRUE); file.copy(file.path(fix_dir, c("EUR.bed", "EUR.bim", "EUR.fam")), file.path(unp, "1000G_EUR"))
+sub_dir <- file.path(unp, "proj"); dir.create(sub_dir); file.copy(file.path(fix_dir, "EUR.bed"), file.path(sub_dir, "local489_EUR.bed")); file.copy(file.path(fix_dir, "EUR.bim"), file.path(sub_dir, "local489_EUR.bim"))
+writeLines(readLines(file.path(fix_dir, "EUR.fam"))[1:250], file.path(sub_dir, "local489_EUR.fam"))
+r_ok <- ld_unpacked_problem(file.path(unp, "1000G_EUR"), people = fixp)
+expect("unpacked panel: a folder with EUR.bed/.bim/.fam is recognised as EUR with its full number of people", is.null(r_ok$problem) && identical(r_ok$pop, "EUR") && r_ok$people == 300L)
+expect("unpacked panel: a subset made from the panel (fewer people), a missing .fam, a wrong ancestry choice and a non-.bed file are refused with a sentence",
+       grepl("subset made from the panel", ld_unpacked_problem(file.path(sub_dir, "local489_EUR.bed"), people = fixp)$problem) &&
+       { file.rename(file.path(sub_dir, "local489_EUR.fam"), file.path(sub_dir, "x.fam")); m <- ld_unpacked_problem(file.path(sub_dir, "local489_EUR.bed"), people = fixp)$problem; file.rename(file.path(sub_dir, "x.fam"), file.path(sub_dir, "local489_EUR.fam")); grepl(".fam file next to", m) } &&
+       grepl("file name says EUR but EAS", ld_unpacked_problem(file.path(unp, "1000G_EUR", "EUR.bed"), "EAS", people = fixp)$problem) &&
+       grepl("Give the .bed file", ld_unpacked_problem(file.path(unp, "1000G_EUR", "EUR.bim"), people = fixp)$problem))
+cd24 <- tempfile("ldref-copy-")
+ld_panel_copy_start(file.path(unp, "1000G_EUR", "EUR.bed"), dir = cd24, people = fixp); jc <- wait_job(cd24); sc <- readLines(file.path(cd24, "SOURCE_EUR.txt"))
+expect("unpacked panel: copied in, checked, the originals untouched, SHA-256 of all three files recorded",
+       identical(jc$state, "done") && identical(jc$mode, "folder") && isTRUE(ld_panel_status(cd24)$installed$EUR) && all(file.exists(file.path(unp, "1000G_EUR", c("EUR.bed", "EUR.bim", "EUR.fam")))) &&
+       identical(unname(tools::md5sum(file.path(cd24, "EUR.bed"))), unname(tools::md5sum(file.path(fix_dir, "EUR.bed")))) && sum(grepl("^sha256 EUR\\.(bed|bim|fam): [0-9a-f]{64}$", sc)) == 3L &&
+       identical(jc$sha256, digest::digest(file = file.path(fix_dir, "EUR.bed"), algo = "sha256")) && !dir.exists(file.path(cd24, "unpack")))
+expect("unpacked panel: the copied panel clumps exactly as the fixture", { o <- Sys.getenv("MRGUI_LD_DIR"); Sys.setenv(MRGUI_LD_DIR = cd24); r <- identical(ld_clump_here(cand$snp, cand$p, 0.001, 10000, "EUR")$status, cl$status); Sys.setenv(MRGUI_LD_DIR = o); r })
+dmg24 <- file.path(unp, "dmg"); dir.create(dmg24); file.copy(file.path(dmg, c("EUR.bed", "EUR.bim", "EUR.fam")), dmg24); cd24b <- tempfile("ldref-copy-dmg-")
+ld_panel_copy_start(file.path(dmg24, "EUR.bed"), dir = cd24b, people = fixp); jcb <- wait_job(cd24b)
+expect("unpacked panel: a damaged .bed is refused before copying and nothing is installed", identical(jcb$state, "error") && grepl("does not match its .bim and .fam", jcb$msg) && !isTRUE(ld_panel_status(cd24b)$installed$EUR) && !dir.exists(file.path(cd24b, "unpack")))
 # ---- Round 22: OpenGWAS exposure clumped on this computer ----
 set.seed(22); k22 <- nrow(cand)
 th22 <- data.frame(rsid = cand$snp, chr = "1", position = 1e6 * seq_len(k22), ea = "A", nea = "C", eaf = 0.35, beta = runif(k22, 0.03, 0.08) * sample(c(-1, 1), k22, TRUE), se = NA_real_, p = cand$p, n = 300000, stringsAsFactors = FALSE)

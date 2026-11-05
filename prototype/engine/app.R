@@ -198,6 +198,9 @@ mr_server <- function(engine_dir) {
         ld_find = ev("ld_found", items = ld_archive_find()),
         ld_use_file = { r <- tryCatch(ld_panel_download_start(unlist(a$pops) %||% "EUR", local_file = a$path), error = function(e) e)
           if (inherits(r, "error")) ev("ld_file_err", msg = conditionMessage(r)); ev("ld", status = ld_panel_status()) },
+        ld_find_unpacked = ev("ld_found_unpacked", items = ld_unpacked_find()),
+        ld_copy = { r <- tryCatch(ld_panel_copy_start(a$path, if (nzchar(a$pop %||% "")) a$pop else NULL), error = function(e) e)
+          if (inherits(r, "error")) ev("ld_copy_err", msg = conditionMessage(r)); ev("ld", status = ld_panel_status()) },
         ld_remove = { ld_panel_remove(as.character(a$pop)); ev("ld", status = ld_panel_status()) },
         ogw_state = ogw_ev(),
         ogw_token_save = {

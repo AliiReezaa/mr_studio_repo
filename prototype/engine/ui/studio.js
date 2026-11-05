@@ -772,7 +772,7 @@ function vExport() {
 // ---- LD reference panel (Round 19): optional one-time download, kept once per computer ------------------------------------
 const LD_POPS = [['EUR', 'European'], ['EAS', 'East Asian'], ['AFR', 'African'], ['AMR', 'Admixed American'], ['SAS', 'South Asian']];
 const gb = (b) => (Number(b || 0) / 1e9).toFixed(2) + ' GB';   // decimal gigabytes, as download sizes are usually given
-const ldBusy = () => !!(S.ld && S.ld.job && ['downloading', 'verifying', 'unpacking'].indexOf(S.ld.job.state) >= 0);
+const ldBusy = () => !!(S.ld && S.ld.job && ['downloading', 'verifying', 'unpacking', 'copying'].indexOf(S.ld.job.state) >= 0);
 function ldPoll() { clearTimeout(S._ldT); if (ldBusy()) S._ldT = setTimeout(() => send('ld_status', {}), 2000); }
 function ldPanelCtl() {
   const L = S.ld || {}, inst = L.installed || {}, have = LD_POPS.filter((p) => inst[p[0]]), job = L.job || null, busy = ldBusy();
@@ -782,14 +782,14 @@ function ldPanelCtl() {
   let state = '';
   if (busy) {
     const pct = job.state === 'downloading' && L.download_bytes ? Math.min(100, Math.round(100 * Number(job.bytes || 0) / L.download_bytes)) : 100;
-    state = '<div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:12px">' + (job.mode === 'local' && job.state === 'verifying' ? 'Checking your file (size and SHA-256)…' : job.state === 'downloading' ? 'Downloading ' + gb(job.bytes) + ' of ' + gb(L.download_bytes) + ' (' + pct + '%) for ' + esc((job.pops || []).join(', ')) + '. You can keep working. If MR Studio is closed, you can continue the download from here next time.' : job.state === 'verifying' ? 'Checking the download…' : 'Unpacking ' + esc((job.pops || []).join(', ')) + '…') + '</div><div style="height:4px;border-radius:2px;background:var(--line)"><div style="width:' + pct + '%;height:4px;border-radius:2px;background:var(--accent)"></div></div></div>';
+    state = '<div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:12px">' + (job.mode === 'folder' ? (job.state === 'copying' ? 'Copying the ' + esc((job.pops || []).join(', ')) + ' panel files and checking the copy…' : 'Checking your panel files…') : job.mode === 'local' && job.state === 'verifying' ? 'Checking your file (size and SHA-256)…' : job.state === 'downloading' ? 'Downloading ' + gb(job.bytes) + ' of ' + gb(L.download_bytes) + ' (' + pct + '%) for ' + esc((job.pops || []).join(', ')) + '. You can keep working. If MR Studio is closed, you can continue the download from here next time.' : job.state === 'verifying' ? 'Checking the download…' : 'Unpacking ' + esc((job.pops || []).join(', ')) + '…') + '</div><div style="height:4px;border-radius:2px;background:var(--line)"><div style="width:' + pct + '%;height:4px;border-radius:2px;background:var(--accent)"></div></div></div>';
   } else if (!have.length) state = '<div style="font-size:12px;color:var(--mute)">Not installed. Needed only to clump on this computer (your own GWAS files, or OpenGWAS downloads if you choose).</div>';
   const err = job && (job.state === 'error' || job.state === 'stopped') ? '<div role="alert" style="font-size:12px;color:var(--warn)">' + esc(job.msg || 'The download did not finish.') + '</div>' : '';
   const left = LD_POPS.filter((p) => !inst[p[0]]), resume = Number(L.partial_bytes || 0) > 0;
   const pick = busy || !left.length ? '' : '<div style="display:flex;flex-direction:column;gap:8px"><span style="font-size:12px;color:var(--mute)">Ancestries to install (about 2 GB on disk each after unpacking; the download is ' + gb(L.download_bytes) + ' whichever you choose)</span><div style="display:flex;flex-wrap:wrap;gap:6px">' + left.map(chip).join('') + '</div>' +
     '<button type="button" data-a="ld_download" ' + (want.some((w) => !inst[w]) ? '' : 'disabled') + ' style="align-self:flex-start;height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-weight:550;font-size:13px">' + (resume ? 'Continue the download (' + gb(L.partial_bytes) + ' of ' + gb(L.download_bytes) + ' done)' : 'Download and install (' + gb(L.download_bytes) + ')') + '</button></div>';
-  const shaLine = job && job.state === 'done' && job.sha256 ? '<div class="mono" style="font-size:11px;color:var(--mute);word-break:break-all">Archive SHA-256: ' + esc(job.sha256) + (job.pinned ? ' (matches the pinned value)' : ' (recorded; no official value is pinned yet to compare with)') + '</div>' : '';
-  return '<div style="display:flex;flex-direction:column;gap:10px"><span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="font-weight:550">LD reference panel for clumping</span>' + plink + '</span><span style="font-size:12px;color:var(--mute)">1000 Genomes Phase 3 (MRC IEU build, the same panel the OpenGWAS server uses), downloaded once for this computer from the MRC IEU server, which can be slow.</span>' + rows + shaLine + state + err + pick + (busy || !left.length ? '' : ldOwnFile()) + '</div>';
+  const shaLine = job && job.state === 'done' && job.sha256 ? '<div class="mono" style="font-size:11px;color:var(--mute);word-break:break-all">' + (job.mode === 'folder' ? 'Copied from ' + esc(job.from || '') + '. SHA-256 of ' + esc((job.pops || [])[0] || '') + '.bed: ' + esc(job.sha256) + ' (recorded, with the .bim and .fam hashes, in SOURCE_' + esc((job.pops || [])[0] || '') + '.txt)' : 'Archive SHA-256: ' + esc(job.sha256) + (job.pinned ? ' (matches the pinned value)' : ' (recorded; no official value is pinned yet to compare with)')) + '</div>' : '';
+  return '<div style="display:flex;flex-direction:column;gap:10px"><span style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span style="font-weight:550">LD reference panel for clumping</span>' + plink + '</span><span style="font-size:12px;color:var(--mute)">1000 Genomes Phase 3 (MRC IEU build, the same panel the OpenGWAS server uses), downloaded once for this computer from the MRC IEU server, which can be slow.</span>' + rows + shaLine + state + err + pick + (busy || !left.length ? '' : ldUnpacked() + ldOwnFile()) + '</div>';
 }
 // Round 23: an archive the user downloaded in a browser. Found in Downloads, Desktop or home, or given by its path; checked
 // (size, SHA-256 recorded or compared, PLINK file structure) and unpacked in place for the chosen ancestries. Never moved or deleted.
@@ -808,6 +808,21 @@ function ldOwnFile() {
     '<div style="font-size:12px;color:var(--mute)">On a Mac: select the file in Finder and press Option+Cmd+C to copy its path, then paste it here.</div>' +
     (F.err ? '<div role="alert" style="font-size:12px;color:var(--warn)">' + esc(F.err) + '</div>' : '') + '</div></details>';
 }
+// Round 24: panel files the user already has unpacked (EUR.bed, .bim, .fam), for example from an earlier project. They are
+// checked (structure, full number of people) and copied into the panel folder; the originals are left untouched.
+function ldUnpacked() {
+  const U = S.ldUnp || {}, inst = (S.ld || {}).installed || {}, found = U.items || null;
+  const small = 'height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--accent);background:transparent;color:var(--accent);font-weight:550;font-size:12px';
+  const list = !found ? '' : (found.length ? found.map((x, i) => '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12px"><span class="mono" style="font-size:11px;padding:2px 7px;border-radius:999px;border:1px solid var(--line)">' + esc(x.pop || '?') + '</span><span class="mono" style="flex:1 1 220px;min-width:0;word-break:break-all">' + esc(x.path) + (x.icloud ? ' <span style="color:var(--mute)">(in an iCloud folder)</span>' : '') + '</span>' +
+      (!x.ok ? '<span style="flex-basis:100%;color:var(--warn)">' + esc(x.why) + '</span>' : inst[x.pop] ? '<span style="color:var(--mute)">' + esc(x.pop) + ' already installed</span>' : '<button type="button" data-a="ld_copy_found" data-v="' + i + '" style="' + small + '">Copy in</button>') + '</div>').join('') :
+    '<div style="font-size:12px;color:var(--mute)">No panel files (EUR.bed, EAS.bed, ...) were found. Give the path below.</div>');
+  return '<details style="border-top:1px solid var(--line);padding-top:10px"' + (U.open ? ' open' : '') + '><summary data-a="ld_unp_toggle" style="cursor:pointer;font-size:13px;font-weight:550">Already have the panel unpacked (.bed, .bim, .fam)?</summary><div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">' +
+    '<div style="font-size:12px;color:var(--mute)">For example from an earlier project. MR Studio checks the three files (PLINK structure, and the full number of people of that 1000 Genomes ancestry, so a subset made from the panel is not taken by mistake), copies them into its own panel folder (about 1.3 GB for EUR) and records their SHA-256. Your files are not moved or changed. A copy outside iCloud folders is the safer choice.</div>' +
+    '<div><button type="button" data-a="ld_find_unp" style="' + small + '">' + (U.busy ? 'Looking…' : 'Find panel files on this computer') + '</button></div>' + list +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap"><input id="ld_unp_path" value="' + esc(U.path || '') + '" placeholder="/Users/you/…/1000G_EUR/EUR.bed" aria-label="Path of the panel .bed file or its folder" spellcheck="false" style="' + INP + ';flex:1 1 260px;min-width:0;height:36px;font-size:12px"><button type="button" data-a="ld_copy_path" style="' + small + ';height:36px">Copy in</button></div>' +
+    (U.err ? '<div role="alert" style="font-size:12px;color:var(--warn)">' + esc(U.err) + '</div>' : '') + '</div></details>';
+}
+function ldCopy(path) { S.ldUnp = Object.assign({}, S.ldUnp, { err: '', path: path }); S.ld = Object.assign({}, S.ld, { job: { state: 'verifying', mode: 'folder', pops: [] } }); render(); send('ld_copy', { path: path }); }
 function ldUseFile(path) { const pops = (S.ldWant || ['EUR']).filter((p) => !((S.ld || {}).installed || {})[p]); if (!pops.length) return; S.ldFile = Object.assign({}, S.ldFile, { err: '', path: path });
   S.ld = Object.assign({}, S.ld, { job: { state: 'verifying', mode: 'local', pops: pops } }); render(); send('ld_use_file', { path: path, pops: pops }); }
 function vSettings() {
@@ -911,6 +926,10 @@ function onClick(e) {
     case 'ld_pick': { const w = S.ldWant || ['EUR']; S.ldWant = w.indexOf(v) >= 0 ? w.filter((x) => x !== v) : w.concat([v]); render(); break; }
     case 'ld_download': { const pops = (S.ldWant || ['EUR']).filter((p) => !((S.ld || {}).installed || {})[p]); if (!pops.length) break; S.ld = Object.assign({}, S.ld, { job: { state: 'downloading', bytes: (S.ld || {}).partial_bytes || 0, pops: pops } }); render(); send('ld_download', { pops: pops }); break; }
     case 'ld_remove': send('ld_remove', { pop: v }); break;
+    case 'ld_unp_toggle': S.ldUnp = Object.assign({}, S.ldUnp, { open: !(S.ldUnp || {}).open }); e.preventDefault(); render(); break;
+    case 'ld_find_unp': S.ldUnp = Object.assign({}, S.ldUnp, { busy: true, err: '' }); render(); send('ld_find_unpacked', {}); break;
+    case 'ld_copy_found': { const x = ((S.ldUnp || {}).items || [])[Number(v)]; if (x && x.ok) ldCopy(x.path); break; }
+    case 'ld_copy_path': { const el = document.getElementById('ld_unp_path'), p = el ? el.value.trim() : ''; if (!p) { S.ldUnp = Object.assign({}, S.ldUnp, { err: 'Paste the path of the .bed file (or its folder) first.' }); render(); break; } ldCopy(p); break; }
     case 'ld_own_toggle': S.ldFile = Object.assign({}, S.ldFile, { open: !(S.ldFile || {}).open }); e.preventDefault(); render(); break;
     case 'ld_find': S.ldFile = Object.assign({}, S.ldFile, { busy: true, err: '' }); render(); send('ld_find', {}); break;
     case 'ld_copy_url': { const done = () => { S.ldFile = Object.assign({}, S.ldFile, { copied: true }); render(); }; try { navigator.clipboard.writeText(LD_URL).then(done, done); } catch (er) { done(); } break; }
@@ -1048,7 +1067,9 @@ function applyStudy(m) {
 }
 function handle(m) {
   switch (m.t) {
-    case 'ld': S.ld = m.status; ldPoll(); render(); break;
+    case 'ld': S.ld = m.status; if (S.ld && S.ld.job && S.ld.job.pops != null && !Array.isArray(S.ld.job.pops)) S.ld.job.pops = [S.ld.job.pops]; ldPoll(); render(); break;   // one ancestry arrives as a string
+    case 'ld_found_unpacked': S.ldUnp = Object.assign({}, S.ldUnp, { busy: false, items: m.items || [] }); render(); break;
+    case 'ld_copy_err': S.ldUnp = Object.assign({}, S.ldUnp, { err: m.msg }); break;
     case 'ld_found': S.ldFile = Object.assign({}, S.ldFile, { busy: false, items: m.items || [] }); render(); break;
     case 'ld_file_err': S.ldFile = Object.assign({}, S.ldFile, { err: m.msg }); break;
     case 'init': S.ld = m.ld || null; ldPoll(); S.lib = m.library || []; S.tmpls = m.templates || []; S.settings = m.settings; S.theme = m.settings.theme; S.studies = m.studies; S.cat = m.catalogue; S.schemas = m.schemas; S.root = m.root; S.diag = m.diag; go(m.settings.setup_done ? 'home' : 'setup'); break;
