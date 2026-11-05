@@ -752,7 +752,7 @@ expect("strobe: the package reports the counts, which add up to 43", !is.null(pk
 
 # ---- Round 21: feasibility engine ----
 fr <- feas_rules(); spec_ids <- utils::read.csv(file.path(dirname(dirname(args_dir)), "mr_feasibility_rules.csv"), stringsAsFactors = FALSE)$rule_id
-known_tests <- c("several_pairs", "ancestry_differs", "steiger_data", "iv_below_min", "iv_below_recommended", "mean_f_below", "i2gx_below", "overlap", "palindromic_dropped", "binary_exposure", "presso_nbdist", "heavy_runtime", "q_significant", "egger_intercept", "steiger_reversed")
+known_tests <- c("several_pairs", "ancestry_differs", "steiger_data", "iv_below_min", "iv_below_recommended", "mean_f_below", "i2gx_below", "overlap", "palindromic_dropped", "palindromic_kept", "binary_exposure", "presso_nbdist", "heavy_runtime", "q_significant", "egger_intercept", "steiger_reversed")
 expect("feasibility: every rule id is unique and comes from the project's rule list, every active rule has a known test and a source",
        !anyDuplicated(fr$rule_id) && all(fr$rule_id %in% spec_ids) && all(fr$test[fr$active_v1 == "yes"] %in% known_tests) && all(nzchar(fr$source)) && all(spec_ids %in% fr$rule_id))
 fx_base <- pair_facts("expA", "outA")
@@ -793,5 +793,40 @@ expect("feasibility: results rules match the saved diagnostics (R25 heterogeneit
 expect("feasibility: the Steiger result rule fires only when the direction is not clearly supported (R27)", {
   sg <- Filter(function(d) d$method == "steiger" && d$name == "steiger_direction", pl15$diagnostics)[[1]]
   identical("R27" %in% vapply(feasibility_results(pl15), `[[`, "", "rule"), !(sg$value == 1 && sg$p < 0.05)) })
+
+# ---- Round 26: files without a sample-size or allele-frequency column (found while replicating Bowden 2016) ----
+expect("an imported pair with no sample-size and no frequency column can be paired and run", {
+  nx <- exd[, c("snp", "ea", "oa", "beta", "se", "p")]; ny <- exd[, c("snp", "ea", "oa", "beta", "se", "p")]; ny$beta <- 0.3 * nx$beta + rnorm(nrow(nx), 0, .01); ny$p <- 2 * pnorm(-abs(ny$beta / ny$se))
+  f1 <- tempfile(fileext = ".csv"); f2 <- tempfile(fileext = ".csv"); utils::write.csv(nx, f1, row.names = FALSE); utils::write.csv(ny, f2, row.names = FALSE)
+  m6 <- list(snp = "snp", ea = "ea", oa = "oa", beta = "beta", se = "se", p = "p")
+  invisible(import_save(f1, "nx.csv", ",", names(nx), m6, modifyList(fct("NoN X", "exposure", "yes"), list(frq = "none"))))
+  invisible(import_save(f2, "ny.csv", ",", names(ny), m6, modifyList(fct("NoN Y", "outcome", "no"), list(frq = "none"))))
+  pn <- pair_input("lib:NoN X", "lib:NoN Y", pthr = 1e-4)
+  pn$ledger$kept >= 2 && pn$ledger$kept + pn$ledger$dropped_palindromic + pn$ledger$dropped_mismatch == pn$ledger$in_outcome && all(is.na(pn$input$data$n_x)) })
+
+# ---- Round 26: keep palindromic variants when both files are declared forward strand ----
+sx26 <- exd[, c("snp", "ea", "oa", "beta", "se", "p")]; sy26 <- sx26; sy26$beta <- 0.3 * sx26$beta + rnorm(nrow(sx26), 0, .01); sy26$p <- 2 * pnorm(-abs(sy26$beta / sy26$se))
+pal26 <- sum(paste0(sx26$ea, sx26$oa) %in% c("AT", "TA", "CG", "GC") & sx26$p < 1e-4)
+m26 <- list(snp = "snp", ea = "ea", oa = "oa", beta = "beta", se = "se", p = "p")
+imp26 <- function(df, nm, role, ind, strand) { f <- tempfile(fileext = ".csv"); utils::write.csv(df, f, row.names = FALSE)
+  invisible(import_save(f, basename(f), ",", names(df), m26, modifyList(fct(nm, role, ind), list(frq = "none", strand = strand)))) }
+imp26(sx26, "Fwd X", "exposure", "yes", "forward"); imp26(sy26, "Fwd Y", "outcome", "no", "forward"); imp26(sy26, "Unk Y", "outcome", "no", "unknown")
+pf <- pair_input("lib:Fwd X", "lib:Fwd Y", pthr = 1e-4); pu <- pair_input("lib:Fwd X", "lib:Unk Y", pthr = 1e-4)
+expect("strand: both files forward keeps every palindromic variant (action 1) and counts them", pal26 > 0 && identical(pf$ledger$strand, "forward") && pf$ledger$dropped_palindromic == 0 && pf$ledger$kept_palindromic == pal26 && pf$ledger$harmonise_action == 1L)
+expect("strand: one file not declared forward drops them as before (action 2)", identical(pu$ledger$strand, "unknown") && pu$ledger$dropped_palindromic == pal26 && pu$ledger$kept_palindromic == 0 && pu$ledger$harmonise_action == 2L)
+expect("strand: the import warning says palindromic variants are kept only when both files are forward strand", {
+  f <- tempfile(fileext = ".csv"); utils::write.csv(sx26, f, row.names = FALSE); h6 <- import_read_head(f)
+  any(grepl("unless both files are declared to be on the forward strand", import_validate(f, h6$sep, h6$columns, m26, modifyList(fct("w", "exposure", "yes"), list(frq = "none")))$warnings)) &&
+  any(grepl("You declared the forward strand", import_validate(f, h6$sep, h6$columns, m26, modifyList(fct("w", "exposure", "yes"), list(frq = "none", strand = "forward")))$warnings)) })
+h26 <- studio_new("Strand test"); r26 <- studio_run(h26, pf$exposure_label, pf$outcome_label, pf$input, c("ivw_mre"), idx = 1L)
+ui_state_set(h26$con, "pairs", list(list(ex = "lib:Fwd X", out = "lib:Fwd Y", exName = pf$exposure_label, outName = pf$outcome_label, folder = r26$pair_folder, methods = list("ivw_mre"), ci = 0.95, pthr = 1e-4, simulated = FALSE, ledger = pf$ledger, anc_x = "EUR", anc_y = "EUR")))
+c26 <- lapply(ui_state_get(h26$con, "pairs"), function(p) pair_context(h26, p)); t26 <- report_text(c26, "Strand test"); s26 <- strobe_rows(c26, t26, list(), c("strobe"))
+expect("strand: Methods name action 1 and the kept palindromic variants, Limitations warn that the strand was not verified", {
+  m <- paste(t26$methods, collapse = " "); l <- paste(t26$limitations, collapse = " ")
+  grepl("action 1: the analyst declared that both datasets report alleles on the forward strand", m, fixed = TRUE) && grepl(sprintf("%d palindromic variants were kept", pal26), m, fixed = TRUE) &&
+  !grepl("action 2", m, fixed = TRUE) && grepl("This was not verified", l, fixed = TRUE) })
+expect("strand: STROBE 4c and 10a report the kept palindromic variants", grepl("declared forward strand (action 1)", s26$provides[s26$item == "4c"], fixed = TRUE) && grepl(sprintf("%d palindromic kept", pal26), s26$provides[s26$item == "10a"], fixed = TRUE))
+expect("strand: the feasibility note R29b fires for kept palindromic variants and R29 does not", {
+  fr <- feasibility(list(pair_facts("lib:Fwd X", "lib:Fwd Y", 1e-4)))$methods$ivw_mre$reasons; ids <- vapply(fr, `[[`, "", "rule"); "R29b" %in% ids && !("R29" %in% ids) })
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

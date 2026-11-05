@@ -25,6 +25,7 @@ data,R26,Egger intercept p < 0.05,WARN,Directional pleiotropy; prefer methods ro
 data,R27,Steiger test indicates reverse direction for many IVs,WARN + offer Steiger filtering / bidirectional methods,Possible reverse causation.,Hemani 2017 (PMID 29149188)
 data,R28,estimated sample overlap > 0 (LDSC intercept or shared cohorts) and overlap_handling starts with assumes_none,WARN + RECOMMEND MRlap / MR-APSS / MR-SimSS / CAUSE,Sample overlap can bias toward the observational association.,Burgess 2016 (PMID 27625185)
 data,R29,palindromic SNPs without EAF,AUTO-DROP + INFO,Ambiguous palindromic variants removed.,TwoSampleMR harmonise_data
+data,R29b,palindromic SNPs kept because both files are declared forward strand,ALLOW + INFO,Palindromic variants kept on the analyst's forward-strand statement; not verified.,TwoSampleMR harmonise_data (action 1)
 data,R30,binary exposure,INFO,Estimate is per unit log-odds of exposure; ×0.693 gives per doubling of odds. Interpret via underlying continuous liability.,Burgess & Labrecque 2018 (PMID 30039250)
 data,R31,MR-PRESSO: NbDistribution ≤ n_IV,AUTO-FIX,NbDistribution raised above n_IV.,MR-PRESSO code
 data,R32,LD matrix not positive-definite / LD–GWAS mismatch,AUTO-FIX (prune / DENTIST QC) or BLOCK,LD reference inconsistent with GWAS.,Chen 2021 (PMID 34880243)

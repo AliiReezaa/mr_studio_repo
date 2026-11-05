@@ -169,7 +169,7 @@ demo_input <- function(exp_id, out_id) {
 
 #' A pair of imported datasets, made ready for the methods: instruments are the exposure variants with P below the threshold (the file must
 #' already hold independent variants), looked up in the outcome and harmonised with TwoSampleMR::harmonise_data (action 2: palindromic
-#' variants are aligned by allele frequency or dropped). Every instrument that is lost on the way is counted in the `ledger`.
+#' variants are aligned by allele frequency or dropped; action 1, keeping them, when both files are declared forward strand). Every instrument that is lost on the way is counted in the `ledger`.
 library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root()) {
   ex <- library_dataset(sub("^lib:", "", exp_id), root); ou <- library_dataset(sub("^lib:", "", out_id), root)
   if (!isTRUE(ex$recipe$usable_as_exposure)) stop("\"", ex$recipe$trait, "\" is neither marked as a set of independent instruments nor set to be clumped on this computer, so it cannot be an exposure. Import it again and answer the question about independent variants. Import a file that holds only clumped, genome-wide significant variants and answer \"Yes\" to the question about independent variants.")
@@ -213,9 +213,11 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
     if ("p" %in% names(D)) D2$pval <- D$p
     if ("n" %in% names(D)) D2$samplesize <- D$n
     suppressMessages(TwoSampleMR::format_data(D2, type = type, snp_col = "SNP", beta_col = "beta", se_col = "se", effect_allele_col = "effect_allele", other_allele_col = "other_allele",
-      eaf_col = if ("eaf" %in% names(D2)) "eaf" else NULL, pval_col = if ("pval" %in% names(D2)) "pval" else NULL, samplesize_col = if ("samplesize" %in% names(D2)) "samplesize" else NULL))
+      eaf_col = "eaf", pval_col = "pval", samplesize_col = "samplesize"))   # always a name: format_data skips a column that is absent, but fails on NULL (Round 26)
   }
-  H <- suppressWarnings(suppressMessages(TwoSampleMR::harmonise_data(fmt(X, "exposure"), fmt(Y, "outcome"), action = 2)))
+  # Round 26: palindromic variants are kept (action 1) only when the analyst declared, for both files, that alleles are on the forward strand.
+  fwd <- identical(ex$recipe$facts$strand, "forward") && identical(ou$recipe$facts$strand, "forward")
+  H <- suppressWarnings(suppressMessages(TwoSampleMR::harmonise_data(fmt(X, "exposure"), fmt(Y, "outcome"), action = if (fwd) 1 else 2)))
   if (!nrow(H)) stop("No instrument could be matched to the outcome.")
   oy <- stats::setNames(Y$ea, Y$key)
   flipped <- toupper(H$effect_allele.exposure) != toupper(oy[H$SNP])
@@ -227,6 +229,8 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   d <- d[order(d$p_x), , drop = FALSE]; rownames(d) <- NULL
   led$flipped <- sum(d$harmonise_action == "flipped"); led$dropped_palindromic <- sum(d$harmonise_action == "dropped_palindromic")
   led$dropped_mismatch <- sum(d$harmonise_action == "dropped_allele_mismatch"); led$kept <- sum(d$mr_keep); led$threshold <- pthr; led$id_kind <- kx$kind
+  led$strand <- if (fwd) "forward" else "unknown"; led$harmonise_action <- if (fwd) 1L else 2L
+  led$kept_palindromic <- sum(H$palindromic[match(d$variant_id, H$SNP)] %in% TRUE & d$mr_keep)
   if (led$kept < 2L) stop("Fewer than 2 instruments remain after harmonisation.")
   sc <- if (identical(ou$recipe$facts$kind, "binary")) "log_or" else "beta"
   scx <- if (identical(ex$recipe$facts$kind, "binary")) "log_or" else "beta"

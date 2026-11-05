@@ -49,6 +49,7 @@ feas_i2gx <- function(bx, sx) { ok <- is.finite(bx) & is.finite(sx) & sx > 0; if
       }
     },
     palindromic_dropped = { n <- f$ledger$dropped_palindromic %||% 0; if (n > 0) list(n = n) },
+    palindromic_kept = { n <- if (identical(f$ledger$strand, "forward")) f$ledger$kept_palindromic %||% 0 else 0; if (n > 0) list(n = n) },   # Round 26
     binary_exposure = if (identical(f$scale_x, "log_or")) list(),
     presso_nbdist = { nb <- suppressWarnings(as.numeric(ctx$params$nbdist %||% 1000)); if (nb <= f$instruments) list(nb = nb, n = f$instruments) },
     heavy_runtime = list(),
