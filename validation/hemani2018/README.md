@@ -97,3 +97,22 @@ clumps these do not reproduce. The paper's outliers are among the instruments: a
 rs4530754 with live and local clumping.
 
 `results.csv` has every number above; `instruments.csv` lists which rsIDs each clumping choice kept.
+
+## Attempt at a matched recent paper (2026-11-05)
+
+To compare with a published study that used the same data and settings, Europe PMC full texts were searched for recent papers
+naming `ieu-a-300` and `ieu-a-7`. The closest match was Bure et al. 2026, *Medicine* 105:e47880 (doi:10.1097/MD.0000000000047880,
+PMID 41894294): LDL cholesterol (`ieu-a-300`) on CAD (`ieu-a-7`) with TwoSampleMR, P < 5e-8, r² < 0.001, a window given as
+"10,000 base-pair", 113 variants, IVW 0.678496 (SE 0.042268), MR-Egger 0.410885 (SE 0.063061).
+Run today through TwoSampleMR itself (0.7.13), with no MR Studio involved:
+
+| Window | Clumping | Variants kept | IVW (SE) | MR-Egger (SE) |
+|---|---|---|---|---|
+| 10 kb | stored or live | 584 | 0.391 (0.019) | 0.483 (0.034) |
+| 10,000 kb | stored | 73 | 0.388 (0.042) | 0.400 (0.060) |
+| 10,000 kb | live | 77 | 0.412 (0.051) | 0.503 (0.078) |
+
+Neither reading reproduces the paper's 113 variants or its IVW estimate, so the paper cannot be reproduced from its stated methods
+even with the package it used; it was not used as a reference. A second paper, Lu et al. 2025 (MRanalysis, GigaScience,
+PMC12616851), gives an IVW-type estimate of 0.4110 for the same pair (TwoSampleMR 0.6.8), close to today's live-clumping 0.4124 but
+without the variant count or settings needed for an exact comparison.
