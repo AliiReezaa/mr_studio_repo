@@ -80,6 +80,13 @@ for (md in c("mre", "mre_floor", "fixed")) {
   pe <- pair_payload(hh$dir, rr$pair_folder)$estimates[[1]]; fr <- ref(fn)
   expect(paste("IVW model", md, "matches the TwoSampleMR function and the 90% level"), abs(pe$se - fr$se) < 1e-9 && abs(pe$estimate - fr$b) < 1e-9 && abs(pe$ci_level - 0.9) < 1e-12 && identical(pe$method_name, IVW_MODEL_NAMES[[md]]))
 }
+# Round 30: the default IVW model is TwoSampleMR::mr_ivw (multiplicative random effects with the SE not below the fixed-effect SE), as in the Burgess guidelines
+pdef <- pair_payload(hh$dir, ra$pair_folder); edef <- Filter(function(e) identical(e$method, "ivw_mre"), pdef$estimates)[[1]]; fdef <- ref(TwoSampleMR::mr_ivw)
+expect("Round 30: with no setting the IVW model is TwoSampleMR::mr_ivw, the TwoSampleMR default, and is labelled as such",
+       identical(pdef$settings$ivw_model, "mre_floor") && abs(edef$se - fdef$se) < 1e-9 && abs(edef$p - fdef$pval) < 1e-12 && identical(edef$method_name, "IVW (multiplicative random effects)") &&
+       identical(resolve_params(ADAPTER_IVW_MRE_V11, list())$ivw_model, "mre_floor") && identical(ADAPTER_IVW_MRE_V11$params$ivw_model$values[1], "mre_floor"))
+sigl <- summary(stats::lm(beta_y ~ -1 + beta_x, data = dd, weights = 1 / dd$se_y^2))$sigma
+expect("Round 30: the default SE is never below the fixed-effect SE", edef$se >= ref(TwoSampleMR::mr_ivw_fe)$se - 1e-12 && (sigl >= 1 || abs(edef$se - ref(TwoSampleMR::mr_ivw_fe)$se) < 1e-12))
 pst <- pair_payload(hh$dir, rr$pair_folder)$settings
 expect("the payload reports the settings the pair was run with, read from its scripts", identical(pst$ivw_model, "fixed") && abs(pst$ci_level - 0.9) < 1e-12 && pst$min_f == 0)
 big <- studio_run(hh, "F filter", "Simulated outcome A", di$input, c("ivw_mre", "egger"), params = list(min_f = 30), idx = 20L)
@@ -148,7 +155,7 @@ pd_np <- file.path(tempfile("np-"), basename(pd_v)); dir.create(dirname(pd_np));
 sf <- list.files(file.path(pd_np, "02_scripts"), pattern = "^01_", full.names = TRUE); sx <- readLines(sf); sx <- sub("^# Package  : TwoSampleMR", "# Package  : NoSuchPackageXyz", sx); writeLines(sx, sf)
 vo3 <- run_verify(pd_np)
 expect("check script: a missing package gets the install lines, not an obscure error", any(grepl("remotes::install_github", vo3)) && any(grepl("NoSuchPackageXyz", vo3)))
-expect("customise panel schema comes from the adapters", all(c("label", "hint", "min", "max", "default", "type") %in% names(param_schemas()$ivw_mre$ci_level)) && identical(names(param_schemas()$ivw_mre), c("ci_level", "ivw_model", "min_f")) && identical(names(param_schemas()$egger), c("ci_level", "min_f")) && identical(unlist(param_schemas()$ivw_mre$ivw_model$values), c("mre", "mre_floor", "fixed")))
+expect("customise panel schema comes from the adapters", all(c("label", "hint", "min", "max", "default", "type") %in% names(param_schemas()$ivw_mre$ci_level)) && identical(names(param_schemas()$ivw_mre), c("ci_level", "ivw_model", "min_f")) && identical(names(param_schemas()$egger), c("ci_level", "min_f")) && identical(unlist(param_schemas()$ivw_mre$ivw_model$values), c("mre_floor", "mre", "fixed")))
 DBI::dbDisconnect(h3$con)
 
 # ---- data import ----------------------------------------------------------------------------------------------------------------
@@ -839,8 +846,12 @@ fz <- feasibility(list(fx_base))
 expect("feasibility: the demo pair (40 strong instruments) leaves every method available, IVW without any rule", all(vapply(fz$methods, `[[`, "", "state") %in% c("ok", "check")) && identical(fz$methods$ivw_mre$state, "ok") && !length(fz$methods$ivw_mre$reasons))
 mk <- function(...) modifyList(fx_base, list(...))
 f3 <- feasibility(list(mk(instruments = 3)))
-expect("feasibility: 3 instruments lock MR-PRESSO and radial MR-Egger (R20) and warn for MR-Egger (R21), IVW stays available",
-       f3$methods$presso$state == "locked" && f3$methods$radegger$state == "locked" && f3$methods$egger$state == "check" && "R21" %in% vapply(f3$methods$egger$reasons, `[[`, "", "rule") && f3$methods$ivw_mre$state == "ok")
+expect("feasibility: 3 instruments lock MR-PRESSO and radial MR-Egger (R20) and warn for MR-Egger (R21); IVW stays usable with the R21b warning",
+       f3$methods$presso$state == "locked" && f3$methods$radegger$state == "locked" && f3$methods$egger$state == "check" && "R21" %in% vapply(f3$methods$egger$reasons, `[[`, "", "rule") &&
+       f3$methods$ivw_mre$state == "check" && identical(vapply(f3$methods$ivw_mre$reasons, `[[`, "", "rule"), "R21b"))
+f4 <- feasibility(list(mk(instruments = 4)))
+expect("Round 30: R21b warns for IVW below 4 instruments only, and says why (heterogeneity cannot be estimated reliably)",
+       !"R21b" %in% vapply(f4$methods$ivw_mre$reasons, `[[`, "", "rule") && grepl("cannot be estimated reliably", f3$methods$ivw_mre$reasons[[1]]$msg) && grepl("3 instruments", f3$methods$ivw_mre$reasons[[1]]$msg))
 fw <- feasibility(list(mk(mean_f = 8.2, i2gx = 0.8)))
 rl <- function(fe, m) vapply(fe$methods[[m]]$reasons, `[[`, "", "rule")
 expect("feasibility: mean F below 10 warns every estimator (R23); I2GX below 0.9 warns the Egger methods only (R24)",
@@ -907,5 +918,20 @@ expect("strand: Methods name action 1 and the kept palindromic variants, Limitat
 expect("strand: STROBE 4c and 10a report the kept palindromic variants", grepl("declared forward strand (action 1)", s26$provides[s26$item == "4c"], fixed = TRUE) && grepl(sprintf("%d palindromic kept", pal26), s26$provides[s26$item == "10a"], fixed = TRUE))
 expect("strand: the feasibility note R29b fires for kept palindromic variants and R29 does not", {
   fr <- feasibility(list(pair_facts("lib:Fwd X", "lib:Fwd Y", 1e-4)))$methods$ivw_mre$reasons; ids <- vapply(fr, `[[`, "", "rule"); "R29b" %in% ids && !("R29" %in% ids) })
+
+# ---- Round 30: default IVW model (TwoSampleMR::mr_ivw) in the Methods, and the Limitations sentence below 4 variants ----
+expect("Round 30: the Methods name the default IVW model (mr_ivw, SE not below fixed effect) and cite the guidelines", {
+  m <- paste(t26$methods, collapse = " ")
+  grepl("multiplicative random effects, with the residual standard error not allowed below 1", m, fixed = TRUE) && grepl("TwoSampleMR mr_ivw)", m, fixed = TRUE) &&
+    grepl("Burgess 2013, Burgess 2023, Hemani 2018", m, fixed = TRUE) && !grepl("fewer than 4 variants", paste(t26$limitations, collapse = " ")) })
+p3 <- pf$input; p3$data <- utils::head(p3$data[order(p3$data$se_x / abs(p3$data$beta_x)), ], 3)
+h30 <- studio_new("Three variants"); r30 <- studio_run(h30, pf$exposure_label, pf$outcome_label, p3, c("ivw_mre"), idx = 1L)
+ui_state_set(h30$con, "pairs", list(list(ex = "lib:Fwd X", out = "lib:Fwd Y", exName = pf$exposure_label, outName = pf$outcome_label, folder = r30$pair_folder, methods = list("ivw_mre"), ci = 0.95, pthr = 1e-4, simulated = FALSE, ledger = pf$ledger, anc_x = "EUR", anc_y = "EUR")))
+c30 <- lapply(ui_state_get(h30$con, "pairs"), function(p) pair_context(h30, p)); t30 <- report_text(c30, "Three variants")
+e30 <- pair_payload(h30$dir, r30$pair_folder)$estimates[[1]]
+f30 <- suppressWarnings(TwoSampleMR::mr_ivw(p3$data$beta_x, p3$data$beta_y, p3$data$se_x, p3$data$se_y, TwoSampleMR::default_parameters()))
+expect("Round 30: with 3 variants IVW still runs (equal to TwoSampleMR::mr_ivw) and the Limitations say heterogeneity could not be estimated reliably",
+       e30$n_ivs_used == 3L && abs(e30$se - f30$se) < 1e-9 && abs(e30$estimate - f30$b) < 1e-9 &&
+       grepl("In one pair, fewer than 4 variants were used, so the heterogeneity between the variants could not be estimated reliably", paste(t30$limitations, collapse = " "), fixed = TRUE))
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

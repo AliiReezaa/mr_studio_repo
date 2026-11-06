@@ -47,7 +47,7 @@ expect("emit_script gives identical bytes twice", identical(charToRaw(s1), charT
 expect("script has no date, time, user or absolute path",
        !grepl("Sys\\.time|Sys\\.Date|Sys\\.info|/home/|/Users/|[A-Z]:[/\\\\]|tempdir|getwd", s1))
 expect("script calls the package function with every argument written out",
-       grepl("TwoSampleMR::mr_ivw_mre,", s1) && grepl("fit <- fit_fun\\(", s1) && grepl("ivw_model <- \"mre\"", s1) && grepl("min_f <- 0", s1) && grepl("parameters = TwoSampleMR::default_parameters\\(\\)", s1) &&
+       grepl("TwoSampleMR::mr_ivw,", s1) && grepl("TwoSampleMR::mr_ivw_mre,", s1) && grepl("fit <- fit_fun\\(", s1) && grepl("ivw_model <- \"mre_floor\"", s1) && grepl("min_f <- 0", s1) && grepl("parameters = TwoSampleMR::default_parameters\\(\\)", s1) &&
        grepl("ci_level <- 0.95", s1) && grepl("set.seed\\(123456\\)", s1) && grepl("RNGkind\\(\"Mersenne-Twister\"", s1))
 expect("script contains no app code (no source() of engine files, no mrgui calls)",
        !grepl("mrgui|adapter\\.R|runner\\.R|canonical\\.R", s1))

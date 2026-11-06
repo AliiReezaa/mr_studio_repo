@@ -355,7 +355,7 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
 }
 
 METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger", steiger = "MR Steiger directionality")
-IVW_MODEL_NAMES <- c(mre = "IVW (multiplicative random effects)", mre_floor = "IVW (random effects when over-dispersed)", fixed = "IVW (fixed effect)")
+IVW_MODEL_NAMES <- c(mre_floor = "IVW (multiplicative random effects)", mre = "IVW (multiplicative random effects, no fixed-effect floor)", fixed = "IVW (fixed effect)")
 
 #' The settings a pair was run with, read back from the settings lines of its scripts (the scripts are the record).
 pair_settings <- function(study, pair_folder) {

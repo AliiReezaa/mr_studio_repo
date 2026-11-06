@@ -84,7 +84,7 @@ for (ex in lips) for (set in c("all", "primary")) {
   # Every variant kept (no harmonisation: both columns come from one table with the same effect allele), through TwoSampleMR directly.
   s <- sel(ex, set) & d[[paste0(ex, "_lp")]] < log(THR) & oky
   bx <- d[[paste0(ex, "_b")]][s]; sx <- d[[paste0(ex, "_se")]][s]; by <- d$chd_b[s]; sy <- d$chd_se[s]; pa <- TwoSampleMR::default_parameters()
-  iv <- TwoSampleMR::mr_ivw_mre(bx, by, sx, sy, pa); eg <- TwoSampleMR::mr_egger_regression(bx, by, sx, sy, pa)
+  iv <- TwoSampleMR::mr_ivw(bx, by, sx, sy, pa); eg <- TwoSampleMR::mr_egger_regression(bx, by, sx, sy, pa)
   set.seed(1); wm <- TwoSampleMR::mr_weighted_median(bx, by, sx, sy, pa); set.seed(1); sm <- TwoSampleMR::mr_simple_median(bx, by, sx, sy, pa)
   allk <- list(ivw = c(iv$b, iv$se), egger = c(eg$b, eg$se), egger_int = c(eg$b_i, eg$se_i), wm = c(wm$b, wm$se), smed = c(sm$b, sm$se))
   for (e in pl$estimates) { k <- key(e$method, e$estimand); t4 <- T4[T4$exposure == ex & T4$set == set & T4$method == k, ]

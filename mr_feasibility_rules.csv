@@ -17,6 +17,7 @@ selection,R14,"extra_data not available (e.g. sex-stratified, family, mediator, 
 selection,R15,outcome_type/exposure_type mismatch (e.g. binary-only method with continuous outcome),BLOCK,Method supports {outcome_type} outcomes only.,inventory
 data,R20,n_IV < min_ivs_hard (evaluated after clumping/harmonisation),BLOCK,Needs ≥{min_ivs_hard} instruments; found {n_iv}.,iv_rule_source column
 data,R21,n_IV < min_ivs_recommended,WARN,"Runs, but low power/unstable with {n_iv} instruments.",iv_rule_source column
+data,R21b,n_IV < 4 for IVW,WARN,"Runs, but heterogeneity cannot be estimated reliably with {n_iv} instruments.",Burgess 2023 (PMID 32760811)
 data,R22,n_IV > max_ivs,BLOCK (offer top-N subset),Method limited to {max_ivs} instruments.,package code
 data,R23,mean F-statistic < 10 (univariable) or conditional F < 10 (MVMR),WARN + RECOMMEND dIVW / pIVW / MR-RAPS / MRlap / MVMR-cML,Weak instruments detected.,Burgess 2011 (PMID 21414999); Sanderson 2021 (PMID 34338327)
 data,R24,I²GX < 0.9 for MR-Egger family,WARN + RECOMMEND SIMEX / Radial-Egger,Egger estimate may be diluted (NOME violation).,Bowden 2016 (PMID 27616674)

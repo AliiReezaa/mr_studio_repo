@@ -24,7 +24,7 @@ From the repository root:
     Rscript --vanilla validation/bowden2016/run_validation.R
 
 The script works in a throw-away studies folder. It imports the four traits through MR Studio's importer, pairs and
-harmonises them with `pair_input`, and runs IVW (multiplicative random effects), MR-Egger, weighted median and simple
+harmonises them with `pair_input`, and runs IVW (multiplicative random effects; TwoSampleMR mr_ivw since Round 30, which on these data equals mr_ivw_mre because the variants are over-dispersed, so no number changed), MR-Egger, weighted median and simple
 median through the generated scripts with the replay check, twice: with the strand left as "Not sure" (the default) and with
 both files declared to be on the forward strand (Round 26). The second is true for this data, because all four traits come
 from one table with the same effect allele. For comparison it also runs TwoSampleMR directly with every variant kept.

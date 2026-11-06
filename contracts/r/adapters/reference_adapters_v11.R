@@ -20,15 +20,15 @@
   evidence = NA_character_, affects = c("estimate", "ci", "p")))
 
 .ivw_model_param_v11 <- list(ivw_model = list(
-  type = "enum", default = "mre", values = c("mre", "mre_floor", "fixed"),
-  value_labels = c(mre = "Multiplicative random effects", mre_floor = "Random effects when the variants are over-dispersed", fixed = "Fixed effect"),
-  value_hints = c(mre = "The standard error grows with heterogeneity and may also shrink when the variants agree better than chance. TwoSampleMR function mr_ivw_mre. The usual default.",
-                  mre_floor = "Random-effects standard error when heterogeneity is present, the fixed-effect standard error otherwise. TwoSampleMR function mr_ivw.",
+  type = "enum", default = "mre_floor", values = c("mre_floor", "mre", "fixed"),
+  value_labels = c(mre_floor = "Multiplicative random effects (standard)", mre = "Multiplicative random effects without the fixed-effect floor", fixed = "Fixed effect"),
+  value_hints = c(mre_floor = "The standard error grows with heterogeneity but never falls below the fixed-effect standard error. TwoSampleMR function mr_ivw, the IVW method TwoSampleMR::mr() runs by default; MendelianRandomization::mr_ivw gives the same result with 4 or more variants. Recommended by the Burgess et al. guidelines.",
+                  mre = "The standard error grows with heterogeneity and also shrinks below the fixed-effect standard error when the variants agree better than chance, which makes the P value too small with few variants. TwoSampleMR function mr_ivw_mre.",
                   fixed = "Assumes every variant estimates the same effect, so heterogeneity does not widen the interval. TwoSampleMR function mr_ivw_fe."),
   label = "Effects model",
   hint = "How between-variant heterogeneity enters the standard error. The estimate is the same in all three; only its standard error, interval and P value change.",
   package_arg = NA_character_, kind = "enum", conventional = TRUE, advanced = FALSE,
-  evidence = "Multiplicative random effects is the default of TwoSampleMR::mr_ivw_mre and the usual choice when variants may differ in effect.",
+  evidence = "Burgess et al. guidelines (PMID 32760811): multiplicative random effects as the default IVW model; the residual standard error is not allowed below 1, as in TwoSampleMR::mr_ivw and MendelianRandomization::mr_ivw.",
   affects = c("se", "ci", "p")))
 
 # Single-variant F filter, written into the script as plain base R (no estimator).
@@ -70,8 +70,8 @@
     .script_lines_repro(seed), .script_lines_data, .script_lines_minf(a$requires$min_ivs),
     "# ---- 5. Analysis: inverse-variance weighted estimate (TwoSampleMR) ----------------",
     "fit_fun <- switch(ivw_model,",
-    "  mre = TwoSampleMR::mr_ivw_mre,         # multiplicative random effects",
-    "  mre_floor = TwoSampleMR::mr_ivw,       # random effects when over-dispersed, fixed effect otherwise",
+    "  mre_floor = TwoSampleMR::mr_ivw,       # multiplicative random effects, SE not below the fixed-effect SE (TwoSampleMR default)",
+    "  mre = TwoSampleMR::mr_ivw_mre,         # multiplicative random effects without the fixed-effect floor",
     "  fixed = TwoSampleMR::mr_ivw_fe)        # fixed effect",
     "fit <- fit_fun(",
     "  b_exp = dat$beta_x, b_out = dat$beta_y,",

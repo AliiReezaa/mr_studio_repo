@@ -8,7 +8,7 @@ This folder checks the three active heuristic rules of the feasibility engine (p
 | R23 | all causal estimates | mean F of at least 10 | Burgess 2011 (PMID 21414999) |
 | R24 | MR-Egger, radial MR-Egger | I2GX of at least 0.9 | Bowden 2016 (PMID 27616674) |
 
-No threshold was changed. The results below are for Mina to decide on.
+No threshold was changed for R21, R23 or R24. One finding about IVW led to a change of the default IVW model (Round 30, see below).
 
 ## How to rerun
 
@@ -58,7 +58,7 @@ Findings:
 1. For the methods R21 covers, no false positive rate is above 0.075 at any k, except the weighted median at k = 3 in the balanced scenario (0.090). The mode methods and MR-Egger are conservative at small k (rates near 0, coverage 0.97 to 1.00), which means low power rather than false positives.
 2. The precision part of the R21 message holds for MR-Egger and radial MR-Egger: their empirical SD is 4.3 and 5.4 times that of IVW at k = 10, and 12.1 times (MR-Egger) at k = 3. For the median and mode methods the SD is 0.7 to 2.0 times that of IVW at every k, so "imprecise" is mild for them.
 3. The simulation shows no sharp change at 10 instruments: the false positive rates do not point to a different cut-off, and the SDs fall gradually with k. 10 stays a rule of thumb.
-4. Not covered by R21, but found here: the app's IVW (TwoSampleMR::mr_ivw_mre, multiplicative random effects with a normal reference distribution) has a false positive rate of 0.194 at k = 3, 0.086 at k = 10 and at most 0.064 from k = 15 (valid scenario); coverage is 0.81 at k = 3. Radial IVW has the same estimate and, on average, the same SE, but takes its P value from a t distribution with k - 1 degrees of freedom; its rate stays between 0.042 and 0.068 at every k. The difference is the reference distribution.
+4. Not covered by R21, but found here: the app's IVW as it was then (TwoSampleMR::mr_ivw_mre, multiplicative random effects with no lower limit on the residual standard error) has a false positive rate of 0.194 at k = 3, 0.086 at k = 10 and at most 0.064 from k = 15 (valid scenario); coverage is 0.81 at k = 3. Radial IVW has the same estimate and, on average, the same SE, but takes its P value from a t distribution with k - 1 degrees of freedom; its rate stays between 0.042 and 0.068 at every k. The difference is the reference distribution.
 
 ### R23, instrument strength
 
@@ -120,9 +120,26 @@ Findings:
 4. Sample overlap between the two GWAS, where weak instruments bias toward the observational estimate instead of the null.
 5. Directional (non-balanced) pleiotropy under R21.
 
-## Options for Mina (no change made)
+## IVW effects model with few variants (Round 30, changed)
+
+Finding 4 of R21 was followed up with ivw_models.R (20,000 repetitions per cell, Monte Carlo SE about 0.15 percentage points; results_ivw_models.csv). The Burgess et al. guidelines (PMID 32760811) recommend multiplicative random effects as the default IVW model unless there are very few variants, because then the heterogeneity between variants cannot be estimated reliably. TwoSampleMR::mr_ivw (the IVW method TwoSampleMR::mr() runs by default) and MendelianRandomization::mr_ivw do not let the residual standard error fall below 1, so the standard error is never smaller than the fixed-effect one; TwoSampleMR::mr_ivw_mre, which MR Studio used before, has no such limit. The closed forms in the script equal MendelianRandomization::mr_ivw to 5.0e-16.
+
+False positive rate at theta = 0:
+
+| k | mr_ivw_mre (valid) | mr_ivw (valid) | mr_ivw_mre (balanced) | mr_ivw (balanced) | Fixed effect (balanced) |
+|---|---|---|---|---|---|
+| 3 | 0.187 | 0.038 | 0.147 | 0.075 | 0.323 |
+| 4 | 0.148 | 0.037 | 0.117 | 0.064 | 0.278 |
+| 5 | 0.118 | 0.036 | 0.099 | 0.058 | 0.247 |
+| 10 | 0.081 | 0.040 | 0.066 | 0.056 | 0.255 |
+| 15 | 0.071 | 0.040 | 0.061 | 0.057 | 0.260 |
+| 30 | 0.058 | 0.039 | 0.055 | 0.055 | 0.263 |
+
+Decision (Round 30): the default IVW model is now TwoSampleMR::mr_ivw for any number of variants; mr_ivw_mre and fixed effect stay available in Customise. MendelianRandomization switches to fixed effect below 4 variants; mr_ivw is kept there because fixed effect gives a false positive rate of 0.323 with 3 variants and balanced pleiotropy, against 0.075 for mr_ivw. A new feasibility rule, R21b, warns for IVW below 4 instruments that the heterogeneity cannot be estimated reliably, and the Limitations of the report say so.
+
+## Options (no change made)
 
 1. R21: keep 10. The simulation supports the message for MR-Egger and radial MR-Egger and shows no better cut-off.
-2. IVW with few instruments (new). Option A: add a warning for IVW below 15 instruments (false positive rate 0.086 at k = 10, 0.056 at k = 15). Pro: the reported IVW numbers stay identical to TwoSampleMR and the validation studies. Con: one more warning. Option B: report the IVW P value from a t distribution with k - 1 degrees of freedom, as radial IVW does. Pro: correct rate at every k. Con: the primary result no longer matches TwoSampleMR::mr_ivw_mre, so it needs its own Methods sentence.
+2. IVW with few instruments: settled in Round 30 by following the guidelines (see the section above).
 3. R23: keep 10 for IVW. Optionally add to the message that MR-Egger and the median and mode methods are biased more, and that instruments selected in the same exposure GWAS can be biased even with a high F.
 4. R24: keep 0.9 for MR-Egger. For radial MR-Egger either keep 0.9 (10.6% just above it) or use 0.95 for that method.

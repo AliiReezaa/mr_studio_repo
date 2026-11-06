@@ -269,10 +269,11 @@ report_text <- function(ctxs, study_name) {
     fl <- if (isTRUE(st$min_f > 0)) sprintf(" Variants with a single-variant F statistic below %s were left out.", st$min_f) else ""
     txt$methods <- c(txt$methods, sprintf("The strength of the instruments was summarised by the single-variant F statistic, (beta_x / se_x)^2: mean %.1f, minimum %.1f, with %d of %d variants below 10.%s", cx$mean_f, cx$min_f, cx$n_weak, nrow(cx$kept), fl))
   }
-  ivw_model <- c(mre = "multiplicative random effects", mre_floor = "random effects when the variants are over-dispersed and fixed effect otherwise", fixed = "a fixed-effect model")
+  ivw_model <- c(mre_floor = "multiplicative random effects, with the residual standard error not allowed below 1 so that the standard error is never smaller than that of a fixed-effect model (TwoSampleMR mr_ivw), the model the guidelines recommend as the default",
+                 mre = "multiplicative random effects without a lower limit on the residual standard error (TwoSampleMR mr_ivw_mre)", fixed = "a fixed-effect model")
   st1 <- ctxs[[1]]$settings
   desc <- vapply(used, function(m) switch(m,
-    ivw_mre = sprintf("The primary estimate was the %s estimator with %s [Burgess 2013, Hemani 2018].", mname[["ivw_mre"]], ivw_model[[st1$ivw_model %||% "mre"]]),
+    ivw_mre = sprintf("The primary estimate was the %s estimator with %s [%s].", mname[["ivw_mre"]], ivw_model[[st1$ivw_model %||% "mre"]], if (identical(st1$ivw_model, "mre_floor")) "Burgess 2013, Burgess 2023, Hemani 2018" else "Burgess 2013, Hemani 2018"),
     egger = "MR-Egger regression was used to test for directional pleiotropy through its intercept and to estimate the effect allowing for it; variants were oriented to a positive exposure effect and confidence intervals use a t distribution with k - 2 degrees of freedom [Bowden 2015].",
     wm = sprintf("The weighted median estimator, which is consistent when at least half of the weight comes from valid instruments, was computed with a bootstrapped standard error (%s replications) [Bowden 2016].", format(st1$nboot %||% 1000)),
     smed = sprintf("The simple median estimator, which is consistent when at least half of the variants are valid instruments, was computed with a bootstrapped standard error (%s replications) [Bowden 2016].", format(st1$nboot %||% 1000)),
@@ -319,6 +320,8 @@ report_text <- function(ctxs, study_name) {
   if (anyog) lim <- c(lim, "Instruments from OpenGWAS were clumped against 1000 Genomes reference panels (on its server or, where stated, on the analyst's computer with the same panel), so linkage disequilibrium was estimated in a reference sample and not in the study population. Proxy variants, where used, stand in for missing instruments and are listed in the harmonised data table.")
   lim <- c(lim, overlap_limitations(ctxs),
            steiger_limitations(ctxs),
+           { nfew <- sum(vapply(ctxs, function(x) "ivw_mre" %in% x$methods && !is.null(x$kept) && nrow(x$kept) < 4, TRUE))   # Round 30, rule R21b
+             if (nfew) sprintf("In %s, fewer than 4 variants were used, so the heterogeneity between the variants could not be estimated reliably and the IVW confidence interval and P value are uncertain [Burgess 2023].", if (nfew == 1) "one pair" else paste(nfew, "pairs")) else NULL },
            if (any(vapply(ctxs, function(x) x$n_weak > 0, TRUE))) "Some variants have an F statistic below 10, which can bias estimates toward the null in two-sample MR." else NULL,
            if (any(c("presso", "radial", "radegger") %in% used)) "Variants flagged by MR-PRESSO or radial MR were reported but not removed from the primary analysis. Detectors flag variants by a statistical rule and cannot tell horizontal pleiotropy from valid heterogeneity; any analysis without flagged variants is a post-hoc sensitivity analysis and must be reported as one [Burgess 2023]." else "Outlier detection (MR-PRESSO, radial MR) was not run in this study. Pleiotropy-robust estimators were compared with the IVW estimate; agreement in direction does not prove the assumptions hold.",
            "No correction for multiple testing was applied across pairs.")

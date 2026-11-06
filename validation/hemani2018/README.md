@@ -26,7 +26,7 @@ variants were used (inferred). The paper names three outliers (rs11065987, rs125
   clumping choice: stored clumps (against `TwoSampleMR::extract_instruments` with its defaults), live server clumping (against
   `ieugwasr::tophits(force_server = TRUE)`) and this computer (against `ieugwasr::ld_clump_local` on the same EUR panel and PLINK).
   Then the outcome lookup with proxies (r² 0.8), harmonisation (action 2, allele frequencies available), IVW (multiplicative random
-  effects), MR-Egger, weighted median, simple median and weighted mode, Cochran's Q, and the replay check.
+  effects; TwoSampleMR mr_ivw since Round 30, equal to mr_ivw_mre here because Q/df is 4.0 to 5.2 for every clumping choice), MR-Egger, weighted median, simple median and weighted mode, Cochran's Q, and the replay check.
   Bootstrap SEs (median and mode methods) are expected to differ slightly, because the seeds differ; estimates should be identical.
 - **Tier B, approximate.** MR Studio against the paper. Exact agreement is not expected: the paper used 2018 data and clumps, and
   OpenGWAS may have changed since.

@@ -64,7 +64,7 @@ const EXPORT_ITEMS = [['scripts', 'Scripts and data tables', 'The R scripts, the
 
 const S = { screen: 'boot', overlap: {}, ovl: null, theme: 'aurora', settings: {}, studies: [], cat: { exposures: [], outcomes: [] }, schemas: {}, study: null, maxStep: 0,
   kind: 'basic', name: '', aim: '', prereg: false, err: null, notice: null, q: '', pthr: '5e-8', factErr: [], ex: [], out: [], pop: 'EUR', methods: ['ivw_mre', 'egger'], steiger: true, prev: {}, mfilter: 'all',
-  params: { ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, custom: null, facts: null, pairs: [], run: null, payloads: {}, rp: 0, size: 'Double column', pub: null, xsel: ['scripts', 'report', 'figs', 'tables', 'text', 'strobe', 'refs', 'capsule'], pkg: null,
+  params: { ci_level: 0.95, min_f: 0, ivw_model: 'mre_floor' }, custom: null, facts: null, pairs: [], run: null, payloads: {}, rp: 0, size: 'Double column', pub: null, xsel: ['scripts', 'report', 'figs', 'tables', 'text', 'strobe', 'refs', 'capsule'], pkg: null,
   info: null, diag: null, editFolder: false, folderErr: null, root: '', dialog: null, lost: false, cmp: null, inst: null, sel: [], sens: [], sensBusy: false, lib: [], tmpls: [], imp: null, sq: '', sf: 'all',
   ogw: { token: { set: false }, cat: { have: false }, offline: false, q: '', pop: '', minN: '', kind: 'any', mr: true, res: null, total: 0, busyCat: false, busyDl: false, tokBusy: false, tokMsg: null, panel: null } };
 let focusId = null;

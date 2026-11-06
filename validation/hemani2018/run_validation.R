@@ -95,7 +95,7 @@ utils::write.csv(data.frame(rsid = allsnp, stored = allsnp %in% exd$stored$snp, 
 
 # ---- 3. outcome, harmonisation and estimates ------------------------------------------------------------------------------------------
 METH <- c("ivw_mre", "egger", "wm", "smed", "mode")
-TSMR <- c(ivw_mre = "mr_ivw_mre", egger = "mr_egger_regression", wm = "mr_weighted_median", smed = "mr_simple_median", mode = "mr_weighted_mode")
+TSMR <- c(ivw_mre = "mr_ivw", egger = "mr_egger_regression", wm = "mr_weighted_median", smed = "mr_simple_median", mode = "mr_weighted_mode")
 key <- function(m, e) if (m == "egger" && e == "pleiotropy_intercept") "egger_int" else m
 h <- studio_new("Hemani2018 LDL CHD"); rows <- list(); i <- 0L
 CHOICES <- c(names(ex), if (tie_run) "local_ties")
