@@ -650,6 +650,27 @@ expect("unpacked panel: the copied panel clumps exactly as the fixture", { o <- 
 dmg24 <- file.path(unp, "dmg"); dir.create(dmg24); file.copy(file.path(dmg, c("EUR.bed", "EUR.bim", "EUR.fam")), dmg24); cd24b <- tempfile("ldref-copy-dmg-")
 ld_panel_copy_start(file.path(dmg24, "EUR.bed"), dir = cd24b, people = fixp); jcb <- wait_job(cd24b)
 expect("unpacked panel: a damaged .bed is refused before copying and nothing is installed", identical(jcb$state, "error") && grepl("does not match its .bim and .fam", jcb$msg) && !isTRUE(ld_panel_status(cd24b)$installed$EUR) && !dir.exists(file.path(cd24b, "unpack")))
+# ---- Round 29: the panel SHA-256 is pinned ----
+expect("panel pin: the archive SHA-256 and the 15 file hashes are pinned (64 hex characters each)",
+       grepl("^[0-9a-f]{64}$", LD_PANEL$sha256) && length(LD_FILE_SHA256) == 15L && all(grepl("^[0-9a-f]{64}$", LD_FILE_SHA256)) &&
+       setequal(names(LD_FILE_SHA256), as.vector(outer(LD_PANEL$pops, c(".bed", ".bim", ".fam"), paste0))))
+fixh <- vapply(c(".bed", ".bim", ".fam"), function(e) digest::digest(file = file.path(fix_dir, paste0("EUR", e)), algo = "sha256"), "")
+fixpins <- setNames(fixh, paste0("EUR", c(".bed", ".bim", ".fam")))
+cd29 <- tempfile("ldref-copy29-"); ld_panel_copy_start(file.path(unp, "1000G_EUR", "EUR.bed"), dir = cd29, people = fixp, pins = fixpins); j29 <- wait_job(cd29); s29 <- readLines(file.path(cd29, "SOURCE_EUR.txt"))
+expect("panel pin: files copied in that equal the pinned files are marked as identical, in the job, SOURCE_EUR.txt and the status",
+       identical(j29$state, "done") && isTRUE(j29$pinned) && any(grepl("identical to the files in the pinned MRC IEU 1kg.v3 archive", s29, fixed = TRUE)) &&
+       isTRUE(ld_panel_matches_pin("EUR", cd29, files = fixpins)) && !isTRUE(ld_panel_matches_pin("EUR", cd29)))
+expect("panel pin: the earlier copy (compared with the real pins) is recorded as differing, not refused, and the status says it is not the pinned panel",
+       identical(jc$state, "done") && !isTRUE(jc$pinned) && any(grepl("SHA-256 differs from the files in the pinned MRC IEU 1kg.v3 archive", readLines(file.path(cd24, "SOURCE_EUR.txt")), fixed = TRUE)) &&
+       isTRUE(ld_panel_status(cd24)$installed$EUR) && identical(ld_panel_status(cd24)$verified$EUR, FALSE))
+ownsha <- digest::digest(file = own_tgz, algo = "sha256")
+expect("panel pin: an archive install writes one record per ancestry, and it matches when the archive hash equals the pin",
+       file.exists(file.path(od, "SOURCE_EUR.txt")) && isTRUE(ld_panel_matches_pin("EUR", od, pin = ownsha)) && !isTRUE(ld_panel_matches_pin("EUR", od)) && !isTRUE(ld_panel_matches_pin("EAS", od, pin = ownsha)))
+old29 <- tempfile("ldref-old-"); dir.create(old29); writeLines(c("source: x", paste("sha256 of the archive:", LD_PANEL$sha256), "ancestries: EUR EAS"), file.path(old29, "SOURCE.txt"))
+expect("panel pin: installs from before Round 29 (one SOURCE.txt) are judged by the archive hash and the ancestries it lists",
+       isTRUE(ld_panel_matches_pin("EUR", old29)) && isTRUE(ld_panel_matches_pin("EAS", old29)) && !isTRUE(ld_panel_matches_pin("SAS", old29)))
+ld_panel_remove("EUR", cd29)
+expect("panel pin: removing an ancestry also removes its record", !file.exists(file.path(cd29, "SOURCE_EUR.txt")) && !isTRUE(ld_panel_status(cd29)$installed$EUR))
 # ---- Round 22: OpenGWAS exposure clumped on this computer ----
 set.seed(22); k22 <- nrow(cand)
 th22 <- data.frame(rsid = cand$snp, chr = "1", position = 1e6 * seq_len(k22), ea = "A", nea = "C", eaf = 0.35, beta = runif(k22, 0.03, 0.08) * sample(c(-1, 1), k22, TRUE), se = NA_real_, p = cand$p, n = 300000, stringsAsFactors = FALSE)
@@ -767,13 +788,13 @@ expect("tie sensitivity run: its own labelled pair folder, detectors left out, r
        identical(pt28$replay$status, "identical") && rt28$ties$regions == 1L &&
        { a <- Filter(function(e) e$method == "ivw_mre", pair_payload(h28$dir, r28$pair_folder)$estimates)[[1]]$estimate; b <- Filter(function(e) e$method == "ivw_mre", pt28$estimates)[[1]]$estimate; !isTRUE(all.equal(a, b)) })
 ui_state_set(h28$con, "pairs", list(list(ex = paste0("lib:", x28$trait), out = paste0("lib:", o28$trait), exName = p28$exposure_label, outName = p28$outcome_label, folder = r28$pair_folder, methods = list("ivw_mre", "egger"), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = p28$ledger, anc_x = "EUR", anc_y = "EUR")))
-ui_state_set(h28$con, "sens", list(list(parent = r28$pair_folder, kind = "ties", remove = list(), folder = rt28$pair_folder, label = rt28$label, kept = rt28$kept, regions = rt28$ties$regions)))
+ui_state_set(h28$con, "sens", list(list(parent = r28$pair_folder, kind = "ties", remove = list(), folder = rt28$pair_folder, label = rt28$label, kept = rt28$kept, regions = rt28$ties$regions, swaps = list(out = rt28$ties$out, `in` = rt28$ties[["in"]]))))
 pk28 <- build_package(h28, c("report", "text", "strobe"), 140); htm28 <- paste(readLines(file.path(pk28$dir, "report.html"), warn = FALSE), collapse = "\n")
-expect("tie report: the Methods say PLINK kept the tied variant first in the reference panel, as ieugwasr and the server do, that this decided 1 region, and the Results give the sensitivity IVW",
-       grepl("PLINK kept the one that comes first in the reference panel, as in ieugwasr::ld_clump_local and OpenGWAS server clumping", htm28, fixed = TRUE) && grepl("This decided the lead variant in 1 region", htm28, fixed = TRUE) &&
+expect("tie report: the Methods say PLINK kept the tied variant first in the reference panel, as ieugwasr and the server do, that the sensitivity analysis left out 1 and added 1 instrument (Round 29 wording), and the Results give the sensitivity IVW",
+       grepl("PLINK kept the one that comes first in the reference panel, as in ieugwasr::ld_clump_local and OpenGWAS server clumping", htm28, fixed = TRUE) && grepl("A sensitivity analysis that kept the variant with the larger |beta/SE| instead left out 1 of the primary instruments and added 1 other", htm28, fixed = TRUE) && grepl("(1 primary instrument left out, 1 other added; ", htm28, fixed = TRUE) && !grepl("decided the lead variant", htm28, fixed = TRUE) &&
        grepl("Sensitivity analysis for tied P values", htm28, fixed = TRUE) && !grepl("were ordered by the absolute value of beta/SE", htm28, fixed = TRUE))
 expect("tie sensitivity refusals: no tie that changes a lead, server clumping, simulated traits",
-       grepl("No tied P value changed a lead variant", err_of(pair_input(paste0("lib:", lx$trait), "lib:Outcome for local", 5e-8, ties = "strongest"))) &&
+       grepl("No tied P value changed an instrument", err_of(pair_input(paste0("lib:", lx$trait), "lib:Outcome for local", 5e-8, ties = "strongest"))) &&
        grepl("clumped on the OpenGWAS server", err_of(pair_input("lib:Server clumped 22", paste0("lib:", lo_sx$trait), 5e-8, ties = "strongest"))) &&
        grepl("Simulated traits", err_of(pair_input("expA", "outA", ties = "strongest"))))
 ps28 <- pair_input("lib:Server clumped 22", paste0("lib:", lo_sx$trait), 5e-8)

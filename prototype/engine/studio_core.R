@@ -231,7 +231,7 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   if (identical(ties, "strongest")) {
     if (is.null(led$ties)) stop(if (is.null(sel)) paste0("MR Studio did not clump the instruments of \"", ex$recipe$trait, "\" (the file was declared to hold independent variants), so there are no ties to break.") else paste0("No two candidates of \"", ex$recipe$trait, "\" share a P value, so there is no tie sensitivity analysis to run."))
     if (isTRUE(led$ties$server)) stop("The instruments of \"", ex$recipe$trait, "\" were clumped on the OpenGWAS server, so MR Studio cannot see which tied variants were left out. Download the exposure with clumping on this computer to run the tie sensitivity analysis.")
-    if (!isTRUE(led$ties$regions > 0)) stop("No tied P value changed a lead variant of \"", ex$recipe$trait, "\", so the tie sensitivity analysis would repeat the primary analysis.")
+    if (!isTRUE(led$ties$regions > 0)) stop("No tied P value changed an instrument of \"", ex$recipe$trait, "\", so the tie sensitivity analysis would repeat the primary analysis.")
     lk <- ou$recipe$lookup
     if (identical(ou$recipe$source$type, "opengwas") && !is.null(lk) && is.null(lk[["tie_alternatives"]]))
       stop("\"", ou$recipe$trait, "\" was downloaded before MR Studio looked up the tie alternatives. Download the outcome again (under another name) to run the tie sensitivity analysis.")
