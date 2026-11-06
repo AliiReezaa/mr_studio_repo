@@ -176,6 +176,21 @@ mr_server <- function(engine_dir) {
           sens[[length(sens) + 1L]] <- rec; ui_state_set(rv$h$con, "sens", sens)
           ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(rv$h$dir, r$pair_folder), reused = isTRUE(r$reused))
         },
+        run_ties = {   # Round 28: tie sensitivity analysis (the strongest |beta/SE| as lead where equal P decided it)
+          req(rv$h); parent <- a$folder
+          sens <- ui_state_get(rv$h$con, "sens") %||% list()
+          old <- Filter(function(x) identical(x$parent, parent) && identical(x$kind, "ties"), sens)
+          idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
+          r <- tryCatch(studio_run_ties(rv$h, a$ex, a$out, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params), pthr = as.numeric(a$pthr %||% 5e-8)), error = function(e) e)
+          if (inherits(r, "error")) { ev("sens_done", ok = FALSE, msg = conditionMessage(r)); return() }
+          bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
+          if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }
+          tryCatch(save_instrument_selection(rv$h$dir, r$pair_folder, r$selection), error = function(e) NULL)
+          sens <- Filter(function(x) !(identical(x$parent, parent) && identical(x$kind, "ties")), sens)
+          rec <- list(parent = parent, kind = "ties", remove = list(), folder = r$pair_folder, label = r$label, kept = r$kept, regions = r$ties$regions, swaps = list(out = r$ties$out, `in` = r$ties[["in"]]))
+          sens[[length(sens) + 1L]] <- rec; ui_state_set(rv$h$con, "sens", sens)
+          ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(rv$h$dir, r$pair_folder), reused = isTRUE(r$reused))
+        },
         build_package = {
           req(rv$h)
           r <- tryCatch(build_package(rv$h, unlist(a$items), a$width_mm, a$pub), error = function(e) e)

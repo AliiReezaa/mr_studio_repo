@@ -1,6 +1,6 @@
 # Validation study 2: Hemani et al. 2018, the MR-Base applied example
 
-Status: **run on real OpenGWAS data on 2026-11-05.** Tier A VERIFIED for stored and live clumping; local clumping differs by design (equal P values, see below). Tier B: IVW agrees with the paper.
+Status: **run on real OpenGWAS data on 2026-11-05 and again on 2026-11-06 (Round 28).** Tier A VERIFIED for all three clumping choices and for the tie sensitivity analysis. Tier B: IVW agrees with the paper.
 
 Paper: Hemani G, Zheng J, Elsworth B, et al. *The MR-Base platform supports systematic causal inference across the human
 phenome.* eLife 2018;7:e34408, doi:10.7554/eLife.34408 (PMID 29846171, open access PMC5976434). The applied example is the
@@ -52,10 +52,15 @@ counts) and `instruments.csv` (rsIDs kept by each clumping choice, no effect siz
 panel installed in MR Studio (or `MRV_LD_DIR`) and the PLINK in `prototype/engine/tools/plink`.
 
 `MRV_DRYRUN=1` runs the whole script on simulated effects at real 1000 Genomes variants with a fake OpenGWAS (no token, no
-internet). On 2026-11-05 the dry run gave identical instruments for all three choices (78), identical harmonised data (73 kept,
-2 by proxy, 4 palindromic dropped), estimates within 1.2e-15 of TwoSampleMR and identical replays.
+internet) and writes its tables to a temporary folder, not here. On 2026-11-05 the dry run gave identical instruments for all three
+choices (78), identical harmonised data (73 kept, 2 by proxy, 4 palindromic dropped), estimates within 1.2e-15 of TwoSampleMR and
+identical replays. Since Round 28 it gives six triplets of neighbouring variants P = 1e-200, so ties decide a lead; on 2026-11-06 the
+tie sensitivity analysis also equalled its independent reference (within 1.5e-15).
 
-## Result (2026-11-05, ieugwasr 1.2.0.9000, TwoSampleMR 0.7.13)
+The tie sensitivity analysis (`local_ties`) is checked against an independent reference: the candidates ranked by P and then by
+the larger |beta/SE|, written by the script itself, and clumped with `ieugwasr::ld_clump_local`.
+
+## Result (2026-11-06, Round 28; ieugwasr 1.2.0.9000, TwoSampleMR 0.7.13)
 
 Datasets: `ieu-a-300` LDL cholesterol (GLGC, Willer 2013, N 173,082) and `ieu-a-7` CHD (CARDIoGRAMplusC4D, Nikpay 2015, 60,801
 cases, 123,504 controls). Neither matches the sample sizes in the paper, so the paper may have used other datasets or versions.
@@ -68,21 +73,25 @@ TwoSampleMR default).
 |---|---|---|---|---|---|
 | Stored clumps | 75 / 75, identical | identical (73 kept, 1 proxy, 2 palindromic dropped) | within 4.4e-16 | 285.5 on 72 df, identical | identical |
 | Live server | 79 / 79, identical | identical (77 kept, 1 proxy, 2 palindromic dropped) | within 2.8e-16 | 363.8 on 76 df, identical | identical |
-| This computer | 76 / 79, 73 shared | differs (follows from the instruments) | IVW 0.395 vs 0.412 | 379.9 on 73 df vs 363.8 on 76 | identical |
+| This computer | 79 / 79, identical | identical (77 kept, 1 proxy, 2 palindromic dropped) | within 2.8e-16 | 363.8 on 76 df, identical | identical |
+| Tie sensitivity (this computer, larger \|beta/SE\| among equal P) | 76 / 76, identical | identical (74 kept, 1 proxy, 2 palindromic dropped) | within 5.0e-16 | 379.9 on 73 df, identical | identical |
 
 Bootstrap SEs of the median and mode methods differ in the third decimal (different seeds), as expected.
 TwoSampleMR names a proxy row by the instrument it replaces (checked; the dry run had assumed it).
 
-Why local clumping differs: OpenGWAS stores the strongest GLGC P values as 1e-200, so 59 of the 3,023 candidates have equal P.
-Without the tie-break of Round 25, MR Studio's local clumping is identical to `ieugwasr::ld_clump_local` and to live server
-clumping (79 of 79). With it, MR Studio keeps the variant with the larger |beta/SE| among equal P values: rs12740374 (SORT1,
-z = -36.6) instead of rs4970834 (z = -32.0) and rs7412 (APOE, z = -58.4) instead of rs7254892 (z = -40.8). The lead change frees or
-removes neighbours in those regions (rs8103315 in; rs413380, rs2965157, rs12721109, rs676388 out). The weighted mode is the most
-sensitive to this (0.255 against 0.540); IVW moves from 0.412 to 0.395.
+Tied P values: OpenGWAS stores the strongest GLGC P values as 1e-200, so 59 of the 3,023 candidates repeat another's P value
+(102 candidates share a P value with at least one other). On 2026-11-05 MR Studio still broke these ties by |beta/SE| in its
+primary analysis (Round 25), which gave 76 instruments instead of the server's 79. Since Round 28 the primary analysis keeps
+PLINK's own choice among equal P values (the variant first in the reference panel), and local clumping equals
+`ieugwasr::ld_clump_local` and live server clumping exactly (79 of 79). The tie-break is now the tie sensitivity analysis: it keeps
+rs12740374 (SORT1, z = -36.6) instead of rs4970834 (z = -32.0) and rs7412 (APOE, z = -58.4) instead of rs7254892 (z = -40.8), and the
+lead change frees or removes neighbours (rs8103315 in; rs413380, rs2965157, rs12721109, rs676388 out): 6 primary instruments out,
+3 in, 76 instruments. The weighted mode is the most sensitive to this (0.255 against 0.540); IVW moves from 0.412 to 0.395.
+Stored server clumps (75) cannot be checked for ties: the server does not say which tied variants it left out.
 
 **Tier B, MR Studio against the paper** (odds ratio per SD of LDL cholesterol)
 
-| Method | Paper (2018) | Stored | Live | This computer |
+| Method | Paper (2018) | Stored | Live and this computer | Tie sensitivity |
 |---|---|---|---|---|
 | IVW | 1.45 (1.30 to 1.62) | 1.47 (1.36 to 1.60) | 1.51 (1.37 to 1.67) | 1.48 (1.35 to 1.63) |
 | MR-Egger | 1.85 (1.48 to 2.32) | 1.49 (1.33 to 1.68) | 1.65 (1.42 to 1.93) | 1.55 (1.36 to 1.77) |
@@ -91,10 +100,12 @@ sensitive to this (0.255 against 0.540); IVW moves from 0.412 to 0.395.
 | Weighted mode | 1.68 (1.56 to 1.80) | 1.29 (1.20 to 1.40) | 1.72 (1.47 to 2.01) | 1.29 (1.19 to 1.40) |
 | Variants; Q | about 56; 122.5 | 73; 285.5 | 77; 363.8 | 74; 379.9 |
 
+Live and this computer give the same estimates; their bootstrap intervals differ slightly (weighted mode on this computer: 1.72, 1.49 to 1.98).
+
 The IVW estimate agrees with the paper with every clumping choice, and every method gives a harmful effect of LDL cholesterol.
 The paper used fewer variants and found less heterogeneity and a clearer negative MR-Egger intercept; with today's datasets and
 clumps these do not reproduce. The paper's outliers are among the instruments: all three with stored clumps, rs1250229 and
-rs4530754 with live and local clumping.
+rs4530754 with live and local clumping and in the tie sensitivity analysis.
 
 `results.csv` has every number above; `instruments.csv` lists which rsIDs each clumping choice kept.
 

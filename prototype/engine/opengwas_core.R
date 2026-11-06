@@ -266,9 +266,12 @@ ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NU
   cand <- NULL; sel <- NULL; crec <- NULL
   if (where == "local") {
     if (!nrow(std)) stop("None of the variants below the threshold could be used (see the reasons above), so there is nothing to clump.", call. = FALSE)
-    cand <- std; sel <- ld_clump_here(std$snp, std$p, r2, kb, pop, z = std$beta / std$se)
+    cand <- std; sel <- ld_clump_here(std$snp, std$p, r2, kb, pop)   # Round 28: as ieugwasr and the server (PLINK keeps the tied variant that comes first in the panel)
+    # Tie sensitivity analysis (Round 28): when candidates share a P value, they are clumped a second time with the larger |beta/SE| first.
+    alt <- if (anyDuplicated(std$p)) ld_clump_here(std$snp, std$p, r2, kb, pop, z = std$beta / std$se, tie_order = "strongest") else NULL
     std <- std[std$snp %in% sel$variant_id[sel$status == "index"], , drop = FALSE]; rownames(std) <- NULL
     crec <- c(attr(sel, "settings"), list(candidates = nrow(cand), clumped = sum(sel$status == "clumped"), not_in_panel = sum(sel$status == "not_in_panel"), no_rsid = sum(sel$status == "no_rsid"), kept = nrow(std)))
+    tsum <- ld_tie_summary(sel, alt); if (!is.null(tsum)) crec$ties <- tsum
     if (crec$not_in_panel > 0) w <- c(w, sprintf("%d of %d candidate %s not in the reference panel, so %s LD could not be judged and %s removed (as the OpenGWAS server does).", crec$not_in_panel, crec$candidates, if (crec$not_in_panel == 1) "variant is" else "variants are", if (crec$not_in_panel == 1) "its" else "their", if (crec$not_in_panel == 1) "it was" else "they were"))
   }
   if (nrow(std) < 2L) stop("Fewer than 2 usable instruments remained (", nrow(std), "). A less strict threshold would find more, but weaker, instruments.", call. = FALSE)
@@ -289,6 +292,7 @@ ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NU
     dest <- file.path(library_dir(root), nm)
     utils::write.csv(cand, file.path(dest, "candidates.csv"), row.names = FALSE, na = "")
     utils::write.csv(sel, file.path(dest, "instrument_selection.csv"), row.names = FALSE, na = "")
+    if (!is.null(alt)) utils::write.csv(alt, file.path(dest, "instrument_selection_ties.csv"), row.names = FALSE, na = "")
   }
   rec
 }
@@ -301,6 +305,8 @@ ogw_get_outcome <- function(id, exposure_name, jwt, proxies = TRUE, rsq = 0.8, m
   ex <- library_dataset(exposure_name, root)
   if (!isTRUE(ex$recipe$usable_as_exposure)) stop("\"", exposure_name, "\" is not a set of independent instruments, so there is nothing to look up.", call. = FALSE)
   snps <- unique(ex$data$snp[!is.na(ex$data$snp) & grepl("^rs[0-9]+$", ex$data$snp)])
+  # Round 28: the lead variants that only the tie sensitivity analysis keeps are looked up too (they are not counted as instruments).
+  extra <- setdiff(unlist(ex$recipe$clump$ties[["in"]]), snps)
   if (length(snps) < 2L) stop("The exposure \"", exposure_name, "\" has no rsID variants to look up. Looking up by position is not built.", call. = FALSE)
   meta <- ogw_meta(id, jwt, backend)
   # Short exposure tag (Round 25): the dataset ID, plus " live clump" or " clumped here" for those copies, or the first characters of
@@ -316,7 +322,7 @@ ogw_get_outcome <- function(id, exposure_name, jwt, proxies = TRUE, rsq = 0.8, m
     if (!is.null(old) && identical(old$source$id, id) && identical(old$source$role, "outcome") && .ogw_same(old$source$params, params)) { old$reused <- TRUE; return(old) }
     stop("A dataset named \"", nm, "\" is already in the Data library, with other settings or another source. Choose another name.", call. = FALSE)
   }
-  o <- .ogw_do(backend$outcome(snps, id, isTRUE(proxies), rsq, maf, jwt))
+  o <- .ogw_do(backend$outcome(c(snps, extra), id, isTRUE(proxies), rsq, maf, jwt))
   if (!is.data.frame(o) || !nrow(o)) stop("None of the ", length(snps), " instruments was found in this outcome", if (isTRUE(proxies)) ", not even through proxies" else " (proxies were off)", ". Check that the outcome covers the same genome build and ancestry.", call. = FALSE)
   col <- function(k) if (k %in% names(o)) o[[k]] else rep(NA, nrow(o))
   tgt <- as.character(col("target_snp.outcome")); key <- ifelse(!is.na(tgt) & nzchar(tgt), tgt, as.character(col("SNP")))
@@ -330,7 +336,7 @@ ogw_get_outcome <- function(id, exposure_name, jwt, proxies = TRUE, rsq = 0.8, m
   std <- std[order(std$proxy_snp != ""), , drop = FALSE]
   cl <- .ogw_clean_rows(std, "outcome"); std <- cl$d; rownames(std) <- NULL
   w <- cl$warnings
-  found <- sum(std$snp %in% snps); n_prox <- sum(std$proxy_snp != ""); missing <- setdiff(snps, std$snp)
+  found <- sum(std$snp %in% snps); n_prox <- sum(std$proxy_snp != "" & std$snp %in% snps); missing <- setdiff(snps, std$snp)
   if (found < 2L) stop("Only ", found, " of ", length(snps), " instruments were found in this outcome. At least 2 are needed.", call. = FALSE)
   if (length(missing)) w <- c(w, sprintf("%d of %d instruments are not in this outcome%s and are lost: %s.", length(missing), length(snps), if (isTRUE(proxies)) " and had no proxy" else " (proxies were off)", paste(utils::head(missing, 8), collapse = ", ")))
   if (n_prox) w <- c(w, sprintf("%d instruments were replaced by a proxy variant (r² at least %s). The proxy's own ID is in the column proxy_snp.", n_prox, format(rsq)))
@@ -341,7 +347,7 @@ ogw_get_outcome <- function(id, exposure_name, jwt, proxies = TRUE, rsq = 0.8, m
               mapping = list(snp = "rsid", chr = "chr", pos = "position", ea = "ea", oa = "nea", eaf = "eaf", beta = "beta", se = "se", p = "p", n = "n"),
               original = list(file = paste0("OpenGWAS:", id)), rows_in_file = nrow(o), rows_kept = nrow(std), warnings = as.list(w), saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
               usable_as_exposure = FALSE, usable_as_outcome = TRUE, usable_in_runs = TRUE,
-              lookup = list(requested = length(snps), found = found, direct = found - n_prox, by_proxy = n_prox, missing = length(missing)),
+              lookup = list(requested = length(snps), found = found, direct = found - n_prox, by_proxy = n_prox, missing = length(missing), tie_alternatives = length(extra), tie_alternatives_found = sum(extra %in% std$snp)),
               source = list(type = "opengwas", role = "outcome", id = id, trait = meta$trait, population = meta$population, sample_size = meta$sample_size, ncase = meta$ncase, ncontrol = meta$ncontrol,
                             consortium = meta$consortium, author = meta$author, year = meta$year, pmid = meta$pmid, unit = meta$unit, params = params, for_exposure = exposure_name, downloaded_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
                             packages = .ogw_versions(), note = "Only the instruments of the exposure named in for_exposure were looked up (TwoSampleMR::extract_outcome_data, with proxies when proxies is true)."))

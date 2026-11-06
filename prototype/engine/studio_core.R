@@ -170,7 +170,10 @@ demo_input <- function(exp_id, out_id) {
 #' A pair of imported datasets, made ready for the methods: instruments are the exposure variants with P below the threshold (the file must
 #' already hold independent variants), looked up in the outcome and harmonised with TwoSampleMR::harmonise_data (action 2: palindromic
 #' variants are aligned by allele frequency or dropped; action 1, keeping them, when both files are declared forward strand). Every instrument that is lost on the way is counted in the `ledger`.
-library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root()) {
+#' Round 28: `ties` = "strongest" builds the tie sensitivity analysis instead: in every region where equal P values decided the lead
+#' variant, the variant with the larger |beta/SE| is used. The ledger's `ties` entry says how many regions that changes.
+library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(), ties = c("server", "strongest")) {
+  ties <- match.arg(ties)
   ex <- library_dataset(sub("^lib:", "", exp_id), root); ou <- library_dataset(sub("^lib:", "", out_id), root)
   if (!isTRUE(ex$recipe$usable_as_exposure)) stop("\"", ex$recipe$trait, "\" is neither marked as a set of independent instruments nor set to be clumped on this computer, so it cannot be an exposure. Import it again and answer the question about independent variants. Import a file that holds only clumped, genome-wide significant variants and answer \"Yes\" to the question about independent variants.")
   if (!isTRUE(ou$recipe$usable_as_outcome)) stop("\"", ou$recipe$trait, "\" was imported as an exposure only.")
@@ -187,7 +190,11 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
     f <- ex$recipe$facts; num <- function(v, d) { v <- suppressWarnings(as.numeric(v %||% d)); if (length(v) == 1L && is.finite(v)) v else d }
     if (!identical(kx$kind, "rsID")) stop("\"", ex$recipe$trait, "\" identifies variants by position only. Clumping needs rsIDs, so it cannot be clumped on this computer.")
     if (!nrow(X)) stop("No variant in \"", ex$recipe$trait, "\" reaches P < ", format(pthr, scientific = TRUE), ", so there is nothing to clump.")
-    sel <- ld_clump_cached(ex$dir, X$key, X$p, num(f$clump_r2, 0.001), num(f$clump_kb, 10000), f$clump_pop %||% ld_pop_for(f$ancestry), z = X$beta / X$se)
+    cr2 <- num(f$clump_r2, 0.001); ckb <- num(f$clump_kb, 10000); cpop <- f$clump_pop %||% ld_pop_for(f$ancestry)
+    sel <- ld_clump_cached(ex$dir, X$key, X$p, cr2, ckb, cpop)   # Round 28: PLINK's own order for equal P, as ieugwasr::ld_clump_local
+    alt <- if (anyDuplicated(X$p[is.finite(X$p)])) ld_clump_cached(ex$dir, X$key, X$p, cr2, ckb, cpop, z = X$beta / X$se, tie_order = "strongest") else NULL
+    led$ties <- ld_tie_summary(sel, alt)
+    if (identical(ties, "strongest")) sel <- alt %||% sel
     X <- X[X$key %in% sel$variant_id[sel$status == "index"], , drop = FALSE]
     led$below_threshold <- led$instruments; led$instruments <- nrow(X)
     led$clump <- c(attr(sel, "settings"), list(clumped = sum(sel$status == "clumped"), not_in_panel = sum(sel$status == "not_in_panel"), kept = nrow(X)))
@@ -199,10 +206,36 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
       # Clumping keeps variants in order of P, so the clumped set of the candidates below a stricter threshold is exactly the
       # clumped set restricted to that threshold: the selection is cut, not clumped again.
       sel <- s0[is.finite(s0$p) & s0$p < pthr, , drop = FALSE]; rownames(sel) <- NULL
-      attr(sel, "settings") <- ex$recipe$clump[intersect(c("r2", "kb", "pop", "panel", "plink", "command", "tie_break"), names(ex$recipe$clump))]
-      led$below_threshold <- nrow(sel)
+      st0 <- ex$recipe$clump[intersect(c("r2", "kb", "pop", "panel", "plink", "command", "tie_break", "tie_order"), names(ex$recipe$clump))]
+      sft <- file.path(ex$dir, "instrument_selection_ties.csv")   # Round 28: the same candidates with equal P broken by |beta/SE|
+      if (file.exists(sft)) {
+        a0 <- utils::read.csv(sft, stringsAsFactors = FALSE, colClasses = c(variant_id = "character", status = "character", index_variant = "character"))
+        alt <- a0[is.finite(a0$p) & a0$p < pthr, , drop = FALSE]; rownames(alt) <- NULL
+        led$ties <- ld_tie_summary(sel, alt)
+        if (identical(ties, "strongest")) {
+          cf <- file.path(ex$dir, "candidates.csv")
+          if (!file.exists(cf)) stop("The downloaded candidates of \"", ex$recipe$trait, "\" are missing, so the tie sensitivity analysis cannot be built. Download the exposure again.")
+          cd <- utils::read.csv(cf, stringsAsFactors = FALSE, colClasses = c(snp = "character", chr = "character", ea = "character", oa = "character")); cd$key <- cd$snp
+          X <- cd[cd$key %in% alt$variant_id[alt$status == "index"], intersect(names(X), names(cd)), drop = FALSE]
+          sel <- alt; st0$tie_break <- "equal P ordered by |beta/SE|"; st0$tie_order <- "strongest"
+        }
+      } else if (identical(ties, "strongest")) stop("\"", ex$recipe$trait, "\" has no tied P values that change a lead variant, so there is no tie sensitivity analysis to run.")
+      attr(sel, "settings") <- st0
+      led$below_threshold <- nrow(sel); led$instruments <- nrow(X)
       led$clump <- c(attr(sel, "settings"), list(clumped = sum(sel$status == "clumped"), not_in_panel = sum(sel$status == "not_in_panel"), kept = sum(sel$status == "index"), at_download = TRUE))
     }
+  }
+  if (is.null(sel) && identical(ex$recipe$source$type, "opengwas")) {   # Round 28: clumped on the server; the ties cannot be checked here
+    pt <- X$p[is.finite(X$p)]; led$ties <- list(server = TRUE, tied = .n_tied(pt), floor = if (length(pt)) min(pt) else NA_real_)
+  }
+  if (identical(ties, "strongest")) {
+    if (is.null(led$ties)) stop(if (is.null(sel)) paste0("MR Studio did not clump the instruments of \"", ex$recipe$trait, "\" (the file was declared to hold independent variants), so there are no ties to break.") else paste0("No two candidates of \"", ex$recipe$trait, "\" share a P value, so there is no tie sensitivity analysis to run."))
+    if (isTRUE(led$ties$server)) stop("The instruments of \"", ex$recipe$trait, "\" were clumped on the OpenGWAS server, so MR Studio cannot see which tied variants were left out. Download the exposure with clumping on this computer to run the tie sensitivity analysis.")
+    if (!isTRUE(led$ties$regions > 0)) stop("No tied P value changed a lead variant of \"", ex$recipe$trait, "\", so the tie sensitivity analysis would repeat the primary analysis.")
+    lk <- ou$recipe$lookup
+    if (identical(ou$recipe$source$type, "opengwas") && !is.null(lk) && is.null(lk[["tie_alternatives"]]))
+      stop("\"", ou$recipe$trait, "\" was downloaded before MR Studio looked up the tie alternatives. Download the outcome again (under another name) to run the tie sensitivity analysis.")
+    led$tie_order <- "strongest"
   }
   if (nrow(X) < 2L) stop("Fewer than 2 variants in \"", ex$recipe$trait, "\" reach P < ", format(pthr, scientific = TRUE), ". At least 2 instruments are needed.")
   Y <- Y[Y$key %in% X$key, , drop = FALSE]; led$in_outcome <- nrow(Y); led$missing_in_outcome <- led$instruments - nrow(Y); led$by_proxy <- if ("proxy_snp" %in% names(Y)) sum(!is.na(Y$proxy_snp) & nzchar(Y$proxy_snp)) else 0L
@@ -280,10 +313,11 @@ steiger_readiness <- function(p) {
 }
 
 #' One pair as the methods need it, from the simulated catalogue or from imported datasets (never a mixture).
-pair_input <- function(exp_id, out_id, pthr = 5e-8) {
+pair_input <- function(exp_id, out_id, pthr = 5e-8, ties = "server") {
   le <- startsWith(exp_id, "lib:"); lo <- startsWith(out_id, "lib:")
   if (le != lo) stop("A simulated trait cannot be paired with an imported one. Choose two simulated traits or two imported datasets.")
-  if (le) return(library_pair_input(exp_id, out_id, pthr))
+  if (le) return(library_pair_input(exp_id, out_id, pthr, ties = ties))
+  if (!identical(ties, "server")) stop("Simulated traits have no tied P values, so there is no tie sensitivity analysis to run.")
   p <- demo_input(exp_id, out_id); p$simulated <- TRUE; p$anc_x <- "EUR"; p$anc_y <- "EUR"; p$ledger <- NULL; p
 }
 
@@ -592,6 +626,19 @@ studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre",
   r$kept <- kept; r$label <- lab; r
 }
 
+
+#' Tie sensitivity analysis (Round 28): the same pair analysed again with the variant of larger |beta/SE| as the lead of every region
+#' where equal P values decided it, as its own pair folder (the primary results stay as they are). Detectors are not repeated.
+studio_run_ties <- function(h, exp_id, out_id, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8) {
+  inp <- pair_input(exp_id, out_id, pthr, ties = "strongest")
+  methods <- setdiff(methods, c("presso", "radial", "radegger", "steiger"))
+  kept <- sum(inp$input$data$mr_keep)
+  if (kept < 3L) methods <- setdiff(methods, c("egger", "wm", "smed", "mode", "smode"))
+  if (!length(methods)) methods <- "ivw_mre"
+  lab <- sprintf("%s [ties: strongest]", inp$exposure_label)
+  r <- studio_run(h, lab, inp$outcome_label, inp$input, methods, ci_level, idx = idx, params = params)
+  r$kept <- kept; r$label <- lab; r$ties <- inp$ledger$ties; r$selection <- inp$selection; r$ledger <- inp$ledger; r
+}
 
 #' Compare with default settings, for every setting (FR-66). The same pair is analysed again with the default of each setting a method
 #' offers, in a throw-away study folder, and set beside the saved result. A method whose only changed setting is the confidence level is

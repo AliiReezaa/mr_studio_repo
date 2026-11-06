@@ -717,13 +717,71 @@ h25 <- studio_new("OpenGWAS live clump"); r25 <- studio_run(h25, p25$exposure_la
 ui_state_set(h25$con, "pairs", list(list(ex = paste0("lib:", lv$trait), out = paste0("lib:", lo_lv$trait), exName = p25$exposure_label, outName = p25$outcome_label, folder = r25$pair_folder, methods = list("ivw_mre"), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = p25$ledger, anc_x = "EUR", anc_y = "EUR")))
 pk25 <- build_package(h25, c("report", "strobe"), 140); htm25 <- paste(readLines(file.path(pk25$dir, "report.html"), warn = FALSE), collapse = "\n")
 expect("clump choice report: live server clumping is described as such (force_server), not as stored clumps", grepl("clumped live on the OpenGWAS server with ieugwasr::tophits (force_server = TRUE)", htm25, fixed = TRUE) && !grepl("pre-computed", htm25, fixed = TRUE))
-# ties: two variants of LD block A with P = 0; the larger |beta/SE| leads, whichever comes first
-t1 <- ld_clump_here(c("rs9100001", "rs9100003", "rs9300001"), c(0, 0, 1e-9), z = c(5, 50, 6))
-t2 <- ld_clump_here(c("rs9100001", "rs9100003", "rs9300001"), c(0, 0, 1e-9), z = c(50, 5, 6))
-expect("ties at P = 0: the variant with the larger |beta/SE| becomes the lead, and the tie-break is recorded",
+# ties: two variants of LD block A with P = 0. Tie sensitivity order: the larger |beta/SE| leads, whichever comes first.
+t1 <- ld_clump_here(c("rs9100001", "rs9100003", "rs9300001"), c(0, 0, 1e-9), z = c(5, 50, 6), tie_order = "strongest")
+t2 <- ld_clump_here(c("rs9100001", "rs9100003", "rs9300001"), c(0, 0, 1e-9), z = c(50, 5, 6), tie_order = "strongest")
+expect("ties at P = 0, strongest order: the variant with the larger |beta/SE| becomes the lead, and the tie-break is recorded",
        identical(t1$variant_id[t1$status == "index"][1], "rs9100003") && identical(t2$variant_id[t2$status == "index"][1], "rs9100001") && grepl("beta/SE", attr(t1, "settings")$tie_break))
-pu <- cand$p * (1 + seq_along(cand$p) / 1000); nz <- ld_clump_here(cand$snp, pu, 0.001, 10000, "EUR", z = rev(seq_along(pu))); n0 <- ld_clump_here(cand$snp, pu, 0.001, 10000, "EUR")
-expect("ties: when no P values are equal, giving beta/SE changes nothing", identical(nz$status, n0$status) && identical(nz$index_variant, n0$index_variant) && identical(attr(nz, "settings")$tie_break, "none needed"))
+# Round 28: the default order is that of ieugwasr::ld_clump_local and the OpenGWAS server (PLINK keeps the tied variant first in the panel)
+s1 <- ld_clump_here(c("rs9100001", "rs9100003", "rs9300001"), c(0, 0, 1e-9), z = c(5, 50, 6)); s2 <- ld_clump_here(c("rs9100003", "rs9100001", "rs9300001"), c(0, 0, 1e-9))
+ie28 <- ieugwasr::ld_clump_local(data.frame(rsid = c("rs9100001", "rs9100003", "rs9300001"), pval = c(0, 0, 1e-9)), clump_kb = 10000, clump_r2 = 0.001, clump_p = 1, bfile = file.path(fix_dir, "EUR"), plink_bin = plink_bin())
+expect("ties, default order (Round 28): PLINK keeps the tied variant first in the panel whatever the input order, beta/SE is ignored, and the result equals ieugwasr::ld_clump_local",
+       identical(s1$variant_id[s1$status == "index"][1], "rs9100001") && "rs9100001" %in% s2$variant_id[s2$status == "index"] && !"rs9100003" %in% s2$variant_id[s2$status == "index"] && setequal(ie28$rsid, s1$variant_id[s1$status == "index"]) &&
+       grepl("order of the reference panel", attr(s1, "settings")$tie_break) && identical(attr(s1, "settings")$tied, 2L))
+ts28 <- ld_tie_summary(s1, t1)
+expect("ties: the summary names the lead the tie order kept and the one with the larger |beta/SE| (1 region)", ts28$regions == 1L && identical(unlist(ts28$out), "rs9100001") && identical(unlist(ts28[["in"]]), "rs9100003") && ts28$tied == 2L)
+expect("ties: the strongest order without beta/SE is refused", grepl("needs beta / SE", err_of(ld_clump_here(c("rs9100001", "rs9100003"), c(0, 0), tie_order = "strongest"))))
+pu <- cand$p * (1 + seq_along(cand$p) / 1000); nz <- ld_clump_here(cand$snp, pu, 0.001, 10000, "EUR", z = rev(seq_along(pu)), tie_order = "strongest"); n0 <- ld_clump_here(cand$snp, pu, 0.001, 10000, "EUR")
+expect("ties: when no P values are equal, the strongest order changes nothing", identical(nz$status, n0$status) && identical(nz$index_variant, n0$index_variant) && identical(attr(nz, "settings")$tie_break, "none needed"))
+# ---- Round 28: tied P values from OpenGWAS (stored as 1e-200), the tie notice and the tie sensitivity analysis ----
+th28 <- th22[th22$rsid != "rs9100099", ]
+th28$p[th28$rsid %in% c("rs9100001", "rs9100002")] <- 1e-200; th28$se[th28$rsid == "rs9100001"] <- abs(th28$beta[th28$rsid == "rs9100001"]) / 20; th28$se[th28$rsid == "rs9100002"] <- abs(th28$beta[th28$rsid == "rs9100002"]) / 40
+mock28 <- new.env(); mock28$calls <- list()
+BE28 <- list(info = BE$info,
+  tophits = function(id, p, r2, kb, pop, jwt, clump = 1, force = FALSE) { chk(jwt); if (clump == 0) th28 else th28[th28$rsid %in% c("rs9100001", "rs9200001", "rs9300001", "rs9300002"), ] },
+  outcome = function(snps, id, proxies, rsq, maf, jwt) { chk(jwt); mock28$calls[[length(mock28$calls) + 1L]] <- snps; i <- match(snps, th28$rsid)
+    data.frame(SNP = snps, chr = "1", pos = th28$position[i], beta.outcome = 0.3 * th28$beta[i] + rnorm(length(i), 0, 0.003), se.outcome = 0.008, samplesize.outcome = 230000, pval.outcome = 0.01, eaf.outcome = 0.35,
+               effect_allele.outcome = "A", other_allele.outcome = "C", outcome = "Simulated heart disease", id.outcome = id, proxy.outcome = FALSE, target_snp.outcome = NA_character_, proxy_snp.outcome = NA_character_, stringsAsFactors = FALSE) })
+options(mrgui.ogw_backend = BE28)
+x28 <- ogw_get_exposure("sim-exp-1", tok_ok, where = "local", name = "Ties 28")
+x28d <- library_dataset(x28$trait)$data$snp
+expect("ties from OpenGWAS: clumped in the server's order (rs9100001, first in the panel, leads block A), the tie decided 1 region and the alternative selection is saved",
+       "rs9100001" %in% x28d && !"rs9100002" %in% x28d && isTRUE(x28$clump$ties$regions == 1) && identical(unlist(x28$clump$ties[["in"]]), "rs9100002") && x28$clump$ties$tied >= 2 &&
+       file.exists(file.path(library_dir(), x28$trait, "instrument_selection_ties.csv")) && grepl("order of the reference panel", x28$clump$tie_break))
+o28 <- ogw_get_outcome("sim-out-1", x28$trait, tok_ok, name = "Outcome for ties 28")
+expect("ties from OpenGWAS: the outcome lookup also asks for the 1 alternative lead, which is not counted as an instrument",
+       "rs9100002" %in% tail(mock28$calls, 1)[[1]] && length(tail(mock28$calls, 1)[[1]]) == length(x28d) + 1L && o28$lookup$requested == length(x28d) && o28$lookup$tie_alternatives == 1L && o28$lookup$tie_alternatives_found == 1L)
+p28 <- pair_input(paste0("lib:", x28$trait), paste0("lib:", o28$trait), 5e-8)
+q28 <- pair_input(paste0("lib:", x28$trait), paste0("lib:", o28$trait), 5e-8, ties = "strongest")
+expect("ties pair: the primary analysis uses the server's lead; the ledger reports 1 tied region",
+       "rs9100001" %in% p28$input$data$variant_id && !"rs9100002" %in% p28$input$data$variant_id && isTRUE(p28$ledger$ties$regions == 1) && is.null(p28$ledger$tie_order))
+expect("ties pair, sensitivity: the lead with the larger |beta/SE| replaces it, every other instrument is the same, and the selection says so",
+       "rs9100002" %in% q28$input$data$variant_id && !"rs9100001" %in% q28$input$data$variant_id && setequal(setdiff(p28$input$data$variant_id, "rs9100001"), setdiff(q28$input$data$variant_id, "rs9100002")) &&
+       identical(q28$ledger$tie_order, "strongest") && identical(attr(q28$selection, "settings")$tie_order, "strongest"))
+h28 <- studio_new("Ties 28")
+r28 <- studio_run(h28, p28$exposure_label, p28$outcome_label, p28$input, c("ivw_mre", "egger"), idx = 1L)
+rt28 <- studio_run_ties(h28, paste0("lib:", x28$trait), paste0("lib:", o28$trait), c("ivw_mre", "egger", "presso"), idx = 2L)
+pt28 <- pair_payload(h28$dir, rt28$pair_folder)
+expect("tie sensitivity run: its own labelled pair folder, detectors left out, replay identical, and the estimate differs from the primary",
+       grepl("\\[ties: strongest\\]", rt28$label) && !identical(rt28$pair_folder, r28$pair_folder) && !any(vapply(pt28$estimates, function(e) identical(e$method, "presso"), TRUE)) &&
+       identical(pt28$replay$status, "identical") && rt28$ties$regions == 1L &&
+       { a <- Filter(function(e) e$method == "ivw_mre", pair_payload(h28$dir, r28$pair_folder)$estimates)[[1]]$estimate; b <- Filter(function(e) e$method == "ivw_mre", pt28$estimates)[[1]]$estimate; !isTRUE(all.equal(a, b)) })
+ui_state_set(h28$con, "pairs", list(list(ex = paste0("lib:", x28$trait), out = paste0("lib:", o28$trait), exName = p28$exposure_label, outName = p28$outcome_label, folder = r28$pair_folder, methods = list("ivw_mre", "egger"), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = p28$ledger, anc_x = "EUR", anc_y = "EUR")))
+ui_state_set(h28$con, "sens", list(list(parent = r28$pair_folder, kind = "ties", remove = list(), folder = rt28$pair_folder, label = rt28$label, kept = rt28$kept, regions = rt28$ties$regions)))
+pk28 <- build_package(h28, c("report", "text", "strobe"), 140); htm28 <- paste(readLines(file.path(pk28$dir, "report.html"), warn = FALSE), collapse = "\n")
+expect("tie report: the Methods say PLINK kept the tied variant first in the reference panel, as ieugwasr and the server do, that this decided 1 region, and the Results give the sensitivity IVW",
+       grepl("PLINK kept the one that comes first in the reference panel, as in ieugwasr::ld_clump_local and OpenGWAS server clumping", htm28, fixed = TRUE) && grepl("This decided the lead variant in 1 region", htm28, fixed = TRUE) &&
+       grepl("Sensitivity analysis for tied P values", htm28, fixed = TRUE) && !grepl("were ordered by the absolute value of beta/SE", htm28, fixed = TRUE))
+expect("tie sensitivity refusals: no tie that changes a lead, server clumping, simulated traits",
+       grepl("No tied P value changed a lead variant", err_of(pair_input(paste0("lib:", lx$trait), "lib:Outcome for local", 5e-8, ties = "strongest"))) &&
+       grepl("clumped on the OpenGWAS server", err_of(pair_input("lib:Server clumped 22", paste0("lib:", lo_sx$trait), 5e-8, ties = "strongest"))) &&
+       grepl("Simulated traits", err_of(pair_input("expA", "outA", ties = "strongest"))))
+ps28 <- pair_input("lib:Server clumped 22", paste0("lib:", lo_sx$trait), 5e-8)
+expect("ties with server clumping: the ledger says the ties could not be checked (server = TRUE) and counts the instruments that share a P value",
+       isTRUE(ps28$ledger$ties$server) && is.numeric(ps28$ledger$ties$tied))
+expect("ties: an outcome downloaded before Round 28 is refused for the tie sensitivity analysis with a clear message",
+       { rp <- file.path(library_dir(), o28$trait, "recipe.json"); rj <- jsonlite::fromJSON(rp, simplifyVector = FALSE); bak <- readLines(rp, warn = FALSE); rj$lookup[["tie_alternatives"]] <- NULL
+         writeLines(jsonlite::toJSON(rj, auto_unbox = TRUE, pretty = TRUE, null = "null"), rp); m <- err_of(pair_input(paste0("lib:", x28$trait), paste0("lib:", o28$trait), 5e-8, ties = "strongest")); writeLines(bak, rp); grepl("Download the outcome again", m) })
 options(mrgui.ogw_backend = NULL); ogw_token_set(NULL)
 Sys.unsetenv("MRGUI_LD_DIR")
 
