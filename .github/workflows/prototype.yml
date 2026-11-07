@@ -3,6 +3,9 @@
 # installed app, and compares results across operating systems (contracts C8.6).
 # Runs only when started by hand (Actions tab -> Run workflow) or on a v* tag,
 # to save build minutes.
+# Installers and test reports go to a pre-release of this run (tag build-<run number>, or the
+# v* tag itself) instead of workflow artifacts: release files do not count toward the
+# Actions artifact storage quota.
 name: prototype
 
 on:
@@ -11,10 +14,25 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: read
+  contents: write   # create the run's pre-release and attach the installers to it
+
+env:
+  REL_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build-{0}', github.run_number) }}
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the pre-release for this run
+        run: |
+          gh release view "$REL_TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$REL_TAG" -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+              --title "Build $REL_TAG" \
+              --notes "Installers and test reports of workflow run ${{ github.run_number }} (commit ${GITHUB_SHA::7})."
+
   build:
+    needs: release
     strategy:
       fail-fast: false
       matrix:
@@ -291,34 +309,42 @@ jobs:
         run: |
           find prototype/shell/target/release/bundle \( -name "*.dmg" -o -name "*.exe" \) -exec du -h {} \; | tee -a "size-${{ matrix.id }}.txt" || true
 
-      - uses: actions/upload-artifact@v4
+      - name: Attach the installer to the run's pre-release
         if: always()
-        with:
-          name: installer-${{ matrix.id }}
-          if-no-files-found: ignore
-          path: |
-            prototype/shell/target/release/bundle/dmg/*.dmg
-            prototype/shell/target/release/bundle/nsis/*.exe
+        run: |
+          shopt -s nullglob
+          FILES=(prototype/shell/target/release/bundle/dmg/*.dmg prototype/shell/target/release/bundle/nsis/*.exe)
+          if [[ ${#FILES[@]} -eq 0 ]]; then echo "no installer was built"; exit 0; fi
+          # One name per system, so the file says which computer it is for.
+          for F in "${FILES[@]}"; do
+            EXT="${F##*.}"; mkdir -p upload; OUT="upload/MR-Studio-${{ matrix.id }}.$EXT"
+            cp "$F" "$OUT"
+            gh release upload "$REL_TAG" "$OUT" -R "$GITHUB_REPOSITORY" --clobber
+          done
 
-      - uses: actions/upload-artifact@v4
+      - name: Attach the test report to the run's pre-release
         if: always()
-        with:
-          name: report-${{ matrix.id }}
-          if-no-files-found: ignore
-          path: |
-            results-${{ matrix.id }}/
-            runtime-lock-${{ matrix.id }}.txt
-            package-lock-${{ matrix.id }}.txt
-            size-breakdown-${{ matrix.id }}.txt
-            size-${{ matrix.id }}.txt
+        run: |
+          shopt -s nullglob
+          ITEMS=(results-${{ matrix.id }} runtime-lock-${{ matrix.id }}.txt package-lock-${{ matrix.id }}.txt size-breakdown-${{ matrix.id }}.txt size-${{ matrix.id }}.txt)
+          KEEP=(); for I in "${ITEMS[@]}"; do [[ -e "$I" ]] && KEEP+=("$I"); done
+          if [[ ${#KEEP[@]} -eq 0 ]]; then echo "no report files"; exit 0; fi
+          python -m zipfile -c "report-${{ matrix.id }}.zip" "${KEEP[@]}"
+          gh release upload "$REL_TAG" "report-${{ matrix.id }}.zip" -R "$GITHUB_REPOSITORY" --clobber
 
   cross-os:
     needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with: { pattern: report-*, path: reports }
+      - name: Fetch the test reports from the run's pre-release
+        run: |
+          mkdir -p reports
+          gh release download "$REL_TAG" -R "$GITHUB_REPOSITORY" -p 'report-*.zip' -D reports
+          for Z in reports/report-*.zip; do
+            D="reports/$(basename "$Z" .zip)"; mkdir -p "$D"; python3 -m zipfile -e "$Z" "$D"; rm "$Z"
+          done
+          find reports -maxdepth 2 | sort
       - name: Compare estimates across operating systems (tolerance 1e-8)
         run: python3 prototype/ci/compare_results.py reports
       - name: Compare generated scripts and their results across operating systems
