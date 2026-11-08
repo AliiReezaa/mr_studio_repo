@@ -67,7 +67,7 @@ The cloud-sync and network-drive refusal of v1.0.0 C9 still applies to the whole
 2. Whether explicit default arguments differ between the pinned package versions on macOS and Windows.
 3. Cost of the replay check for slow methods (run once at final run, not on every exploratory run).
 
-## Decisions recorded (Mina, 2026-11-01)
+## Decisions recorded (Ali Reza, 2026-11-01)
 - D1 Outside-app rerun: accepted. Users install the pinned package versions once (internet needed); cross-OS agreement is 1e-8, identical to 15 digits only on the same computer. The in-app replay check is the strict proof.
 - D2 Output folder: default `~/MR Studio`; folders inside iCloud, OneDrive, Dropbox, Google Drive and network drives are refused.
 - D3 Replay check: automatic for final runs; an optional switch skips it for quick exploratory runs. Never silently skipped for a finalised study.
@@ -93,7 +93,7 @@ Script generation, the run in a fresh R and the replay check passed on macOS App
 
 ### Engine integration (2026-11-01, first version, Linux only so far)
 `contracts/r/study.R` and `contracts/sql/schema_v2.sql` implement C9 and the C8 `script` task: study folder tree, refusal of cloud-sync and network folders (D2), path length limit (SYS_PATH_TOO_LONG), atomic writes, MANIFEST.csv with hashes and versions mirrored in the database, archive/run_<datetime>/ when settings change, SCRIPT_USER_MODIFIED instead of overwriting a user's edit (or `on_modified = "archive"`), automatic replay check with an optional switch (D3, recorded as `not_run`), C7 fields in the results row. 34 tests, run in a runtime moved into a folder with a space in its name. Not yet verified on macOS and Windows.
-Reports (HTML, PDF, Word) are required in v1 (Mina, 2026-11-01), so pandoc stays in the runtime; a PDF engine is an open choice (a small one such as typst versus a LaTeX distribution).
+Reports (HTML, PDF, Word) are required in v1 (Ali Reza, 2026-11-01), so pandoc stays in the runtime; a PDF engine is an open choice (a small one such as typst versus a LaTeX distribution).
 
 ### Diagnostic-only methods (2026-11-03, Round 15, additive, CONTRACT_VERSION stays 1.0.0)
 Some methods test an assumption and give no causal estimate (the first is the Steiger directionality test, Hemani, Tilling, Davey Smith 2017). `mrgui_adapter()` gains the optional argument `diagnostic_only` (default FALSE; such an adapter has `estimands = character(0)`). A result of such a method carries `"diagnostic_only": true` and an empty `estimates` array; `method_result.schema.json` then requires at least one diagnostic instead of at least one estimate. The field is written only for diagnostic-only methods, so every existing result, fingerprint and saved study is unchanged. The generated script still writes a header-only `<id>_estimates.csv`, and the replay check compares the diagnostics.

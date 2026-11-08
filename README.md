@@ -2,6 +2,8 @@
 
 Free, local, point-and-click desktop app for Mendelian randomization with public GWAS summary data, for macOS and Windows.
 
+Designed and developed by Ali Reza Soleymani Taloubaghi (all code and MR methodology). Methods and validation review: Dr. Danial Habibi (Babol University of Medical Sciences).
+
 | Path | What it is |
 |---|---|
 | `requirements_spec.md` | Requirements specification |
