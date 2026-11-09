@@ -843,7 +843,7 @@ expect("strobe: the package reports the counts, which add up to 43", !is.null(pk
 
 # ---- Round 21: feasibility engine ----
 fr <- feas_rules(); spec_ids <- utils::read.csv(file.path(dirname(dirname(args_dir)), "mr_feasibility_rules.csv"), stringsAsFactors = FALSE)$rule_id
-known_tests <- c("several_pairs", "ancestry_differs", "steiger_data", "iv_below_min", "iv_below_recommended", "mean_f_below", "i2gx_below", "overlap", "palindromic_dropped", "palindromic_kept", "binary_exposure", "presso_nbdist", "heavy_runtime", "q_significant", "egger_intercept", "steiger_reversed")
+known_tests <- c("several_pairs", "ancestry_differs", "steiger_data", "iv_below_min", "iv_below_recommended", "mean_f_below", "i2gx_below", "i2gx_near", "overlap", "palindromic_dropped", "palindromic_kept", "binary_exposure", "presso_nbdist", "heavy_runtime", "q_significant", "egger_intercept", "steiger_reversed")
 expect("feasibility: every rule id is unique and comes from the project's rule list, every active rule has a known test and a source",
        !anyDuplicated(fr$rule_id) && all(fr$rule_id %in% spec_ids) && all(fr$test[fr$active_v1 == "yes"] %in% known_tests) && all(nzchar(fr$source)) && all(spec_ids %in% fr$rule_id))
 fx_base <- pair_facts("expA", "outA")
@@ -862,6 +862,13 @@ rl <- function(fe, m) vapply(fe$methods[[m]]$reasons, `[[`, "", "rule")
 expect("feasibility: mean F below 10 warns every estimator (R23); I2GX below 0.9 warns the Egger methods only (R24)",
        all(vapply(FEAS_CAUSAL, function(m) "R23" %in% rl(fw, m), TRUE)) && !("R23" %in% rl(fw, "steiger")) && "R24" %in% rl(fw, "egger") && "R24" %in% rl(fw, "radegger") && !("R24" %in% rl(fw, "ivw_mre")))
 expect("feasibility: the F message does not claim that F above 10 means no bias", grepl("does not rule out bias", fw$methods$ivw_mre$reasons[[1]]$msg, fixed = TRUE))
+expect("Round 32: the F message says the Egger, median and mode methods are biased more and names selection in the same exposure GWAS",
+       grepl("MR-Egger and the weighted median and mode more than IVW", fw$methods$ivw_mre$reasons[[1]]$msg, fixed = TRUE) && grepl("winner's curse", fw$methods$ivw_mre$reasons[[1]]$msg, fixed = TRUE))
+fn92 <- feasibility(list(mk(i2gx = 0.92))); fn89 <- feasibility(list(mk(i2gx = 0.89))); fn96 <- feasibility(list(mk(i2gx = 0.96)))
+expect("Round 32: R24b notes radial MR-Egger for I2GX from 0.9 to below 0.95 only, as information; MR-Egger gets no note there and R24 takes over below 0.9",
+       "R24b" %in% rl(fn92, "radegger") && !("R24" %in% rl(fn92, "radegger")) && !("R24b" %in% rl(fn92, "egger")) && fn92$methods$radegger$state == "ok" &&
+       !("R24b" %in% rl(fn89, "radegger")) && "R24" %in% rl(fn89, "radegger") && !("R24b" %in% rl(fn96, "radegger")) &&
+       grepl("about 11%", Filter(function(r) r$rule == "R24b", fn92$methods$radegger$reasons)[[1]]$msg, fixed = TRUE))
 freal <- mk(simulated = FALSE, ex_id = "lib:A", out_id = "lib:B", ukb_both = FALSE)
 fo1 <- feasibility(list(freal)); fo2 <- feasibility(list(freal), overlap = setNames(list(list(answer = "none")), "lib:A | lib:B"))
 fo3 <- feasibility(list(freal), overlap = setNames(list(list(answer = "some", pct = 20)), "lib:A | lib:B"))

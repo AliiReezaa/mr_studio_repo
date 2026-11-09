@@ -41,7 +41,7 @@ Version 1 · 2026-10-29 · companion to requirements_spec.md v1.5 and working_po
 - Packaging R on Windows is the largest technical risk. If the week-1 prototype fails, add about 40 h and fall back to a per-user R install.
 - The 78 methods with no public code stay out of v1.
 - Publisher figure widths must be verified against current author guidelines when presets are built.
-- Heuristic thresholds (ancestry 90%, allele frequency difference 0.2, instrument counts) need simulation before release.
+- Heuristic thresholds (ancestry 90%, allele frequency difference 0.2, instrument counts) need simulation before release. Done in Rounds 29 and 32 (validation/calibration/README.md): all kept; the outlier module should use detectors at 0.05 / k.
 
 ## Additions 2026-10-31 and 2026-11-01 (DRAFT, requirements_spec.md Section 4A)
 

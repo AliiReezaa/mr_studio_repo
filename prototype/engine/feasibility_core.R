@@ -38,6 +38,8 @@ feas_i2gx <- function(bx, sx) { ok <- is.finite(bx) & is.finite(sx) & sx > 0; if
     iv_below_recommended = if (f$instruments < thr && f$instruments >= ctx$min_ivs[[m]]) list(n = f$instruments, thr = thr),
     mean_f_below = if (is.finite(f$mean_f) && f$mean_f < thr) list(f = format(round(f$mean_f, 1), nsmall = 1), thr = thr),
     i2gx_below = if (is.finite(f$i2gx %||% NA_real_) && f$i2gx < thr) list(i2 = format(round(f$i2gx, 2), nsmall = 2), thr = thr),
+    i2gx_near = { lo <- suppressWarnings(as.numeric(feas_rules()$threshold[feas_rules()$rule_id == "R24"]))   # Round 32: just above the R24 threshold
+      if (is.finite(f$i2gx %||% NA_real_) && length(lo) == 1L && f$i2gx >= lo && f$i2gx < thr) list(i2 = format(round(f$i2gx, 2), nsmall = 2), lo = lo, thr = thr) },
     overlap = {
       if (isTRUE(f$simulated)) NULL else {
         o <- ctx$overlap[[paste0(f$ex_id, " | ", f$out_id)]]

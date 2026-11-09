@@ -1,0 +1,2 @@
+"datasets","variants_matched","allele_mismatch","palindromic","analysed","median","p90","p95","p99","p999","max","panel_chromosomes"
+"ieu-b-40; ieu-a-8; ebi-a-GCST90029008; ieu-b-111; ebi-a-GCST006867",2651,1,330,2320,0.01334,0.0361212999999999,0.0459088,0.06193761,0.121875222000001,0.181217,1006
