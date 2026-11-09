@@ -807,6 +807,11 @@ expect("tie sensitivity refusals: no tie that changes a lead, server clumping, s
 ps28 <- pair_input("lib:Server clumped 22", paste0("lib:", lo_sx$trait), 5e-8)
 expect("ties with server clumping: the ledger says the ties could not be checked (server = TRUE) and counts the instruments that share a P value",
        isTRUE(ps28$ledger$ties$server) && is.numeric(ps28$ledger$ties$tied))
+expect("Round 31: the ledger says whether the smallest P is itself shared, and the wording names a storage floor only then",
+       is.logical(ps28$ledger$ties$floor_tied) && length(ps28$ledger$ties$floor_tied) == 1L &&
+       identical(p_store_phrase(list(floor_tied = TRUE, floor = 0)), "OpenGWAS stores P values with a limited number of digits, and the smallest ones as the same value, 0") &&
+       identical(p_store_phrase(list(floor_tied = FALSE, floor = 0)), "OpenGWAS stores P values with a limited number of digits") &&
+       !grepl("below 0", p_store_phrase(list(floor_tied = TRUE, floor = 0)), fixed = TRUE))
 expect("ties: an outcome downloaded before Round 28 is refused for the tie sensitivity analysis with a clear message",
        { rp <- file.path(library_dir(), o28$trait, "recipe.json"); rj <- jsonlite::fromJSON(rp, simplifyVector = FALSE); bak <- readLines(rp, warn = FALSE); rj$lookup[["tie_alternatives"]] <- NULL
          writeLines(jsonlite::toJSON(rj, auto_unbox = TRUE, pretty = TRUE, null = "null"), rp); m <- err_of(pair_input(paste0("lib:", x28$trait), paste0("lib:", o28$trait), 5e-8, ties = "strongest")); writeLines(bak, rp); grepl("Download the outcome again", m) })
@@ -933,5 +938,17 @@ f30 <- suppressWarnings(TwoSampleMR::mr_ivw(p3$data$beta_x, p3$data$beta_y, p3$d
 expect("Round 30: with 3 variants IVW still runs (equal to TwoSampleMR::mr_ivw) and the Limitations say heterogeneity could not be estimated reliably",
        e30$n_ivs_used == 3L && abs(e30$se - f30$se) < 1e-9 && abs(e30$estimate - f30$b) < 1e-9 &&
        grepl("In one pair, fewer than 4 variants were used, so the heterogeneity between the variants could not be estimated reliably", paste(t30$limitations, collapse = " "), fixed = TRUE))
+
+# ---- Round 31: the Limitations name only the robust estimators that were run ----
+lim_of <- function(meth, nm) { h <- studio_new(nm); r <- studio_run(h, pf$exposure_label, pf$outcome_label, pf$input, meth, idx = 1L)
+  ui_state_set(h$con, "pairs", list(list(ex = "lib:Fwd X", out = "lib:Fwd Y", exName = pf$exposure_label, outName = pf$outcome_label, folder = r$pair_folder, methods = as.list(meth), ci = 0.95, pthr = 1e-4, simulated = FALSE, ledger = pf$ledger)))
+  paste(report_text(lapply(ui_state_get(h$con, "pairs"), function(p) pair_context(h, p)), nm)$limitations, collapse = " ") }
+l31a <- paste(t30$limitations, collapse = " "); l31b <- lim_of(c("ivw_mre", "wm"), "R31 median"); l31c <- lim_of(c("ivw_mre", "wm", "mode"), "R31 median mode"); l31d <- lim_of(c("ivw_mre", "smode"), "R31 mode")
+expect("Round 31: with IVW (and MR-Egger) only, the Limitations do not mention median or mode estimators",
+       !grepl("median", l31a, fixed = TRUE) && !grepl("mode estimators", l31a, fixed = TRUE) && grepl("cannot be proven from summary data.", l31a, fixed = TRUE))
+expect("Round 31: a median estimator alone is described with its majority condition, a mode estimator alone with its plurality condition, both together with both",
+       grepl("The median estimators relax the third assumption only if a majority of the instruments are valid.", l31b, fixed = TRUE) && !grepl("mode", l31b, fixed = TRUE) &&
+       grepl("The mode estimators relax the third assumption only if a plurality of the instruments are valid.", l31d, fixed = TRUE) && !grepl("median", l31d, fixed = TRUE) &&
+       grepl("The median and mode estimators relax the third assumption only under their own conditions (a majority or plurality of valid instruments).", l31c, fixed = TRUE))
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

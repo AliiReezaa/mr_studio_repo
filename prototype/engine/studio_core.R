@@ -18,6 +18,13 @@ load_contracts <- function(contracts_dir) {
   invisible(contracts_dir)
 }
 
+#' Why instruments clumped on the OpenGWAS server can share a P value (Round 31). OpenGWAS stores P values with a
+#' limited number of digits; when the smallest P is itself shared, it is named as the stored floor (for example 0).
+p_store_phrase <- function(ties) {
+  if (isTRUE(ties$floor_tied) && is.finite(ties$floor %||% NA_real_)) sprintf("OpenGWAS stores P values with a limited number of digits, and the smallest ones as the same value, %s", format(ties$floor))
+  else "OpenGWAS stores P values with a limited number of digits"
+}
+
 #' Default place for studies (decision D2). MRGUI_STUDIES_DIR overrides it (tests, support).
 studies_root <- function() {
   r <- Sys.getenv("MRGUI_STUDIES_DIR", "")
@@ -226,7 +233,8 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
     }
   }
   if (is.null(sel) && identical(ex$recipe$source$type, "opengwas")) {   # Round 28: clumped on the server; the ties cannot be checked here
-    pt <- X$p[is.finite(X$p)]; led$ties <- list(server = TRUE, tied = .n_tied(pt), floor = if (length(pt)) min(pt) else NA_real_)
+    pt <- X$p[is.finite(X$p)]   # Round 31: floor_tied says whether the smallest P itself is shared (a storage floor such as 0 or 1e-200)
+    led$ties <- list(server = TRUE, tied = .n_tied(pt), floor = if (length(pt)) min(pt) else NA_real_, floor_tied = length(pt) > 0 && sum(pt == min(pt)) > 1L)
   }
   if (identical(ties, "strongest")) {
     if (is.null(led$ties)) stop(if (is.null(sel)) paste0("MR Studio did not clump the instruments of \"", ex$recipe$trait, "\" (the file was declared to hold independent variants), so there are no ties to break.") else paste0("No two candidates of \"", ex$recipe$trait, "\" share a P value, so there is no tie sensitivity analysis to run."))

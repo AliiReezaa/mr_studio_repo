@@ -254,7 +254,7 @@ report_text <- function(ctxs, study_name) {
           format(pr$r2), format(pr$kb, big.mark = ","), pr$pop, sx$og$packages$ieugwasr %||% "unknown",
           if (!is.null(po)) sprintf("The same variants were extracted from the outcome dataset with TwoSampleMR::extract_outcome_data (%s; TwoSampleMR %s).", if (isTRUE(po$proxies)) sprintf("proxies allowed at r\u00b2 of at least %s, palindromic variants aligned by allele frequency only when the minor allele frequency was below %s", format(po$rsq), format(po$maf_threshold)) else "no proxies", sy$og$packages$TwoSampleMR %||% "unknown") else "The outcome associations were read from an imported file.",
           L$instruments, L$missing_in_outcome, if (L$missing_in_outcome == 1) "was" else "were", if (!is.null(L$by_proxy) && L$by_proxy > 0) sprintf(" (a further %d %s found only through proxy variants)", L$by_proxy, if (L$by_proxy == 1) "was" else "were") else "", L$flipped, L$dropped_palindromic, L$dropped_mismatch, L$kept))
-        if (isTRUE(L$ties$server) && isTRUE(L$ties$tied > 0)) txt$methods <- c(txt$methods, sprintf("%d instruments shared their P value with another instrument (OpenGWAS stores P values below a floor as the floor, %s). Because clumping was done on the OpenGWAS server, which of several variants with equal P was kept in a region could not be checked.", as.integer(L$ties$tied), format(L$ties$floor)))
+        if (isTRUE(L$ties$server) && isTRUE(L$ties$tied > 0)) txt$methods <- c(txt$methods, sprintf("%d instruments shared their P value with another instrument (%s). Because clumping was done on the OpenGWAS server, which of several variants with equal P was kept in a region could not be checked.", as.integer(L$ties$tied), p_store_phrase(L$ties)))
       } else       if (!is.null(L) && !is.null(L$clump)) {
         C <- L$clump
         og_local <- !is.null(sx$og); po <- if (og_local && !is.null(sy$og)) sy$og$params else NULL
@@ -311,7 +311,11 @@ report_text <- function(ctxs, study_name) {
         if (length(gl)) sprintf("; the global test P was %s%s", if (!is.null(gl[[1]]$note) && !is.na(gl[[1]]$note)) "below " else "", .fp(gl[[1]]$p)) else if (length(ql)) sprintf("; the radial Q statistic was %.1f (P = %s)", ql[[1]]$value, .fp(ql[[1]]$p)) else ""))
     }
   }
-  lim <- c("The three core MR assumptions (relevance, independence from confounders, and no effect of the variants on the outcome except through the exposure) cannot be proven from summary data. The median and mode estimators relax the third assumption only under their own conditions (a majority or plurality of valid instruments).")
+  mm <- intersect(c("wm", "smed", "mode", "smode"), used)   # Round 31: name only the robust estimators that were run
+  lim <- c(paste0("The three core MR assumptions (relevance, independence from confounders, and no effect of the variants on the outcome except through the exposure) cannot be proven from summary data.",
+                  if (any(mm %in% c("wm", "smed")) && any(mm %in% c("mode", "smode"))) " The median and mode estimators relax the third assumption only under their own conditions (a majority or plurality of valid instruments)."
+                  else if (length(mm) && all(mm %in% c("wm", "smed"))) " The median estimators relax the third assumption only if a majority of the instruments are valid."
+                  else if (length(mm)) " The mode estimators relax the third assumption only if a plurality of the instruments are valid." else ""))
   if (anysim) lim <- c(lim, "SIMULATED DATA: at least one pair uses simulated demonstration traits. These results illustrate the software and must not be presented as scientific findings.")
   anyog <- any(vapply(ctxs, function(cx) !cx$simulated && !is.null(cx$src_x$og), TRUE)); anyfile <- any(vapply(ctxs, function(cx) !cx$simulated && (is.null(cx$src_x$og) || is.null(cx$src_y$og)), TRUE))
   if (anyfile) lim <- c(lim, "For imported files, clumping was not performed by MR Studio: the independence of the instruments rests on the analyst's statement at import. Ancestry and genome build are declared, not verified, and the exposure and outcome files must come from the same genome build.")
