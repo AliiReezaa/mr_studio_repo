@@ -625,6 +625,19 @@ expect("Round 33: flagged variants are named in the Methods (kept, listed in the
        grepl(sprintf("%d differed by more than 0.2, which suggests an allele or strand error", fl19$flagged), paste(t33$methods, collapse = " "), fixed = TRUE) &&
        grepl("Flagged variants were kept in the analysis and are listed in allele_frequency_check.csv", paste(t33$methods, collapse = " "), fixed = TRUE) &&
        grepl(sprintf("In one pair, %d variant", fl19$flagged), paste(t33$limitations, collapse = " "), fixed = TRUE) && grepl("a sensitivity analysis without", paste(t33$limitations, collapse = " "), fixed = TRUE))
+# ---- Round 34: the analysis without the flagged variants, as a labelled sensitivity analysis ----
+rm34 <- utils::head(sort(unique(fl19$flagged_ids)), 2L)   # 2 of the flagged variants, so that enough instruments remain
+r34 <- studio_run_without(h19, "lib:Full exposure", "lib:Full outcome", rm34, c("ivw_mre", "egger"), 0.95, 2L, params = run_params(list()), pthr = 5e-8)
+ui_state_set(h19$con, "sens", list(list(parent = r19$pair_folder, remove = as.list(rm34), folder = r34$pair_folder, label = r34$label, kept = r34$kept, kind = "eaf")))
+t34 <- report_text(lapply(ui_state_get(h19$con, "pairs"), function(p) pair_context(h19, p)), "Clumped here")
+e34 <- pair_payload(h19$dir, r34$pair_folder)$estimates; e34 <- Filter(function(e) e$method == "ivw_mre" && e$estimand == "causal_effect", e34)[[1]]
+expect("Round 34: the run without the flagged variants leaves them out (and nothing else), and the primary analysis is unchanged",
+       r34$kept == p19$ledger$kept - length(rm34) && e34$n_ivs_used == p19$ledger$kept - length(rm34) && identical(r19$replay$status, "identical") && !identical(r34$pair_folder, r19$pair_folder))
+expect("Round 34: the Results report the analysis without the flagged variants, naming them, and the Limitations point to it instead of advising it",
+       grepl(sprintf("Sensitivity analysis without the %d variant", length(rm34)), paste(t34$results, collapse = " "), fixed = TRUE) && grepl(rm34[1], paste(t34$results, collapse = " "), fixed = TRUE) &&
+       grepl("compared with", paste(t34$results, collapse = " "), fixed = TRUE) && grepl("the Results report a sensitivity analysis without", paste(t34$limitations, collapse = " "), fixed = TRUE) &&
+       !grepl("is advisable", paste(grep("allele frequency|effect-allele", t34$limitations, value = TRUE), collapse = " "), fixed = TRUE))
+ui_state_set(h19$con, "sens", list())
 # the download job, against a local copy of the fixture packed like the real archive
 dl_src <- tempfile("panel-src-"); dir.create(dl_src); file.copy(file.path(fix_dir, c("EUR.bed", "EUR.bim", "EUR.fam")), dl_src)
 tgz <- file.path(tempdir(), "fake-1kg.tgz"); old_wd <- setwd(dl_src); utils::tar(tgz, files = c("EUR.bed", "EUR.bim", "EUR.fam"), compression = "gzip", tar = "internal"); setwd(old_wd)

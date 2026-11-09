@@ -169,7 +169,9 @@ pair_context <- function(h, p) {
        simulated = isTRUE(p$simulated) || !startsWith(p$ex %||% "", "lib:"), ledger = p$ledger, pthr = p$pthr %||% 5e-8, src_x = srcname(p$ex, "exposure"), src_y = srcname(p$out, "outcome"), methods = unlist(p$methods), scripts = sc,
        overlap = tryCatch(overlap_get(h)[[overlap_key(p$ex %||% "", p$out %||% "")]], error = function(e) NULL),
        ties_sens = tryCatch({ ts <- Filter(function(x) identical(x$kind, "ties") && identical(x$parent, p$folder), ui_state_get(h$con, "sens") %||% list())
-         if (length(ts) && dir.exists(file.path(h$dir, "03_pairs", ts[[1]]$folder))) list(pay = pair_payload(h$dir, ts[[1]]$folder), regions = ts[[1]]$regions %||% p$ledger$ties$regions, n_out = length(unlist(p$ledger$ties$out)), n_in = length(unlist(p$ledger$ties[["in"]])), folder = ts[[1]]$folder) else NULL }, error = function(e) NULL))
+         if (length(ts) && dir.exists(file.path(h$dir, "03_pairs", ts[[1]]$folder))) list(pay = pair_payload(h$dir, ts[[1]]$folder), regions = ts[[1]]$regions %||% p$ledger$ties$regions, n_out = length(unlist(p$ledger$ties$out)), n_in = length(unlist(p$ledger$ties[["in"]])), folder = ts[[1]]$folder) else NULL }, error = function(e) NULL),
+       eaf_sens = tryCatch({ es <- Filter(function(x) identical(x$kind, "eaf") && identical(x$parent, p$folder), ui_state_get(h$con, "sens") %||% list())   # Round 34
+         if (length(es) && dir.exists(file.path(h$dir, "03_pairs", es[[length(es)]]$folder))) list(pay = pair_payload(h$dir, es[[length(es)]]$folder), remove = unlist(es[[length(es)]]$remove)) else NULL }, error = function(e) NULL))
 }
 
 #' Round 28: how equal P values were handled in local clumping, for the Methods sentence (inside its parenthesis).
@@ -301,6 +303,10 @@ report_text <- function(ctxs, study_name) {
     if (!is.null(ts)) { te <- .est_df(ts$pay); te <- te[te$estimand == "causal_effect", , drop = FALSE]; ti <- te[te$method == "ivw_mre", , drop = FALSE]
       if (nrow(ti) && any(ce$method == "ivw_mre")) txt$results <- c(txt$results, sprintf("Sensitivity analysis for tied P values: with the variant of larger |beta/SE| kept among variants with equal P (%s left out, %s added; %d instruments used), the IVW estimate was %s, compared with %s in the primary analysis.",
         .n_inst(ts$n_out %||% 0, "primary instruments"), .n_inst(ts$n_in %||% 0, "others", "other"), as.integer(ti$n_ivs[1]), .ci_phrase(ti[1, ], ti$scale[1]), .ci_phrase(ce[ce$method == "ivw_mre", , drop = FALSE][1, ], sc))) }
+    es <- cx$eaf_sens   # Round 34: the analysis without the variants flagged by the allele-frequency check
+    if (!is.null(es)) { ee <- .est_df(es$pay); ee <- ee[ee$estimand == "causal_effect" & ee$method == "ivw_mre", , drop = FALSE]
+      if (nrow(ee) && any(ce$method == "ivw_mre")) txt$results <- c(txt$results, sprintf("Sensitivity analysis without the %d variant%s whose effect-allele frequency differed from the reference panel by more than %s (%s; %d instruments used): the IVW estimate was %s, compared with %s in the primary analysis.",
+        length(es$remove), if (length(es$remove) == 1L) "" else "s", format(EAF_FLIP_THRESHOLD), paste(es$remove, collapse = ", "), as.integer(ee$n_ivs[1]), .ci_phrase(ee[1, ], ee$scale[1]), .ci_phrase(ce[ce$method == "ivw_mre", , drop = FALSE][1, ], sc))) }
     sf <- steiger_facts(cx)
     if (!is.null(sf)) txt$results <- c(txt$results, sprintf("Steiger directionality test: the variants explained %s of the variance in %s and %s of the variance in %s (R2), %s (P = %s); %d of %d variants explained more variance in the outcome than in the exposure.",
       .fnum(sf$r2x, 3), cx$p$exName, .fnum(sf$r2y, 3), cx$p$outName, if (sf$ok) "so the exposure explains more, as expected if it acts on the outcome" else "so the outcome explains more, which does not match the assumed direction", .fp(sf$p), as.integer(sf$wrong), as.integer(sf$n)))
@@ -323,9 +329,11 @@ report_text <- function(ctxs, study_name) {
   nfw <- sum(vapply(ctxs, function(cx) identical(cx$ledger$strand, "forward"), TRUE))   # Round 26
   if (nfw) lim <- c(lim, sprintf("In %s, palindromic variants (A/T or C/G) were kept because the analyst declared that both datasets report alleles on the forward strand. This was not verified: if either dataset uses another strand convention, these variants enter with the wrong sign. A sensitivity analysis without them is advisable.", if (nfw == 1L) "one pair" else sprintf("%d pairs", nfw)))
   if (anyog) lim <- c(lim, "Instruments from OpenGWAS were clumped against 1000 Genomes reference panels (on its server or, where stated, on the analyst's computer with the same panel), so linkage disequilibrium was estimated in a reference sample and not in the study population. Proxy variants, where used, stand in for missing instruments and are listed in the harmonised data table.")
-  { nf <- vapply(ctxs, function(cx) sum(vapply(cx$ledger$eaf_check %||% list(), function(e) if (isTRUE(e$run)) as.integer(e$flagged %||% 0L) else 0L, 0L)), 0L)   # Round 33
-    if (sum(nf)) lim <- c(lim, sprintf("In %s, %d variant%s had an effect-allele frequency that differed from the 1000 Genomes reference panel by more than %s, a possible allele or strand error. %s kept in the analysis; a sensitivity analysis without %s is advisable.",
-      if (sum(nf > 0) == 1L) "one pair" else sprintf("%d pairs", sum(nf > 0)), sum(nf), if (sum(nf) == 1L) "" else "s", format(EAF_FLIP_THRESHOLD), if (sum(nf) == 1L) "It was" else "They were", if (sum(nf) == 1L) "it" else "them")) }
+  { nf <- vapply(ctxs, function(cx) length(unique(unlist(lapply(cx$ledger$eaf_check %||% list(), function(e) if (isTRUE(e$run)) unlist(e$flagged_ids) else NULL)))), 0L)   # Round 33, distinct variants
+    done <- all(vapply(ctxs[nf > 0], function(cx) !is.null(cx$eaf_sens), TRUE))   # Round 34: every affected pair has the analysis without them
+    if (sum(nf)) lim <- c(lim, sprintf("In %s, %d variant%s had an effect-allele frequency that differed from the 1000 Genomes reference panel by more than %s, a possible allele or strand error. %s kept in the primary analysis; %s.",
+      if (sum(nf > 0) == 1L) "one pair" else sprintf("%d pairs", sum(nf > 0)), sum(nf), if (sum(nf) == 1L) "" else "s", format(EAF_FLIP_THRESHOLD), if (sum(nf) == 1L) "It was" else "They were",
+      if (done) sprintf("the Results report a sensitivity analysis without %s", if (sum(nf) == 1L) "it" else "them") else sprintf("a sensitivity analysis without %s is advisable", if (sum(nf) == 1L) "it" else "them"))) }
   lim <- c(lim, overlap_limitations(ctxs),
            steiger_limitations(ctxs),
            { nfew <- sum(vapply(ctxs, function(x) "ivw_mre" %in% x$methods && !is.null(x$kept) && nrow(x$kept) < 4, TRUE))   # Round 30, rule R21b

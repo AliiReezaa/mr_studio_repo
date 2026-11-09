@@ -174,6 +174,7 @@ mr_server <- function(engine_dir) {
           if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }
           sens <- Filter(function(x) !(identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem)), sens)
           rec <- list(parent = parent, remove = as.list(rem), folder = r$pair_folder, label = r$label, kept = r$kept)
+          if (identical(a$kind, "eaf")) rec$kind <- "eaf"   # Round 34: without the variants flagged by the allele-frequency check
           sens[[length(sens) + 1L]] <- rec; ui_state_set(rv$h$con, "sens", sens)
           ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(rv$h$dir, r$pair_folder), reused = isTRUE(r$reused))
         },
