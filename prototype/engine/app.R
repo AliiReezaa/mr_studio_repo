@@ -153,6 +153,7 @@ mr_server <- function(engine_dir) {
           bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
           if (length(bad)) { ev("pair_done", i = a$i, ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
           tryCatch(save_instrument_selection(rv$h$dir, r$pair_folder, inp$selection), error = function(e) NULL)
+          tryCatch(save_eaf_check(rv$h$dir, r$pair_folder, inp$eaf_rows), error = function(e) NULL)   # Round 33
           pl <- ui_state_get(rv$h$con, "pairs") %||% list()
           pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
           pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)

@@ -265,6 +265,7 @@ report_text <- function(ctxs, study_name) {
           as.integer(L$below_threshold), format(L$threshold), C$plink %||% "PLINK 1.9", C$pop, if (isTRUE(C$panel_matches_pin)) sprintf(" (files identical to its archive 1kg.v3.tgz, SHA-256 %s)", LD_PANEL$sha256) else if (isFALSE(C$panel_matches_pin)) " (a copy whose files differ from the published archive)" else "", format(C$r2), format(C$kb, big.mark = ","), .tie_phrase(C, L$ties), as.integer(C$clumped), as.integer(C$not_in_panel), as.integer(C$kept), as.integer(L$missing_in_outcome), if (!is.null(L$by_proxy) && L$by_proxy > 0) sprintf(" (a further %d %s found only through proxy variants)", L$by_proxy, if (L$by_proxy == 1) "was" else "were") else "", as.integer(L$flipped), as.integer(L$dropped_palindromic), as.integer(L$dropped_mismatch), as.integer(L$kept)))
       } else if (!is.null(L)) txt$methods <- c(txt$methods, sprintf("Instruments were the variants in the exposure file with P < %s. The exposure file was declared by the analyst to contain only independent (clumped) variants; MR Studio did not perform clumping. Of %d candidate variants, %d were absent from the outcome file. Exposure and outcome alleles were aligned with TwoSampleMR::harmonise_data (action 2: palindromic variants are aligned using allele frequency and dropped when the strand is ambiguous): %d variants had their alleles aligned to the exposure (swapped or on the opposite strand), %d palindromic variants were dropped and %d variants were dropped because the alleles did not match. %d instruments were used.", format(L$threshold), L$candidates, L$missing_in_outcome, L$flipped, L$dropped_palindromic, L$dropped_mismatch, L$kept))
       if (!is.null(L) && identical(L$strand, "forward")) txt$methods <- .strand_forward_text(txt$methods, L)   # Round 26
+      if (!is.null(L$eaf_check)) txt$methods <- c(txt$methods, eaf_check_text(L$eaf_check))   # Round 33
     }
     fl <- if (isTRUE(st$min_f > 0)) sprintf(" Variants with a single-variant F statistic below %s were left out.", st$min_f) else ""
     txt$methods <- c(txt$methods, sprintf("The strength of the instruments was summarised by the single-variant F statistic, (beta_x / se_x)^2: mean %.1f, minimum %.1f, with %d of %d variants below 10.%s", cx$mean_f, cx$min_f, cx$n_weak, nrow(cx$kept), fl))
@@ -322,6 +323,9 @@ report_text <- function(ctxs, study_name) {
   nfw <- sum(vapply(ctxs, function(cx) identical(cx$ledger$strand, "forward"), TRUE))   # Round 26
   if (nfw) lim <- c(lim, sprintf("In %s, palindromic variants (A/T or C/G) were kept because the analyst declared that both datasets report alleles on the forward strand. This was not verified: if either dataset uses another strand convention, these variants enter with the wrong sign. A sensitivity analysis without them is advisable.", if (nfw == 1L) "one pair" else sprintf("%d pairs", nfw)))
   if (anyog) lim <- c(lim, "Instruments from OpenGWAS were clumped against 1000 Genomes reference panels (on its server or, where stated, on the analyst's computer with the same panel), so linkage disequilibrium was estimated in a reference sample and not in the study population. Proxy variants, where used, stand in for missing instruments and are listed in the harmonised data table.")
+  { nf <- vapply(ctxs, function(cx) sum(vapply(cx$ledger$eaf_check %||% list(), function(e) if (isTRUE(e$run)) as.integer(e$flagged %||% 0L) else 0L, 0L)), 0L)   # Round 33
+    if (sum(nf)) lim <- c(lim, sprintf("In %s, %d variant%s had an effect-allele frequency that differed from the 1000 Genomes reference panel by more than %s, a possible allele or strand error. %s kept in the analysis; a sensitivity analysis without %s is advisable.",
+      if (sum(nf > 0) == 1L) "one pair" else sprintf("%d pairs", sum(nf > 0)), sum(nf), if (sum(nf) == 1L) "" else "s", format(EAF_FLIP_THRESHOLD), if (sum(nf) == 1L) "It was" else "They were", if (sum(nf) == 1L) "it" else "them")) }
   lim <- c(lim, overlap_limitations(ctxs),
            steiger_limitations(ctxs),
            { nfew <- sum(vapply(ctxs, function(x) "ivw_mre" %in% x$methods && !is.null(x$kept) && nrow(x$kept) < 4, TRUE))   # Round 30, rule R21b
@@ -408,6 +412,21 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
               if (any(vapply(ctxs, `[[`, TRUE, "simulated"))) "At least one pair uses SIMULATED demonstration traits: do not report these results as findings." else NULL, "", "Files:", made, if (length(note)) c("", "Notes:", note) else NULL)
   rf <- file.path(pk, "README.txt"); writeLines(readme, rf, useBytes = TRUE)
   list(dir = pk, folder = basename(pk), files = made, notes = note, simulated = any(vapply(ctxs, `[[`, TRUE, "simulated")), strobe = strobe)
+}
+
+#' Round 33: the Methods sentence of the allele-frequency check of both datasets of a pair.
+eaf_check_text <- function(E) {
+  one <- function(e) {
+    if (is.null(e)) return(NULL)
+    if (!isTRUE(e$run)) return(sprintf("The effect-allele frequencies of %s were not compared with a reference panel: %s", e$trait, sub("\\.?$", ".", e$why %||% "not available.")))
+    j <- as.integer(e$judged %||% 0L); f <- as.integer(e$flagged %||% 0L); mx <- suppressWarnings(as.numeric(e$max_difference %||% NA))
+    sprintf("The effect-allele frequencies of %s were compared with the 1000 Genomes %s reference panel: of the %d variant%s that could be judged (not palindromic, panel minor allele frequency below %s), %s (largest difference %s).%s",
+            e$trait, e$pop, j, if (j == 1L) "" else "s", format(e$maf_limit %||% EAF_FLIP_MAF_LIMIT),
+            if (f) sprintf("%d differed by more than %s, which suggests an allele or strand error", f, format(e$threshold %||% EAF_FLIP_THRESHOLD)) else sprintf("none differed by more than %s", format(e$threshold %||% EAF_FLIP_THRESHOLD)),
+            if (is.finite(mx)) sprintf("%.2f", mx) else "none",
+            if (f) " Flagged variants were kept in the analysis and are listed in allele_frequency_check.csv." else "")
+  }
+  paste(c(one(E$x), one(E$y)), collapse = " ")
 }
 
 #' Round 26: the harmonisation sentence when both files were declared to report alleles on the forward strand (action 1).

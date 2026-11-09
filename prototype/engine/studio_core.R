@@ -273,9 +273,13 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   led$strand <- if (fwd) "forward" else "unknown"; led$harmonise_action <- if (fwd) 1L else 2L
   led$kept_palindromic <- sum(H$palindromic[match(d$variant_id, H$SNP)] %in% TRUE & d$mr_keep)
   if (led$kept < 2L) stop("Fewer than 2 instruments remain after harmonisation.")
+  # Round 33: allele-frequency check of both datasets against the panel of their ancestry (reported, nothing removed)
+  ec <- list(x = tryCatch(eaf_panel_check(d, d$eaf_x, ex$dir, ex$recipe$facts$ancestry, ex$recipe$trait), error = function(e) list(run = FALSE, why = conditionMessage(e), trait = ex$recipe$trait)),
+             y = tryCatch(eaf_panel_check(d, d$eaf_y, ou$dir, ou$recipe$facts$ancestry, ou$recipe$trait), error = function(e) list(run = FALSE, why = conditionMessage(e), trait = ou$recipe$trait)))
+  eaf_rows <- do.call(rbind, lapply(ec, `[[`, "rows")); led$eaf_check <- lapply(ec, function(z) z[setdiff(names(z), "rows")])
   sc <- if (identical(ou$recipe$facts$kind, "binary")) "log_or" else "beta"
   scx <- if (identical(ex$recipe$facts$kind, "binary")) "log_or" else "beta"
-  list(exposure_label = ex$recipe$trait, outcome_label = ou$recipe$trait, simulated = FALSE, ledger = led, selection = sel,
+  list(exposure_label = ex$recipe$trait, outcome_label = ou$recipe$trait, simulated = FALSE, ledger = led, selection = sel, eaf_rows = eaf_rows,
        anc_x = ex$recipe$facts$ancestry %||% "?", anc_y = ou$recipe$facts$ancestry %||% "?", ukb_both = isTRUE(ex$recipe$facts$ukb) && isTRUE(ou$recipe$facts$ukb),
        source_x = ex$recipe$source$id %||% NULL, source_y = ou$recipe$source$id %||% NULL,
        binary = list(x = if (identical(scx, "log_or")) .case_counts(ex$recipe) else NULL, y = if (identical(sc, "log_or")) .case_counts(ou$recipe) else NULL),
@@ -290,6 +294,15 @@ save_instrument_selection <- function(study_dir, pair_folder, sel) {
   out <- cbind(sel, clump_r2 = st$r2, clump_kb = st$kb, reference = paste(st$panel, st$pop), plink = st$plink %||% NA_character_)
   utils::write.csv(out, file.path(study_dir, rel), row.names = FALSE, na = "")
   manifest_register(study_dir, rel, role = "instrument_selection")
+  invisible(rel)
+}
+
+#' Round 33: save the allele-frequency check of a pair (one row per variant and dataset) in its 01_data folder and the manifest.
+save_eaf_check <- function(study_dir, pair_folder, rows) {
+  if (is.null(rows) || !nrow(rows)) return(invisible(NULL))
+  rel <- file.path("03_pairs", pair_folder, "01_data", "allele_frequency_check.csv")
+  utils::write.csv(cbind(rows, threshold = EAF_FLIP_THRESHOLD, reference = LD_PANEL$name), file.path(study_dir, rel), row.names = FALSE, na = "")
+  manifest_register(study_dir, rel, role = "allele_frequency_check")
   invisible(rel)
 }
 

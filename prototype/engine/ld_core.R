@@ -360,3 +360,57 @@ ld_tie_summary <- function(main, alt) {
   list(tied = .n_tied(main$p[main$status %in% c("index", "clumped")]), regions = max(length(setdiff(a, b)), length(setdiff(b, a))),
        out = as.list(setdiff(a, b)), `in` = as.list(setdiff(b, a)), alt_kept = length(b))
 }
+
+# ---- Round 33: allele-frequency check against the reference panel (data_limits_solutions.md item 5, FR-91) ----------------
+# The effect-allele frequency (EAF) a dataset reports is compared with the frequency of the same allele in the 1000 Genomes
+# panel of the dataset's ancestry. A difference above EAF_FLIP_THRESHOLD marks a possible allele or strand error (the EAF may
+# belong to the other allele). Calibrated in Round 32 (validation/calibration/README.md): no false flag among 2,320 European
+# variants, every flip found below a minor allele frequency of 0.3; near 0.5 a flip cannot be seen, so variants with a panel
+# minor allele frequency of EAF_FLIP_MAF_LIMIT or more are not judged. Flagged variants are reported, never removed.
+EAF_FLIP_THRESHOLD <- 0.2
+EAF_FLIP_MAF_LIMIT <- 0.4
+
+#' Panel allele frequencies of the given rsIDs (PLINK --freq), cached in the dataset's folder. Columns SNP, A1, A2, MAF, NCHROBS.
+ld_panel_freq_cached <- function(ds_dir, snp, pop, dir = ld_panel_dir(), bin = plink_bin()) {
+  snp <- sort(unique(snp[!is.na(snp) & grepl("^rs[0-9]+$", snp)]))
+  empty <- data.frame(SNP = character(), A1 = character(), A2 = character(), MAF = numeric(), NCHROBS = integer(), stringsAsFactors = FALSE)
+  if (!length(snp)) return(empty)
+  key <- substr(digest::digest(list(snp = snp, pop = pop, panel = LD_PANEL$sha256, plink = PLINK_PIN$build)), 1, 16)
+  f <- file.path(ds_dir, "panel_freq", paste0(pop, "_", key, ".csv"))
+  cc <- c(SNP = "character", A1 = "character", A2 = "character")
+  if (file.exists(f)) return(utils::read.csv(f, stringsAsFactors = FALSE, colClasses = cc))
+  tmp <- tempfile("freq-"); dir.create(tmp); on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+  writeLines(snp, file.path(tmp, "snps.txt"))
+  log <- suppressWarnings(system2(bin, c("--bfile", shQuote(file.path(dir, pop)), "--extract", shQuote(file.path(tmp, "snps.txt")), "--freq", "--threads", "1", "--out", shQuote(file.path(tmp, "frq"))), stdout = TRUE, stderr = TRUE))
+  ff <- file.path(tmp, "frq.frq")
+  res <- if (file.exists(ff)) { r <- utils::read.table(ff, header = TRUE, stringsAsFactors = FALSE, colClasses = cc); r[is.finite(r$MAF), c("SNP", "A1", "A2", "MAF", "NCHROBS")] }
+         else if (any(grepl("No variants remaining", log))) empty
+         else stop("PLINK could not read the panel frequencies. End of its log: ", paste(utils::tail(log, 5), collapse = " "), call. = FALSE)
+  dir.create(dirname(f), recursive = TRUE, showWarnings = FALSE); utils::write.csv(res, f, row.names = FALSE)
+  res
+}
+
+#' Compare the EAF of one side of a harmonised pair with the panel. `d` is the harmonised table (ea, oa aligned to the exposure),
+#' `eaf` the EAF column of that side (already aligned to `ea`). Returns the summary for the ledger and one row per judged variant.
+eaf_panel_check <- function(d, eaf, ds_dir, ancestry, trait, dir = ld_panel_dir(), bin = plink_bin()) {
+  base <- list(trait = trait, threshold = EAF_FLIP_THRESHOLD, maf_limit = EAF_FLIP_MAF_LIMIT)
+  no <- function(why) c(base, list(run = FALSE, why = why))
+  kept <- d$mr_keep %in% TRUE; e <- eaf; e[!kept] <- NA_real_
+  if (!any(is.finite(e))) return(no(sprintf("\"%s\" reports no effect-allele frequency.", trait)))
+  pop <- ld_pop_for(ancestry)
+  if (is.na(pop)) return(no(sprintf("The ancestry of \"%s\" (%s) is not one of the five 1000 Genomes ancestries.", trait, ancestry %||% "unknown")))
+  if (is.na(bin)) return(no("PLINK is not available in this installation."))
+  if (!all(file.exists(file.path(dir, paste0(pop, c(".bed", ".bim", ".fam"))))))
+    return(no(sprintf("The %s (%s) reference panel is not installed (Settings > Data and access).", LD_POP_NAMES[[pop]], pop)))
+  fq <- ld_panel_freq_cached(ds_dir, d$variant_id[kept], pop, dir, bin)
+  pal <- (d$ea %in% c("A", "T") & d$oa %in% c("A", "T")) | (d$ea %in% c("C", "G") & d$oa %in% c("C", "G"))
+  m <- match(d$variant_id, fq$SNP); a1 <- fq$A1[m]; a2 <- fq$A2[m]
+  pan <- ifelse(toupper(a1) == d$ea & toupper(a2) == d$oa, fq$MAF[m], ifelse(toupper(a2) == d$ea & toupper(a1) == d$oa, 1 - fq$MAF[m], NA_real_))
+  maf <- pmin(pan, 1 - pan); judged <- kept & is.finite(e) & !pal & is.finite(pan) & maf < EAF_FLIP_MAF_LIMIT
+  rows <- data.frame(variant_id = d$variant_id, side = trait, ea = d$ea, oa = d$oa, eaf = e, panel_eaf = pan, difference = e - pan,
+                     judged = judged, flagged = judged & abs(e - pan) > EAF_FLIP_THRESHOLD, stringsAsFactors = FALSE)[kept & is.finite(e), , drop = FALSE]
+  c(base, list(run = TRUE, pop = pop, panel = LD_PANEL$name, with_eaf = sum(kept & is.finite(e)), judged = sum(judged), flagged = sum(rows$flagged),
+               flagged_ids = rows$variant_id[rows$flagged], palindromic = sum(kept & is.finite(e) & pal), not_in_panel = sum(kept & is.finite(e) & !pal & !is.finite(pan)),
+               near_half = sum(kept & is.finite(e) & !pal & is.finite(pan) & maf >= EAF_FLIP_MAF_LIMIT),
+               max_difference = if (any(judged)) max(abs(e - pan)[judged]) else NA_real_), list(rows = rows))
+}

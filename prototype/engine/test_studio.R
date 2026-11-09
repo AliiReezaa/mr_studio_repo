@@ -596,6 +596,35 @@ pk19 <- build_package(h19, c("report", "text", "refs"), 140)
 htm19 <- paste(readLines(file.path(pk19$dir, "report.html"), warn = FALSE), collapse = "\n"); bib19 <- paste(readLines(file.path(pk19$dir, "references.bib"), warn = FALSE), collapse = "\n")
 expect("clump report: methods say clumped here with PLINK and the 1000 Genomes panel, with counts, and cite both",
        grepl("clumped with PLINK", htm19, fixed = TRUE) && grepl("5 variants were removed as correlated", htm19, fixed = TRUE) && grepl("Chang2015", bib19, fixed = TRUE) && grepl("1000Genomes2015", bib19, fixed = TRUE))
+# ---- Round 33: allele-frequency check against the panel (synthetic panel: A allele at about 0.30, 0.40 and 0.35; files report EAF 0.35) ----
+e19 <- p19$ledger$eaf_check
+expect("Round 33: both datasets are checked against the EUR panel; with EAF 0.35 none differs by more than 0.2, and the counts add up",
+       isTRUE(e19$x$run) && isTRUE(e19$y$run) && identical(e19$x$pop, "EUR") && e19$x$judged >= 1L && e19$x$flagged == 0L && e19$y$flagged == 0L &&
+       e19$x$judged + e19$x$palindromic + e19$x$not_in_panel + e19$x$near_half == e19$x$with_eaf && e19$x$with_eaf == p19$ledger$kept && e19$x$max_difference < 0.2)
+d19 <- p19$input$data; ds19 <- file.path(library_dir(), "Full exposure")
+fl19 <- eaf_panel_check(d19, rep(0.85, nrow(d19)), ds19, "EUR", "Flipped")
+expect("Round 33: an EAF given for the other allele (0.85 instead of about 0.3) is flagged for every judged variant and listed by ID; nothing is removed",
+       isTRUE(fl19$run) && fl19$judged >= 1L && fl19$flagged == fl19$judged && setequal(fl19$flagged_ids, fl19$rows$variant_id[fl19$rows$judged]) && nrow(d19) == p19$ledger$kept)
+expect("Round 33: variants with a panel minor allele frequency of 0.4 or more are not judged, palindromic variants are not judged",
+       all(abs(pmin(fl19$rows$panel_eaf, 1 - fl19$rows$panel_eaf)[fl19$rows$judged]) < 0.4) && !any(fl19$rows$judged & ((fl19$rows$ea %in% c("A", "T") & fl19$rows$oa %in% c("A", "T")) | (fl19$rows$ea %in% c("C", "G") & fl19$rows$oa %in% c("C", "G")))))
+expect("Round 33: the check is skipped with a reason for a mixed ancestry, a panel that is not installed, a dataset without EAF and a missing PLINK",
+       grepl("not one of the five", eaf_panel_check(d19, d19$eaf_x, ds19, "Mixed", "T")$why) && grepl("East Asian (EAS) reference panel is not installed", eaf_panel_check(d19, d19$eaf_x, ds19, "EAS", "T")$why, fixed = TRUE) &&
+       grepl("reports no effect-allele frequency", eaf_panel_check(d19, rep(NA_real_, nrow(d19)), ds19, "EUR", "T")$why) &&
+       grepl("PLINK is not available", eaf_panel_check(d19, d19$eaf_x, ds19, "EUR", "T", bin = NA_character_)$why))
+expect("Round 33: panel frequencies are cached in the dataset folder and read again without PLINK",
+       length(list.files(file.path(ds19, "panel_freq"), pattern = "^EUR_.*\\.csv$")) >= 1L && nrow(ld_panel_freq_cached(ds19, d19$variant_id, "EUR", bin = "/no/plink")) >= 1L)
+save_eaf_check(h19$dir, r19$pair_folder, p19$eaf_rows); ef_rel <- file.path("03_pairs", r19$pair_folder, "01_data", "allele_frequency_check.csv")
+expect("Round 33: the check is saved per pair with one row per variant and dataset, and listed in the manifest",
+       file.exists(file.path(h19$dir, ef_rel)) && nrow(utils::read.csv(file.path(h19$dir, ef_rel))) == 2L * p19$ledger$kept && ef_rel %in% manifest_read(h19$dir)$relative_path)
+expect("Round 33: the Methods report the check of both datasets with the panel and the largest difference",
+       grepl("The effect-allele frequencies of Full exposure were compared with the 1000 Genomes EUR reference panel", htm19, fixed = TRUE) && grepl("none differed by more than 0.2", htm19, fixed = TRUE) && grepl("The effect-allele frequencies of Full outcome", htm19, fixed = TRUE))
+l33 <- p19$ledger; l33$eaf_check$x <- fl19[setdiff(names(fl19), "rows")]
+ui_state_set(h19$con, "pairs", list(list(ex = "lib:Full exposure", out = "lib:Full outcome", exName = p19$exposure_label, outName = p19$outcome_label, folder = r19$pair_folder, methods = list("ivw_mre", "egger"), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = l33, anc_x = "EUR", anc_y = "EUR")))
+t33 <- report_text(lapply(ui_state_get(h19$con, "pairs"), function(p) pair_context(h19, p)), "Clumped here")
+expect("Round 33: flagged variants are named in the Methods (kept, listed in the file) and the Limitations advise a sensitivity analysis without them",
+       grepl(sprintf("%d differed by more than 0.2, which suggests an allele or strand error", fl19$flagged), paste(t33$methods, collapse = " "), fixed = TRUE) &&
+       grepl("Flagged variants were kept in the analysis and are listed in allele_frequency_check.csv", paste(t33$methods, collapse = " "), fixed = TRUE) &&
+       grepl(sprintf("In one pair, %d variant", fl19$flagged), paste(t33$limitations, collapse = " "), fixed = TRUE) && grepl("a sensitivity analysis without", paste(t33$limitations, collapse = " "), fixed = TRUE))
 # the download job, against a local copy of the fixture packed like the real archive
 dl_src <- tempfile("panel-src-"); dir.create(dl_src); file.copy(file.path(fix_dir, c("EUR.bed", "EUR.bim", "EUR.fam")), dl_src)
 tgz <- file.path(tempdir(), "fake-1kg.tgz"); old_wd <- setwd(dl_src); utils::tar(tgz, files = c("EUR.bed", "EUR.bim", "EUR.fam"), compression = "gzip", tar = "internal"); setwd(old_wd)

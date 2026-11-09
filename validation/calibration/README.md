@@ -115,7 +115,7 @@ Findings:
 ## What this does not calibrate
 
 1. MR-PRESSO under R21 (too slow to simulate here).
-2. The 0.2 allele-frequency flip threshold and the 90% ancestry cut-off: calibrated in Round 32 (sections below); the checks that would use them are NOT BUILT.
+2. The 0.2 allele-frequency flip threshold and the 90% ancestry cut-off: calibrated in Round 32 (sections below). The allele-frequency check was built in Round 33; the ancestry classification is NOT BUILT.
 3. The outlier-module rules in FR-104 (trigger, 20% cap, floor, selection rule): calibrated in Round 32 (section below) except the one-round rule; the module is NOT BUILT.
 4. Sample overlap between the two GWAS, where weak instruments bias toward the observational estimate instead of the null.
 5. Directional (non-balanced) pleiotropy under R21.

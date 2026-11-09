@@ -556,6 +556,24 @@ function steigerTile(pay, tile, big) {
   if (!si) return tile('Direction of effect (Steiger)', '<div style="font-size:20px;font-weight:600;margin:12px 0 2px;color:var(--mute)">Not run</div>', '<div style="font-size:12px;color:var(--mute)">' + esc(steigerNotRun()) + '</div>');
   return tile('Direction of effect (Steiger)', '<div style="font-size:20px;font-weight:600;margin:12px 0 2px;color:' + (si.good ? 'var(--accent)' : 'var(--warn)') + '">' + si.label + '</div>', '<div style="font-size:12px;color:var(--mute)">R² ' + fx(si.r2x, 3) + ' (exposure) vs ' + fx(si.r2y, 3) + ' (outcome), P = ' + fp(si.p) + '. ' + (si.good ? 'Consistent with the assumed direction.' : (si.ok ? 'Does not separate the two.' : 'Opposite to the assumed direction.')) + '</div>', '', si.good ? '' : 'var(--warn)');
 }
+// Round 33: effect-allele frequencies of both datasets against the 1000 Genomes panel of their ancestry (nothing is removed).
+function eafCheckRow(fc) {
+  const withE = fc.filter((x) => x.ledger && x.ledger.eaf_check);
+  if (!withE.length) return null;
+  const ids = (v) => [].concat(v || []);
+  const side = (e) => {
+    if (!e) return '';
+    if (!e.run) return e.trait + ': not checked. ' + e.why;
+    const f = Number(e.flagged || 0), j = Number(e.judged || 0), mx = Number(e.max_difference);
+    return e.trait + ': ' + (f ? f + ' of ' + j + ' judged variant' + (j === 1 ? '' : 's') + ' differ by more than ' + e.threshold + ' from the 1000 Genomes ' + e.pop + ' panel (' + ids(e.flagged_ids).slice(0, 5).join(', ') + (f > 5 ? ', …' : '') + '): possible allele or strand errors, kept in the analysis.'
+      : 'none of ' + j + ' judged variant' + (j === 1 ? '' : 's') + ' differs by more than ' + e.threshold + ' from the 1000 Genomes ' + e.pop + ' panel' + (isFinite(mx) && j ? ' (largest difference ' + mx.toFixed(2) + ').' : '.'));
+  };
+  const all = withE.flatMap((x) => [x.ledger.eaf_check.x, x.ledger.eaf_check.y].filter(Boolean));
+  const flagged = all.some((e) => e.run && Number(e.flagged) > 0), ran = all.some((e) => e.run);
+  const txt = withE.map((x) => (withE.length > 1 ? x.exposure + ' → ' + x.outcome + '. ' : '') + [side(x.ledger.eaf_check.x), side(x.ledger.eaf_check.y)].filter(Boolean).join(' ')).join(' ') +
+    (ran ? ' Palindromic variants and variants with a minor allele frequency of ' + (all.find((e) => e.run).maf_limit || 0.4) + ' or more cannot be judged this way.' : '');
+  return ['Allele frequencies against the reference panel', txt, flagged ? 'REVIEW' : (ran ? 'PASS' : 'NOT RUN')];
+}
 function steigerCheckRow() {
   const sm = steigerState(), infos = (S.pairs || []).map((p) => ({ p: p, si: steigerInfo(S.payloads[p.folder]) })).filter((r) => r.si);
   if (infos.length && infos.length === S.pairs.length) {
@@ -594,6 +612,7 @@ function checks() {
   const fwd = fc.filter((x) => (x.ledger || {}).strand === 'forward'), fwdKept = fwd.reduce((a, x) => a + ((x.ledger || {}).kept_palindromic || 0), 0);   // Round 26
   out.push(imp && fwd.length ? ['Ambiguous variants', fwdKept + ' palindromic variant' + (fwdKept === 1 ? ' (A/T or C/G) was' : 's (A/T or C/G) were') + ' kept because both files' + (fwd.length < fc.length ? ' of ' + fwd.length + ' pair' + (fwd.length === 1 ? '' : 's') : '') + ' are declared to be on the forward strand. This is your statement and is not checked; it is reported as a limitation.', fwdKept ? 'REVIEW' : 'PASS']
     : imp ? ['Ambiguous variants', pal + ' palindromic variant' + (pal === 1 ? ' (A/T or C/G) is' : 's (A/T or C/G) are') + ' among the ' + fc.reduce((a, x) => a + x.instruments, 0) + ' kept. Allele frequency was clear enough to tell their strand. Those too close to 50% were dropped (' + fc.reduce((a, x) => a + ((x.ledger || {}).dropped_palindromic || 0), 0) + ', see above).', 'PASS'] : ['Ambiguous variants', pal + ' palindromic variant' + (pal === 1 ? '' : 's') + ' found. Allele frequency is used to resolve them when real data are loaded.', 'PASS']);
+  const eafRow = eafCheckRow(fc); if (eafRow) out.push(eafRow);   // Round 33
   out.push(steigerCheckRow());
   if (S.factErr.length) out.unshift(['Data problem', S.factErr.join(' ') + ' Pairs with this problem will not run.', 'REVIEW']);   // Round 31: also when other pairs pass
   return out;
