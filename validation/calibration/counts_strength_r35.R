@@ -5,20 +5,24 @@
 #      association instead of the null (Burgess 2016, PMID 27625185).
 # Same data generation, methods and settings as run_calibration.R (TwoSampleMR 0.7.13, RadialMR 1.2.5, MRPRESSO 1.0; nboot 1000,
 # phi 1, NbDistribution 1000, SignifThreshold 0.05). IVW is TwoSampleMR::mr_ivw, the default since Round 30.
-# Run from the repository root:  Rscript --vanilla validation/calibration/counts_strength_r35.R        (about 2 hours on 11 cores)
+# Run from the repository root:  Rscript --vanilla validation/calibration/counts_strength_r35.R        (about 2.7 hours on 11 cores;
+#                                 add A, B or C to run one part only)
 # Quick check of the script:     Rscript --vanilla validation/calibration/counts_strength_r35.R quick
 suppressMessages({ library(TwoSampleMR); library(RadialMR); library(MRPRESSO); library(parallel) })
 quick <- identical(commandArgs(TRUE)[1], "quick")
 out_dir <- if (quick) tempdir() else file.path("validation", "calibration")
 cores <- max(1L, detectCores() - 1L)
 REPS <- if (quick) 6L else 500L; REPS_P <- if (quick) 4L else 200L
+parts <- toupper(setdiff(commandArgs(TRUE), "quick")); if (!length(parts)) parts <- c("A", "B", "C")   # for example: ... counts_strength_r35.R A
 N <- 100000; PA <- default_parameters(); z <- qnorm(0.975)
 RNGkind("L'Ecuyer-CMRG")
 
 # Exposure and outcome errors correlate by rho_e = overlap fraction x observational correlation (equal N, standardised traits).
-sim_pair <- function(mu, theta, alpha = NULL, rho_e = 0) {
+# directional = TRUE gives alpha the sign of the variant's exposure effect, so that after the methods orient each variant to a
+# positive exposure effect every pleiotropic effect points the same way (otherwise random allele coding makes it balanced).
+sim_pair <- function(mu, theta, alpha = NULL, rho_e = 0, directional = FALSE) {
   k <- length(mu); f <- runif(k, 0.05, 0.5); s <- 1 / sqrt(2 * f * (1 - f) * N)
-  g <- mu * s * sample(c(-1, 1), k, TRUE); a <- if (is.null(alpha)) numeric(k) else alpha * s
+  g <- mu * s * sample(c(-1, 1), k, TRUE); a <- if (is.null(alpha)) numeric(k) else alpha * s * (if (directional) sign(g) else 1)
   e1 <- rnorm(k); e2 <- rho_e * e1 + sqrt(1 - rho_e^2) * rnorm(k)
   list(bx = g + e1 * s, by = theta * g + a + e2 * s, sx = s, sy = s, g = g)
 }
@@ -44,13 +48,13 @@ cell <- function(seed, reps, gen, methods) { set.seed(seed); sd <- sample.int(.M
 n_inv <- function(k) max(1L, round(0.2 * k))
 
 # ---- A. R21 under directional pleiotropy -----------------------------------------------------------------------------
-# theta = 0, mu ~ U(6, 12) as in Round 29; invalid instruments get alpha = |N(0, 3)| outcome SEs (all positive, mean 2.4 SE).
+# theta = 0, mu ~ U(6, 12) as in Round 29; invalid instruments get alpha = |N(0, 3)| outcome SEs (mean 2.4 SE), all in the direction of a positive exposure effect.
 t0 <- Sys.time(); A <- NULL
-for (k in c(3, 4, 5, 6, 8, 10, 15, 20, 30)) {
-  gen <- function() { a <- numeric(k); j <- sample.int(k, n_inv(k)); a[j] <- abs(rnorm(length(j), 0, 3)); sim_pair(runif(k, 6, 12), 0, a) }
+if ("A" %in% parts) for (k in c(3, 4, 5, 6, 8, 10, 15, 20, 30)) {
+  gen <- function() { a <- numeric(k); j <- sample.int(k, n_inv(k)); a[j] <- abs(rnorm(length(j), 0, 3)); sim_pair(runif(k, 6, 12), 0, a, directional = TRUE) }
   A <- rbind(A, summ(cell(3500 + k, REPS, gen, c("ivw", "radial", "egger", "radegger", "wm", "smed", "mode")), 0, data.frame(k = k, scenario = "directional")))
   cat("A k =", k, format(Sys.time() - t0), "\n") }
-write.csv(A, file.path(out_dir, "results_R21_directional.csv"), row.names = FALSE)
+if ("A" %in% parts) write.csv(A, file.path(out_dir, "results_R21_directional.csv"), row.names = FALSE)
 
 # ---- B. MR-PRESSO under R21 ------------------------------------------------------------------------------------------
 # Scenarios as Round 29 (valid; balanced: 20% invalid with alpha ~ N(0, 3) SE). The reported estimate follows the adapter:
@@ -66,7 +70,7 @@ presso_one <- function(d) { k <- length(d$bx)
   c(ok = 1, glob = pn(f[["MR-PRESSO results"]][["Global Test"]]$Pvalue) < 0.05, nout = no, b = main[row, "Causal Estimate"], se = main[row, "Sd"],
     p = pn(main[row, "P-value"]), crit = qt(0.975, max(df, 1))) }
 B <- NULL
-for (scen in c("valid", "balanced")) for (k in c(4, 6, 8, 10, 15, 20)) {
+if ("B" %in% parts) for (scen in c("valid", "balanced")) for (k in c(4, 6, 8, 10, 15, 20)) {
   set.seed(3510 + k + 100 * (scen == "balanced"))
   r <- do.call(rbind, mclapply(seq_len(REPS_P), function(i) { a <- numeric(k); if (scen == "balanced") { j <- sample.int(k, n_inv(k)); a[j] <- rnorm(length(j), 0, 3) }
     presso_one(sim_pair(runif(k, 6, 12), 0, a)) }, mc.cores = cores, mc.set.seed = TRUE))
@@ -74,20 +78,20 @@ for (scen in c("valid", "balanced")) for (k in c(4, 6, 8, 10, 15, 20)) {
   B <- rbind(B, data.frame(k = k, scenario = scen, reps = nrow(r), global_reject = mean(r[, "glob"]), mean_outliers = mean(r[, "nout"]), mean_est = mean(r[, "b"]),
     emp_sd = sd(r[, "b"]), reject_p05 = rj, coverage95 = mean(abs(r[, "b"]) < r[, "crit"] * r[, "se"]), mc_se_reject = sqrt(rj * (1 - rj) / nrow(r))))
   cat("B", scen, "k =", k, format(Sys.time() - t0), "\n") }
-write.csv(B, file.path(out_dir, "results_R21_presso.csv"), row.names = FALSE)
+if ("B" %in% parts) write.csv(B, file.path(out_dir, "results_R21_presso.csv"), row.names = FALSE)
 
 # ---- C. R23 with sample overlap ---------------------------------------------------------------------------------------
 # 30 instruments of fixed target F, theta = 0, observational correlation 0.3 from confounding, overlap 0, 50% or 100%.
 # Expected IVW bias about overlap x 0.3 / mean F (Burgess 2016); bias_vs_obs below is the mean estimate divided by 0.3.
 C <- NULL; r_obs <- 0.3
-for (ov in c(0, 0.5, 1)) for (Ft in c(3, 5, 10, 20, 50)) {
+if ("C" %in% parts) for (ov in c(0, 0.5, 1)) for (Ft in c(3, 5, 10, 20, 50)) {
   gen <- function() sim_pair(rep(sqrt(Ft - 1), 30), 0, NULL, ov * r_obs)
   x <- summ(cell(3600 + Ft + 1000 * ov, REPS, gen, c("ivw", "egger", "wm")), 0, data.frame(overlap = ov, target_f = Ft))
   x$bias_vs_obs <- x$mean_est / r_obs; x$expected_ivw <- ov * r_obs / Ft / r_obs; C <- rbind(C, x)
   cat("C overlap", ov, "F", Ft, format(Sys.time() - t0), "\n") }
-write.csv(C, file.path(out_dir, "results_R23_overlap.csv"), row.names = FALSE)
+if ("C" %in% parts) write.csv(C, file.path(out_dir, "results_R23_overlap.csv"), row.names = FALSE)
 
 pr <- function(x) print(format(x, digits = 3), row.names = FALSE)
-pr(reshape(A[, c("k", "method", "reject_p05")], idvar = "k", timevar = "method", direction = "wide"))
-pr(B); pr(reshape(C[, c("overlap", "target_f", "method", "reject_p05", "bias_vs_obs")], idvar = c("overlap", "target_f"), timevar = "method", direction = "wide"))
+if (!is.null(A)) pr(reshape(A[, c("k", "method", "reject_p05")], idvar = "k", timevar = "method", direction = "wide"))
+if (!is.null(B)) pr(B); if (!is.null(C)) pr(reshape(C[, c("overlap", "target_f", "method", "reject_p05", "bias_vs_obs")], idvar = c("overlap", "target_f"), timevar = "method", direction = "wide"))
 cat("Total time:", format(Sys.time() - t0), "\n")

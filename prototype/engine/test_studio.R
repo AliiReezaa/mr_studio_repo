@@ -926,6 +926,16 @@ expect("Round 32: R24b notes radial MR-Egger for I2GX from 0.9 to below 0.95 onl
 freal <- mk(simulated = FALSE, ex_id = "lib:A", out_id = "lib:B", ukb_both = FALSE)
 fo1 <- feasibility(list(freal)); fo2 <- feasibility(list(freal), overlap = setNames(list(list(answer = "none")), "lib:A | lib:B"))
 fo3 <- feasibility(list(freal), overlap = setNames(list(list(answer = "some", pct = 20)), "lib:A | lib:B"))
+# Round 35: R24 says where the MR-Egger bias goes, by the overlap answer; R21 adds the median note for 3 or 4 instruments.
+fe24 <- function(ans) { ov <- if (is.null(ans)) list() else setNames(list(list(answer = ans)), "lib:A | lib:B")
+  r <- feasibility(list(modifyList(freal, list(i2gx = 0.8))), overlap = ov)$methods$egger$reasons; r[[which(vapply(r, `[[`, "", "rule") == "R24")]]$msg }
+expect("Round 35: R24 says diluted toward the null without declared overlap, toward the observational association with some or unknown overlap",
+       grepl("diluted toward the null", fe24(NULL)) && grepl("diluted toward the null", fe24("none")) &&
+       grepl("toward the observational association", fe24("some")) && grepl("toward the observational association", fe24("unknown")) && !grepl("\\{", fe24("some")))
+r21m <- function(n, m) { r <- feasibility(list(mk(instruments = n)))$methods[[m]]$reasons; r[[which(vapply(r, `[[`, "", "rule") == "R21")]]$msg }
+expect("Round 35: R21 adds the median false-positive note for the weighted and simple median with 3 or 4 instruments only",
+       grepl("about 10% instead of 5%", r21m(3, "wm")) && grepl("about 10% instead of 5%", r21m(4, "smed")) && !grepl("about 10%", r21m(5, "wm")) &&
+       !grepl("about 10%", r21m(3, "egger")) && !grepl("\\{", r21m(5, "wm")))
 expect("feasibility: sample overlap warns until answered 'none' (R28), and quotes a stated share", "R28" %in% rl(fo1, "ivw_mre") && !("R28" %in% rl(fo2, "ivw_mre")) && grepl("about 20%", fo3$methods$ivw_mre$reasons[[1]]$msg, fixed = TRUE))
 expect("feasibility: different declared ancestries warn (R13)", "R13" %in% rl(feasibility(list(mk(anc_x = "EUR", anc_y = "EAS"))), "wm"))
 fp <- feasibility(list(fx_base), params = list(nbdist = 30))

@@ -35,9 +35,13 @@ feas_i2gx <- function(bx, sx) { ok <- is.finite(bx) & is.finite(sx) & sx > 0; if
     ancestry_differs = { ax <- f$anc_x %||% "?"; ay <- f$anc_y %||% "?"; if (!(ax %in% c("?", "")) && !(ay %in% c("?", "")) && !identical(ax, ay)) list(ax = ax, ay = ay) },
     steiger_data = { w <- f$steiger$why %||% ""; if (nzchar(w)) list(why = w) },
     iv_below_min = { mi <- ctx$min_ivs[[m]]; if (f$instruments < mi) list(min = mi, n = f$instruments) },
-    iv_below_recommended = if (f$instruments < thr && f$instruments >= ctx$min_ivs[[m]]) list(n = f$instruments, thr = thr),
+    iv_below_recommended = if (f$instruments < thr && f$instruments >= ctx$min_ivs[[m]]) list(n = f$instruments, thr = thr,
+      median_note = if (m %in% c("wm", "smed") && f$instruments <= 4) " With 3 or 4 instruments the weighted and simple median gave false positives about twice as often as intended in the MR Studio calibration (about 10% instead of 5%)." else ""),   # Round 35
     mean_f_below = if (is.finite(f$mean_f) && f$mean_f < thr) list(f = format(round(f$mean_f, 1), nsmall = 1), thr = thr),
-    i2gx_below = if (is.finite(f$i2gx %||% NA_real_) && f$i2gx < thr) list(i2 = format(round(f$i2gx, 2), nsmall = 2), thr = thr),
+    i2gx_below = if (is.finite(f$i2gx %||% NA_real_) && f$i2gx < thr) {   # Round 35: with overlapping samples the bias goes toward the observational association
+      o <- if (isTRUE(f$simulated)) NULL else ctx$overlap[[paste0(f$ex_id, " | ", f$out_id)]]
+      ov <- !is.null(o) && (identical(o$answer, "some") || identical(o$answer, "unknown"))
+      list(i2 = format(round(f$i2gx, 2), nsmall = 2), thr = thr, bias = if (ov) "the samples may overlap, so the MR-Egger estimate is pulled toward the observational association between exposure and outcome rather than diluted toward the null" else "the MR-Egger estimate is diluted toward the null") },
     i2gx_near = { lo <- suppressWarnings(as.numeric(feas_rules()$threshold[feas_rules()$rule_id == "R24"]))   # Round 32: just above the R24 threshold
       if (is.finite(f$i2gx %||% NA_real_) && length(lo) == 1L && f$i2gx >= lo && f$i2gx < thr) list(i2 = format(round(f$i2gx, 2), nsmall = 2), lo = lo, thr = thr) },
     overlap = {

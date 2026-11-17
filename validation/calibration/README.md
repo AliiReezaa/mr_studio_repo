@@ -1,4 +1,4 @@
-# Calibration of thresholds by simulation and real data (Rounds 29, 30 and 32)
+# Calibration of thresholds by simulation and real data (Rounds 29, 30, 32 and 35)
 
 This folder checks the three active heuristic rules of the feasibility engine (prototype/engine/feasibility_rules.csv) by simulation:
 
@@ -114,11 +114,11 @@ Findings:
 
 ## What this does not calibrate
 
-1. MR-PRESSO under R21 (too slow to simulate here).
+1. MR-PRESSO under R21: done in Round 35 (section below).
 2. The 0.2 allele-frequency flip threshold and the 90% ancestry cut-off: calibrated in Round 32 (sections below). The allele-frequency check was built in Round 33; the ancestry classification is NOT BUILT.
 3. The outlier-module rules in FR-104 (trigger, 20% cap, floor, selection rule): calibrated in Round 32 (section below) except the one-round rule; the module is NOT BUILT.
-4. Sample overlap between the two GWAS, where weak instruments bias toward the observational estimate instead of the null.
-5. Directional (non-balanced) pleiotropy under R21.
+4. Sample overlap between the two GWAS, where weak instruments bias toward the observational estimate instead of the null: done in Round 35 (section below).
+5. Directional (non-balanced) pleiotropy under R21: done in Round 35 (section below).
 
 ## IVW effects model with few variants (Round 30, changed)
 
@@ -230,3 +230,81 @@ Rscript --vanilla validation/calibration/eaf_flip.R <Data library folder> <panel
 Rscript --vanilla validation/calibration/ancestry_cutoff.R <BMI dataset folder> <CHD dataset folder> <panel folder> <plink> validation/calibration
 ```
 
+
+# Round 35: instrument count and strength, the cases Round 29 left out
+
+Script: counts_strength_r35.R (about 2 hours on 11 cores; `quick` as the first argument runs a few repetitions into a temporary folder). Same data generation, methods and default settings as run_calibration.R; IVW is TwoSampleMR::mr_ivw, the default since Round 30. Criteria as above: false positive rate at most 0.075 for a nominal 0.05 test, bias at most 10%. Run on 2026-11-17 with R 4.4.3, TwoSampleMR 0.7.13, RadialMR 1.2.5, MRPRESSO 1.0, 11 cores.
+
+## A. R21 under directional pleiotropy
+
+k = 3, 4, 5, 6, 8, 10, 15, 20, 30 instruments, theta = 0, mu from U(6, 12), 500 repetitions per cell. 20% of the instruments (at least 1) have a pleiotropic effect of |N(0, 3)| outcome SEs (mean 2.4 SE) in the direction of a positive exposure effect, independent of their strength, so the pleiotropy is directional after the methods orient the variants and the InSIDE assumption of MR-Egger holds. (A first run gave every alpha a positive sign regardless of the allele coding, which after orientation is balanced pleiotropy; it was discarded and rerun.) Results: results_R21_directional.csv.
+
+False positive rate at P < 0.05:
+
+| k | IVW | Radial IVW | MR-Egger | Radial MR-Egger | Weighted median | Simple median | Weighted mode | Simple mode |
+|---|---|---|---|---|---|---|---|---|
+| 3 | 0.086 | 0.038 | 0.000 | - | 0.108 | 0.068 | 0.008 | 0.000 |
+| 4 | 0.076 | 0.026 | 0.006 | 0.052 | 0.098 | 0.084 | 0.008 | 0.002 |
+| 5 | 0.066 | 0.038 | 0.010 | 0.064 | 0.054 | 0.042 | 0.002 | 0.000 |
+| 6 | 0.072 | 0.044 | 0.026 | 0.032 | 0.062 | 0.066 | 0.002 | 0.000 |
+| 8 | 0.112 | 0.070 | 0.026 | 0.054 | 0.082 | 0.092 | 0.012 | 0.004 |
+| 10 | 0.072 | 0.032 | 0.038 | 0.040 | 0.042 | 0.052 | 0.004 | 0.002 |
+| 15 | 0.120 | 0.074 | 0.036 | 0.046 | 0.064 | 0.034 | 0.010 | 0.006 |
+| 20 | 0.204 | 0.168 | 0.034 | 0.056 | 0.076 | 0.110 | 0.006 | 0.002 |
+| 30 | 0.338 | 0.294 | 0.070 | 0.048 | 0.100 | 0.134 | 0.006 | 0.004 |
+
+Findings:
+
+1. IVW is shifted by about 0.05 at every k (mean estimate 0.041 to 0.088 at theta = 0). Its false positive rate grows with k (0.120 at 15, 0.204 at 20, 0.338 at 30) because more instruments make the shifted estimate more precise. This is the known weakness of IVW under directional pleiotropy and the reason the guidelines ask for robust methods; it is not a question of instrument count.
+2. MR-Egger and radial MR-Egger keep their false positive rate at or below 0.070 at every k; at small k MR-Egger is very conservative (0.000 to 0.026 up to k = 8, coverage 0.97 to 1.00), which is low power, as in Round 29. The mode methods stay at or below 0.012.
+3. The weighted median is above criterion 1 at k = 3 (0.108) and k = 4 (0.098), as it was at k = 3 with balanced pleiotropy in Round 29 (0.090). The simple median reaches 0.084 at k = 4. From k = 5 to 20 both medians are at or below 0.092 and mostly within criterion 1. At k = 20 and 30 their rates rise again (0.076 to 0.134) for the same reason as IVW: with 20% invalid instruments the median is shifted a little and more instruments make that shift detectable.
+4. For the methods R21 covers, the only count effect beyond imprecision is the median methods with 3 or 4 instruments. The threshold of 10 stays: no method gets clearly worse between 5 and 10 instruments.
+
+## B. R21 for MR-PRESSO
+
+k = 4, 6, 8, 10, 15, 20 instruments (4 is the adapter's minimum), theta = 0, scenarios "valid" and "balanced" as in Round 29, NbDistribution 1000, SignifThreshold 0.05, 200 repetitions per cell (Monte Carlo SE of a 5% rate about 1.5 percentage points). The reported estimate is the one the adapter reports: the outlier-corrected row when outliers were removed, otherwise the raw row, with its interval on n - outliers - 1 (or n - 1) degrees of freedom. Results: results_R21_presso.csv.
+
+| k | Valid: global test positive | Valid: false positive rate | Valid: coverage | Balanced: global test positive | Balanced: outliers removed (mean) | Balanced: false positive rate | Balanced: coverage |
+|---|---|---|---|---|---|---|---|
+| 4 | 0.010 | 0.030 | 0.970 | 0.209 | 0.35 | 0.046 | 0.954 |
+| 6 | 0.030 | 0.080 | 0.920 | 0.295 | 0.44 | 0.055 | 0.945 |
+| 8 | 0.035 | 0.075 | 0.925 | 0.550 | 0.82 | 0.085 | 0.915 |
+| 10 | 0.055 | 0.070 | 0.930 | 0.495 | 0.65 | 0.045 | 0.955 |
+| 15 | 0.060 | 0.055 | 0.945 | 0.725 | 1.16 | 0.085 | 0.915 |
+| 20 | 0.035 | 0.075 | 0.925 | 0.790 | 1.35 | 0.050 | 0.950 |
+
+The Monte Carlo SE of each rate is about 1.5 to 2.0 percentage points. 4 of the 200 data sets at k = 4 (balanced) stopped with an MR-PRESSO error and are left out.
+
+Findings:
+
+1. The reported estimate keeps its false positive rate near the nominal level at every k: 0.030 to 0.085, and the three cells above 0.075 (0.080 and twice 0.085) are within 1 Monte Carlo SE of it. Coverage is 0.915 to 0.970.
+2. With few instruments the global test rarely finds the pleiotropy that is there: it was positive in 21% of the balanced data sets at k = 4 and 30% at k = 6, against 50 to 55% at k = 8 to 10 and 73 to 79% at k = 15 to 20. Without pleiotropy it fired in 1 to 6%.
+3. As for the other methods in Round 29, there is no sharp change at 10 instruments (k = 8 and k = 10 behave alike). The R21 message (few instruments, unstable and imprecise) fits MR-PRESSO in the sense that its outlier search has little power below about 8 instruments; the threshold of 10 stays a rule of thumb.
+
+## C. R23 with sample overlap
+
+30 instruments of fixed target F (3, 5, 10, 20, 50), theta = 0, an observational correlation of 0.3 between exposure and outcome from confounding, and 0, 50% or 100% of the outcome sample shared with the exposure sample (error correlation = overlap x 0.3, equal sample sizes). With overlap, weak-instrument bias goes toward the observational association; Burgess et al. 2016 (PMID 27625185) give its size for IVW as about overlap x (observational bias) / F. bias_vs_obs is the mean estimate divided by 0.3. IVW, MR-Egger and the weighted median, 500 repetitions per cell. Results: results_R23_overlap.csv.
+
+IVW, mean estimate as a share of the observational association (bias_vs_obs) and false positive rate:
+
+| Target F | No overlap | 50% overlap | 100% overlap | Expected at 100% (1 / F) | False positive rate at 100% |
+|---|---|---|---|---|---|
+| 3 | -0.002 | 0.152 | 0.314 | 0.333 | 0.140 |
+| 5 | 0.007 | 0.085 | 0.196 | 0.200 | 0.104 |
+| 10 | 0.005 | 0.033 | 0.095 | 0.100 | 0.056 |
+| 20 | -0.004 | 0.018 | 0.055 | 0.050 | 0.056 |
+| 50 | 0.006 | 0.010 | 0.020 | 0.020 | 0.046 |
+
+Findings:
+
+1. Without overlap no method moves toward the observational association (at most 2.5% of it) and every false positive rate is at most 0.056, as in Round 29.
+2. The IVW bias matches Burgess et al. 2016: about overlap x (observational association) / F. With complete overlap the IVW false positive rate is 0.140 at F = 3 and 0.104 at F = 5, and 0.056 from F = 10 upward. The threshold of 10 in R23 therefore also keeps IVW within criterion 1 under complete overlap (for an observational correlation of 0.3); the estimate still moves about 10% of the way to the observational association at F = 10.
+3. The weighted median keeps its false positive rate at or below 0.058 in every cell; its bias with complete overlap is 0.34, 0.25, 0.16, 0.10 and 0.04 of the observational association at F = 3, 5, 10, 20 and 50.
+4. MR-Egger moves 0.37 to 0.77 of the way to the observational association with complete overlap and its false positive rate is 0.13 to 0.23 at every F, including F = 50; with 50% overlap it reaches 0.090 at F = 10. In this design every instrument has the same strength, so I2GX is low (mean 0.03 at F = 3 to 0.59 at F = 50; none of 500 data sets per F reached 0.9) and R24 would warn for every one of these data sets. Bowden et al. 2016 (PMID 27616674, full text checked) derive the I2GX dilution toward the null for non-overlapping samples only; for one sample they note that weak variants bias toward the observational estimate and that the effect of a NOME violation there needs further work. This simulation shows that direction for MR-Egger with overlap and a low I2GX.
+
+## Decisions (Round 35)
+
+No threshold changed: R21 stays at 10 instruments and R23 at a mean F of 10. Two messages changed (Ali Reza's decision, 2026-11-17):
+
+1. R24 says where the MR-Egger bias goes: "diluted toward the null" as before, but "pulled toward the observational association between exposure and outcome" when the analyst declared that the samples overlap or does not know (Part C; Bowden et al. 2016).
+2. R21 adds for the weighted and simple median with 3 or 4 instruments that they gave false positives about twice as often as intended here (about 10% instead of 5%; Part A and Round 29).
