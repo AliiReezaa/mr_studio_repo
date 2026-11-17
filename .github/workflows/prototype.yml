@@ -129,6 +129,7 @@ jobs:
         run: |
           pp() { if [[ "$RUNNER_OS" == "Windows" ]]; then cygpath -m "$PWD/_pinned/$1"; else echo "$PWD/_pinned/$1"; fi; }
           export PK_MRMIX="$(pp mrmix)" PK_MRPRESSO="$(pp mrpresso)" PK_RADIALMR="$(pp radialmr)" PK_MRRAPS="$(pp mrraps)" PK_TWOSAMPLEMR="$(pp twosamplemr)"
+          python prototype/ci/patch_mrraps.py _pinned/mrraps   # drops the rsnps import (optional plot annotation only; no osx-arm64 build)
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             RT="$PWD/prototype/runtime"
             export PATH="$RT:$RT/Library/bin:$RT/Library/mingw-w64/bin:$RT/Library/usr/bin:$(dirname "$RBIN"):$PATH"
