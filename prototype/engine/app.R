@@ -36,6 +36,8 @@ run_params <- function(x) {
   if (!is.null(x$psi)) out$psi <- as.numeric(x$psi)   # Round 40
   if (!is.null(x$ci_step)) out$ci_step <- as.numeric(x$ci_step)
   if (!is.null(x$simex_b)) out$simex_b <- as.integer(round(as.numeric(x$simex_b)))   # Round 41
+  if (!is.null(x$mv_orient)) out$mv_orient <- as.integer(round(as.numeric(x$mv_orient)))   # Round 50
+  if (!is.null(x$mv_iter)) out$mv_iter <- as.integer(round(as.numeric(x$mv_iter)))
   if (!is.null(x$lso_fraction)) out$lso_fraction <- as.numeric(x$lso_fraction)   # Round 43
   if (!is.null(x$lso_repeats)) out$lso_repeats <- as.integer(round(as.numeric(x$lso_repeats)))
   if (!is.null(x$r_xxo)) out$r_xxo <- as.numeric(x$r_xxo)
@@ -142,14 +144,15 @@ mr_server <- function(engine_dir) {
           study_msg("study_opened", h, to = a$to %||% "auto")
         },
         facts = {
-          pt <- as.numeric(a$pthr %||% 5e-8); f <- lapply(a$pairs, function(p) tryCatch(pair_facts(p[[1]], p[[2]], pt), error = function(e) list(error = conditionMessage(e))))
+          pt <- as.numeric(a$pthr %||% 5e-8); f <- lapply(a$pairs, function(p) tryCatch(if (length(unlist(p[[1]])) > 1) mv_pair_facts(p[[1]], p[[2]], pt) else pair_facts(p[[1]], p[[2]], pt), error = function(e) list(error = conditionMessage(e))))   # Round 50: MVMR pairs
           rv$facts <- Filter(function(x) is.null(x$error), f)
-          ev("facts", facts = f, feas = feasibility(rv$facts, run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list()))
+          ev("facts", facts = f, feas = feasibility(Filter(function(x) !isTRUE(x$mv), rv$facts), run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list()))
         },
         run_pair = {
           req(rv$h)
           pt <- as.numeric(a$pthr %||% 5e-8)
-          inp <- tryCatch(pair_input(a$ex, a$out, pt), error = function(e) e)
+          mvp <- length(unlist(a$ex)) > 1   # Round 50: several exposures in one model
+          inp <- tryCatch(if (mvp) mv_pair_input(a$ex, a$out, pt) else pair_input(a$ex, a$out, pt), error = function(e) e)
           if (inherits(inp, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
           meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
           # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
@@ -164,7 +167,7 @@ mr_server <- function(engine_dir) {
           tryCatch(save_eaf_check(rv$h$dir, r$pair_folder, inp$eaf_rows), error = function(e) NULL)   # Round 33
           pl <- ui_state_get(rv$h$con, "pairs") %||% list()
           pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
-          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
+          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), mv = mvp, exNames = if (mvp) as.list(inp$exposure_labels) else NULL, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
           ui_state_set(rv$h$con, "pairs", pl)
           ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder))
         },
@@ -263,7 +266,7 @@ mr_server <- function(engine_dir) {
           if (inherits(r, "error")) { ev("compare", folder = a$folder, ok = FALSE, msg = conditionMessage(r)); return() }
           ev("compare", folder = a$folder, ok = TRUE, rows = r$rows, rerun = r$rerun)
         },
-        feas = { req(rv$facts); ev("feas", feas = feasibility(rv$facts, run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list())) },
+        feas = { req(rv$facts); ev("feas", feas = feasibility(Filter(function(x) !isTRUE(x$mv), rv$facts), run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list())) },
         ld_status = ev("ld", status = ld_panel_status()),
         ld_download = { r <- tryCatch(ld_panel_download_start(unlist(a$pops) %||% "EUR"), error = function(e) e); if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ld", status = ld_panel_status()) },
         ld_find = ev("ld_found", items = ld_archive_find()),

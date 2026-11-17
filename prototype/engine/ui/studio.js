@@ -28,12 +28,16 @@ const IC = {
 // Check comes before Methods (2026-11-05): quality control of the data and instruments decides which methods can run.
 const STEPS = [['Question', 'question'], ['Data', 'data'], ['Check', 'check'], ['Methods', 'methods'], ['Run', 'run'], ['Results', 'results'], ['Publish', 'export']];
 const KINDS = [['basic', 'Does one thing cause another?', 'Classic two-sample analysis of one or more exposures on one or more outcomes.', 'EXPOSURE → OUTCOME', true],
-  ['multi', 'Which of several factors really matters?', 'Multivariable analysis that separates the effects of related exposures.', 'MULTIVARIABLE', false],
+  ['multi', 'Which of several factors really matters?', 'Multivariable analysis that separates the direct effects of two to six related exposures on each outcome.', 'MULTIVARIABLE', true],
   ['mediation', 'Does the effect act through something else?', 'Splits a total effect into direct and indirect parts through a mediator.', 'MEDIATION', false],
   ['drug', 'Is this gene or protein a drug target?', 'Gene-region analysis with colocalisation, using expression or protein levels.', 'DRUG TARGET', false],
   ['bidir', 'Which way does the effect go?', 'Runs every pair in both directions: each exposure on each outcome and each outcome on each exposure. Genetic correlation is not built yet.', 'BIDIRECTIONAL', true]];
 // Methods the engine can run today (contracts D4: a method is enabled only with a parameter schema, a script emitter and a replay test).
 const METHODS = [
+  { id: 'mvivw', name: 'MVMR-IVW', family: 'Multivariable', built: true, min: 3, speed: 'instant', short: 'MVMR-IVW', mv: true },
+  { id: 'mvegger', name: 'MVMR-Egger', family: 'Multivariable, pleiotropy-robust', built: true, min: 4, speed: 'instant', short: 'MVMR-Egger', mv: true },
+  { id: 'mvmedian', name: 'MVMR median', family: 'Multivariable, pleiotropy-robust', built: true, min: 4, speed: 'seconds', short: 'MVMR median', mv: true },
+  { id: 'mvlasso', name: 'MVMR-Lasso', family: 'Multivariable, pleiotropy-robust', built: true, min: 4, speed: 'instant', short: 'MVMR-Lasso', mv: true },
   { id: 'ivw_mre', name: 'Inverse-variance weighted', family: 'Core estimator', built: true, min: 2, speed: 'instant', short: 'IVW' },
   { id: 'divw', name: 'Debiased IVW', family: 'Weak-instrument robust', built: true, min: 2, speed: 'instant', short: 'dIVW' },
   { id: 'raps', name: 'MR-RAPS', family: 'Weak-instrument robust', built: true, min: 3, speed: 'seconds', short: 'MR-RAPS' },
@@ -469,8 +473,10 @@ function vWhy() {
   return '<div class="modal-bg" data-a="why_close_bg"><div role="dialog" aria-modal="true" aria-label="Rules for ' + esc(m ? m.name : '') + '" style="width:100%;max-width:560px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:16px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">FEASIBILITY RULES</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">' + esc(m ? m.name : '') + '</div></div>' + (rows || '<div style="color:var(--mute)">No rule applies.</div>') +
     '<div style="font-size:12px;color:var(--mute)">' + (S.feas ? S.feas.rules_active + ' of ' + S.feas.rules_total + ' rules are active in this version; the others belong to methods that are not built yet.' : '') + ' Warnings never stop a run; they are reported so you can address them. Thresholds marked as rules of thumb are not fixed by the guidelines.</div><div style="display:flex;justify-content:flex-end">' + cta('Close', 'why_close', '', 'height:44px') + '</div></div></div>';
 }
+// Round 50: a multivariable study offers only the MVMR methods, and the others only the univariable ones.
+function kindMethods() { return METHODS.filter((m) => !!m.mv === (S.kind === 'multi')); }
 function vMethods() {
-  const all = METHODS.map((m) => Object.assign({}, m, methodState(m))), avail = all.filter((m) => m.st !== 'locked');
+  const all = kindMethods().map((m) => Object.assign({}, m, methodState(m))), avail = all.filter((m) => m.st !== 'locked');
   const f = S.mfilter, list = all.filter((m) => f === 'all' || (f === 'ok' && m.st !== 'locked') || (f === 'locked' && m.st === 'locked'));
   const sel = S.methods.filter((id) => avail.some((m) => m.id === id));
   const cards = list.map((m) => { const locked = m.st === 'locked', chk = m.st === 'check', on = sel.indexOf(m.id) >= 0, col = locked ? 'var(--mute)' : (chk ? 'var(--warn)' : 'var(--accent)');
@@ -776,8 +782,34 @@ function adviceBlock(pay) {
   return '<section style="box-sizing:border-box;padding:20px 24px;border-radius:20px;background:var(--panel);border:1px solid var(--warn);display:flex;flex-direction:column;gap:12px"><h2 style="margin:0;font-size:16px;font-weight:600">What the results suggest</h2>' +
     a.map((r) => '<div style="display:flex;flex-direction:column;gap:3px"><div><span class="mono" style="font-size:11px;color:var(--warn);margin-right:8px">' + r.rule + '</span>' + esc(r.msg) + '</div>' + (r.recommend ? '<div style="font-size:12px;color:var(--mute)">Consider: ' + esc(r.recommend) + '</div>' : '') + '<div class="mono" style="font-size:11px;color:var(--mute)">Source: ' + esc(r.source) + '</div></div>').join('') + '</section>';
 }
+// Round 50: results of a multivariable pair. One direct effect per exposure and method, conditional F per exposure, heterogeneity.
+function vResultsMV(pair, pay) {
+  const est = (pay.estimates || []).filter((e) => e.estimand === 'direct_effect'), ids = Array.from(new Set(est.map((e) => e.exposure_id)));
+  const names = (pair.exNames && pair.exNames.length === ids.length) ? pair.exNames : ids, nm = (id) => names[ids.indexOf(id)] || id;
+  const meth = Array.from(new Set(est.map((e) => e.method))), short = (m) => (METHODS.find((x) => x.id === m) || {}).short || m;
+  const dg = (n) => (pay.diagnostics || []).filter((d) => d.method === 'mvivw' && d.name === n), cf = dg('mv_cond_f'), q = dg('mv_q')[0], ic = (pay.estimates || []).find((e) => e.method === 'mvegger' && e.estimand === 'pleiotropy_intercept');
+  const lor = est[0] && est[0].scale === 'log_or', iv = est.filter((e) => e.method === 'mvivw');
+  const tile = (a, b, c, border) => '<div style="padding:20px;border-radius:16px;background:var(--panel);border:1px solid ' + (border || 'var(--line)') + '"><div style="font-size:12px;color:var(--mute)">' + a + '</div>' + b + c + '</div>';
+  const big = (t) => '<div class="mono" style="font-size:30px;font-weight:500;letter-spacing:-0.04em;margin:6px 0 2px">' + t + '</div>';
+  const weak = cf.some((d) => d.value != null && d.value < 10);
+  const tiles = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">' +
+    tile('Instruments', big(iv[0] ? iv[0].n_ivs_used : ''), '<div style="font-size:12px;color:var(--mute)">variants with every exposure and the outcome</div>') +
+    tile('Conditional F (strength given the other exposures)', cf.length && cf.every((d) => d.value != null) ? '<div style="display:flex;flex-direction:column;gap:2px;margin:8px 0 4px">' + cf.map((d, j) => '<div style="display:flex;justify-content:space-between;gap:10px;font-size:13px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(nm(ids[j] || d.note)) + '</span><span class="mono" style="font-size:18px;color:' + (d.value < 10 ? 'var(--warn)' : 'var(--text)') + '">' + fx(d.value, 1) + '</span></div>').join('') + '</div>' : big('n/a'), '<div style="font-size:12px;color:' + (weak ? 'var(--warn)' : 'var(--mute)') + '">' + (cf.length && cf.every((d) => d.value != null) ? (weak ? 'At least one is below 10: weak instruments can bias the direct effects.' : 'All 10 or above.') : 'Needs the exposure sample sizes.') + '</div>', weak ? 'var(--warn)' : '') +
+    tile('Heterogeneity (MVMR-IVW)', big(q ? 'P ' + fp(q.p) : 'n/a'), '<div style="font-size:12px;color:var(--mute)">' + (q ? "Cochran's Q " + fx(q.value, 1) + (q.p < 0.05 ? ': the variants disagree more than chance allows (possible pleiotropy).' : ': no excess heterogeneity.') : 'Run MVMR-IVW to see it.') + '</div>', q && q.p < 0.05 ? 'var(--warn)' : '') +
+    tile('MVMR-Egger intercept', big(ic ? 'P ' + fp(ic.p) : 'n/a'), '<div style="font-size:12px;color:var(--mute)">' + (ic ? (ic.p < 0.05 ? 'Evidence of directional pleiotropy not explained by the exposures in the model.' : 'No evidence of directional pleiotropy.') : 'Run MVMR-Egger to see it.') + '</div>', ic && ic.p < 0.05 ? 'var(--warn)' : '') + '</div>';
+  const head = '<tr style="color:var(--mute);text-align:left"><th style="padding:8px 12px 8px 0;font-weight:500">Exposure</th>' + meth.map((m) => '<th style="padding:8px 12px 8px 0;font-weight:500">' + esc(short(m)) + '</th>').join('') + '<th style="padding:8px 0;font-weight:500;text-align:right">Conditional F</th></tr>';
+  const rows = ids.map((id, j) => '<tr style="border-top:1px solid var(--line)"><td style="padding:10px 12px 10px 0;font-weight:550">' + esc(nm(id)) + '</td>' + meth.map((m) => { const e = est.find((x) => x.method === m && x.exposure_id === id); return '<td style="padding:10px 12px 10px 0">' + (e ? '<span class="mono" style="color:' + (e.p < 0.05 ? 'var(--text)' : 'var(--mute)') + '">' + fx(e.estimate, 3) + '</span><div class="mono" style="font-size:11px;color:var(--mute);white-space:nowrap">' + fx(e.ci_lower, 3) + ' to ' + fx(e.ci_upper, 3) + ' · P ' + fp(e.p) + '</div>' : '') + '</td>'; }).join('') +
+    '<td class="mono" style="padding:10px 0;text-align:right;color:' + (cf[j] && cf[j].value < 10 ? 'var(--warn)' : 'inherit') + '">' + (cf[j] && cf[j].value != null ? fx(cf[j].value, 1) : '') + '</td></tr>').join('');
+  const nav = S.pairs.length > 1 ? '<div style="display:flex;flex-wrap:wrap;gap:8px">' + S.pairs.map((p, i) => '<button type="button" data-a="rpair" data-v="' + i + '" style="padding:6px 14px;border-radius:999px;font-size:13px;font-weight:550;color:' + (i === S.rp ? 'var(--accentInk)' : 'var(--text)') + ';background:' + (i === S.rp ? 'var(--accent)' : 'transparent') + ';border:1px solid ' + (i === S.rp ? 'var(--accent)' : 'var(--line)') + '">Outcome ' + (i + 1) + '</button>').join('') + '</div>' : '';
+  const main = '<header style="min-width:0">' + eyebrow('STEP 6 OF 7 · RESULTS · MULTIVARIABLE · OUTCOME ' + (S.rp + 1) + ' OF ' + S.pairs.length) + h1pair(pair.exName, pair.outName) +
+    '<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between"><div style="max-width:660px">' + sub('Direct effect of each exposure on ' + esc(pair.outName) + ', holding the other exposures constant' + (lor ? ' (log odds ratio per unit)' : ' (per unit of each exposure)') + '. Effects in dark text have P below 0.05.') + '</div><div style="display:flex;flex-wrap:wrap;gap:10px">' + ghost('Open in RStudio', 'open_rstudio', pair.folder) + cta('Export publication package', 'to_export', '', 'height:44px;padding:0 20px') + '</div></div></header>' + nav + tiles +
+    '<section style="box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><h2 style="margin:0 0 12px;font-size:16px;font-weight:600">Direct effects by method</h2><div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;width:100%">' + head + rows + '</table></div>' +
+    '<div style="font-size:12px;color:var(--mute);margin-top:12px">MVMR-IVW is the main estimate. MVMR-Egger, the MVMR median and MVMR-Lasso allow for pleiotropy not explained by the exposures in the model. Direct effects change if exposures are added or removed. Conditional F assumes that the exposure samples do not overlap.</div></section>';
+  return frame('study', 'results', main);
+}
 function vResults() {
   const pair = curPair(), pay = curPay();
+  if (pair && pay && pair.mv) return vResultsMV(pair, pay);   // Round 50
   if (!pair || !pay) return frame('study', 'results', '<header>' + eyebrow('STEP 6 OF 7 · RESULTS') + h1('No results yet') + sub('Run the analysis first.') + '</header>');
   const ce = causal(pay), iv = ce.find((e) => e.method === 'ivw_mre') || ce[0], dg = (pay.diagnostics || []).find((d) => d.method === 'ivw_mre' && d.name === 'cochran_q'), ic = (pay.estimates || []).find((e) => e.estimand === 'pleiotropy_intercept');
   const kept = (pay.variants || []).filter((x) => x.keep), mf = kept.length ? kept.reduce((a, x) => a + (x.bx / x.sx) * (x.bx / x.sx), 0) / kept.length : null;
@@ -1052,7 +1084,9 @@ function go(screen) {
   window.scrollTo(0, 0); render();
 }
 const err = (m) => { S.notice = { kind: 'err', msg: m }; render(); };
-function buildPairs() { S.pairs = []; S.ex.forEach((e) => S.out.forEach((o) => { const a = S.cat.exposures.find((x) => x.id === e), b = S.cat.outcomes.find((x) => x.id === o); S.pairs.push({ ex: e, out: o, exName: a.name, outName: b.name, folder: null, pthr: (isLib(e) ? pthrNum() : null) });
+function buildPairs() { S.pairs = [];
+  if (S.kind === 'multi') { const names = S.ex.map((e) => (S.cat.exposures.find((x) => x.id === e) || {}).name || e);   // Round 50: one joint model per outcome
+    S.out.forEach((o) => { const b = S.cat.outcomes.find((x) => x.id === o); S.pairs.push({ ex: S.ex.slice(), out: o, exName: names.join(' + '), exNames: names, outName: b.name, folder: null, pthr: (isLib(o) ? pthrNum() : null), mv: true }); }); return; } S.ex.forEach((e) => S.out.forEach((o) => { const a = S.cat.exposures.find((x) => x.id === e), b = S.cat.outcomes.find((x) => x.id === o); S.pairs.push({ ex: e, out: o, exName: a.name, outName: b.name, folder: null, pthr: (isLib(e) ? pthrNum() : null) });
   if (S.kind === 'bidir') S.pairs.push({ ex: o, out: e, exName: b.name, outName: a.name, folder: null, pthr: (isLib(o) ? pthrNum() : null), rev: true }); })); }   // Round 45: the reverse direction of every pair
 function startRun() {
   S.run = { state: 'running', paused: false, i: 0, done: 0, total: S.pairs.length, results: [], log: [], times: [], failed: 0, t0: 0 };
@@ -1063,7 +1097,7 @@ function runNext() {
   if (r.i >= r.total) { r.state = 'done'; render(); return; }
   if (r.paused) { render(); return; }
   const p = S.pairs[r.i]; r.t0 = Date.now(); r.log.push('Pair ' + (r.i + 1) + ': starting ' + p.exName + ' → ' + p.outName); render();
-  const f = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out), withSt = S.steiger && S.methods.indexOf('ivw_mre') >= 0 && steigerPair(f).ok, withLoo = S.loo && S.methods.indexOf('ivw_mre') >= 0 && !(f && f.instruments < 3);
+  const f = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out), withSt = !p.mv && S.steiger && S.methods.indexOf('ivw_mre') >= 0 && steigerPair(f).ok, withLoo = !p.mv && S.loo && S.methods.indexOf('ivw_mre') >= 0 && !(f && f.instruments < 3);
   send('run_pair', { i: r.i, ex: p.ex, out: p.out, rev: !!p.rev, pthr: p.pthr || 5e-8, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built)).concat(withSt ? ['steiger'] : []).concat(withLoo ? ['loo'] : []), params: S.params,
     prev: { x: prevOk(S.prev[p.ex]) ? S.prev[p.ex] : null, y: prevOk(S.prev[p.out]) ? S.prev[p.out] : null } });
 }
@@ -1122,13 +1156,13 @@ function onClick(e) {
     case 'study_folder': send('study_folder', { name: v }); break;
     case 'dismiss': S.notice = null; render(); break;
     case 'setup_done': send('set', { key: 'setup_done', value: true }); go('home'); break;
-    case 'kind': S.kind = v; render(); break;
+    case 'kind': S.kind = v; { const mv = v === 'multi', has = S.methods.some((id) => (METHODS.find((m) => m.id === id) || {}).mv); if (mv && !has) S.methods = ['mvivw', 'mvegger', 'mvmedian']; if (!mv && has) S.methods = ['ivw_mre', 'egger']; } render(); break;
     case 'prereg': S.prereg = !S.prereg; render(); break;
     case 'q_next': S.name = (document.getElementById('nm') || { value: S.name }).value; S.aim = (document.getElementById('aim') || { value: S.aim }).value; S.err = null;
       if (S.study) { send('plan_update', { aim: S.aim, prereg: S.prereg, kind: S.kind }); go('data'); } else { if (!S.name.trim()) { S.err = 'Give the study a name.'; render(); break; } send('study_create', { name: S.name, aim: S.aim, prereg: S.prereg, kind: S.kind }); } break;
     case 'pick_ex': case 'pick_out': { const k = a.slice(5), cur = S[k]; S[k] = cur.indexOf(v) >= 0 ? cur.filter((x) => x !== v) : cur.concat([v]); render(); break; }
     case 'pop': S.pop = v; render(); break;
-    case 'd_next': buildPairs(); S.facts = null; S.factsBusy = false; go('check'); break;
+    case 'd_next': if (S.kind === 'multi' && (S.ex.length < 2 || S.ex.length > 6)) { S.notice = { kind: 'err', msg: 'Multivariable MR needs two to six exposures. Choose ' + (S.ex.length < 2 ? 'at least one more.' : 'no more than six.') }; render(); break; } buildPairs(); S.facts = null; S.factsBusy = false; go('check'); break;
     case 'mfilter': S.mfilter = v; render(); break;
     case 'pick_method': S.methods = S.methods.indexOf(v) >= 0 ? S.methods.filter((x) => x !== v) : S.methods.concat([v]); render(); break;
     case 'preset': S.methods = ['ivw_mre', 'egger']; render(); break;
@@ -1241,8 +1275,8 @@ function onChange(e) { const t = e.target; if (t.getAttribute && t.getAttribute(
 function applyStudy(m) {
   S.study = { name: m.name, dir: m.dir }; S.root = m.root || S.root; S.overlap = Array.isArray(m.overlap) ? {} : (m.overlap || {}); S.ovl = null;
   const plan = m.plan || {}; S.name = m.name; S.aim = plan.aim || ''; S.prereg = !!plan.prereg; S.kind = plan.kind || 'basic';
-  const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder, pthr: p.pthr || null, rev: !!p.rev }));
-  S.ex = Array.from(new Set(S.pairs.filter((p) => !p.rev).map((p) => p.ex))); S.out = Array.from(new Set(S.pairs.filter((p) => !p.rev).map((p) => p.out)));
+  const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder, pthr: p.pthr || null, rev: !!p.rev, mv: !!p.mv, exNames: p.exNames || null }));
+  S.ex = Array.from(new Set([].concat.apply([], S.pairs.filter((p) => !p.rev).map((p) => [].concat(p.ex))))); S.out = Array.from(new Set(S.pairs.filter((p) => !p.rev).map((p) => p.out)));
   if (pairs.length && pairs[0].methods) { S.steiger = pairs[0].methods.indexOf('steiger') >= 0; S.loo = pairs[0].methods.indexOf('loo') >= 0; S.methods = pairs[0].methods.filter((x) => x !== 'steiger' && x !== 'loo'); }
   S.prev = {}; pairs.forEach((p) => { const pv = p.prev || {}; if (prevOk(pv.x)) S.prev[p.ex] = pv.x; if (prevOk(pv.y)) S.prev[p.out] = pv.y; }); if (pairs.length && pairs[0].params) S.params = Object.assign({ ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, pairs[0].params); else if (pairs.length && pairs[0].ci) S.params.ci_level = pairs[0].ci;
   S.payloads = m.payloads || {}; S.sens = m.sens || []; S.outl = {}; (m.outliers || []).forEach((o) => { S.outl[o.parent] = o; }); S.outBusy = false; S.inst = null; S.sel = []; S.facts = null; S.factsBusy = false; S.run = null; S.pkg = null; S.pkgBusy = false;

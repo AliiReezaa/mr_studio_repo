@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -1189,5 +1189,36 @@ outlier_write_lookup(h42$dir, r42$pair_folder, lk49); fl49 <- utils::read.csv(fi
 expect("Round 49: the lookup is saved on its own and merged into the flag ledger", file.exists(file.path(h42$dir, rel42, "01_flagged", "flagged_annotations.csv")) && all(c("nearest_gene", "n_other_traits", "top_other_traits") %in% names(fl49)))
 rl49 <- rs49; rl49$lookup <- list(rows = lapply(seq_len(nrow(lk49$rows)), function(i) as.list(lk49$rows[i, ])), date = "2026-11-18")
 expect("Round 49: the report lists each flagged variant with its gene and number of other traits", grepl("Flagged variants, with nearest gene and number of other traits", outlier_lookup_text(rl49)) && grepl("G1; 2 other traits", outlier_lookup_text(rl49), fixed = TRUE))
+
+# ---- Round 50: multivariable MR ----
+h50 <- studio_new("Multivariable"); p50 <- mv_pair_input(c("expA", "expB"), "outA"); m50 <- c("mvivw", "mvegger", "mvmedian", "mvlasso")
+r50 <- studio_run(h50, p50$exposure_label, p50$outcome_label, p50$input, m50, idx = 1L, params = list(ci_level = 0.95, mv_iter = 1000L))
+pl50 <- pair_payload(h50$dir, r50$pair_folder); e50 <- .est_df(pl50); d50 <- e50[e50$estimand == "direct_effect", ]
+expect("Round 50: the four MVMR methods run as scripts and replay identically", all(vapply(r50$results, function(x) identical(x$status, "ok"), TRUE)) && identical(pl50$replay$status, "identical"))
+expect("Round 50: one direct effect per exposure and method, plus the MVMR-Egger intercept", nrow(d50) == 8L && setequal(d50$exposure_id, c("demo:expA", "demo:expB")) && sum(e50$estimand == "pleiotropy_intercept") == 1L)
+dd50 <- p50$input$data; mi50 <- MendelianRandomization::mr_mvivw(MendelianRandomization::mr_mvinput(bx = as.matrix(dd50[, c("beta_x_1", "beta_x_2")]), bxse = as.matrix(dd50[, c("se_x_1", "se_x_2")]), by = dd50$beta_y, byse = dd50$se_y), nx = c(DEMO_EXPOSURES$n[1], DEMO_EXPOSURES$n[2]))
+expect("Round 50: MVMR-IVW equals MendelianRandomization::mr_mvivw called directly, including the conditional F", max(abs(d50$estimate[d50$method == "mvivw"] - mi50@Estimate)) < 1e-12 && max(abs(vapply(Filter(function(g) g$method == "mvivw" && g$name == "mv_cond_f", pl50$diagnostics), function(g) g$value, 0) - mi50@CondFstat)) < 1e-9)
+expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
+expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })
+expect("Round 50: one exposure, more than six, or mixing simulated and imported traits is refused", grepl("at least two exposures", err_of(mv_pair_input("expA", "outA"))) && grepl("at most six", err_of(mv_pair_input(rep("expA", 7), "outA"))) && grepl("cannot be mixed", err_of(mv_pair_input(c("expA", "lib:X"), "outA"))))
+ui_state_set(h50$con, "pairs", list(list(ex = list("expA", "expB"), out = "outA", mv = TRUE, exName = p50$exposure_label, exNames = as.list(p50$exposure_labels), outName = p50$outcome_label, folder = r50$pair_folder, methods = as.list(m50), ci = 0.95, pthr = 5e-8, simulated = TRUE, ledger = p50$ledger)))
+t50 <- report_text(list(mv_context(h50, ui_state_get(h50$con, "pairs")[[1]])), "MV")
+expect("Round 50: report text gives the direct effects, conditional F, Q and intercept, with the MVMR references", any(grepl("^MVMR of Simulated exposure A, Simulated exposure B on Simulated outcome A", t50$results)) && any(grepl("Conditional F statistics: Simulated exposure A", t50$results)) && any(grepl("\\[Sanderson 2021\\]", t50$methods)) && any(grepl("SIMULATED DATA", t50$limitations)))
+b50 <- build_package(h50, c("report", "figs", "tables"))
+expect("Round 50: the package has the MVMR forest of direct effects and the PDF report", any(grepl("P1_mvmr_forest\\.png$", b50$files)) && any(grepl("report\\.pdf$", b50$files)) && !length(b50$notes))
+f50 <- mv_pair_facts(c("expA", "expB"), "outA")
+expect("Round 50: Check-screen facts for a multivariable pair", isTRUE(f50$mv) && f50$instruments == 60L && length(f50$mean_f_each) == 2L)
+# library datasets: two exposures with full summary statistics, joint instruments, every exposure looked up at every instrument
+set.seed(50); n5 <- 120; s5 <- sprintf("rs%d", 50000 + seq_len(n5)); g5 <- rep(1:3, each = 40)
+b1 <- ifelse(g5 == 1, runif(n5, .05, .1), rnorm(n5, 0, .003)); b2 <- ifelse(g5 == 2, runif(n5, .05, .1), ifelse(g5 == 1, .3 * b1, rnorm(n5, 0, .003))); se5 <- rep(.008, n5)
+y5 <- 0.3 * b1 + 0 * b2 + rnorm(n5, 0, .01)
+w5 <- function(b, nm, role, ind) { f <- tempfile(fileext = ".csv"); utils::write.csv(data.frame(snp = s5, ea = "A", oa = "G", eaf = .3, beta = b, se = se5, p = 2 * pnorm(-abs(b / se5)), n = 100000), f, row.names = FALSE)
+  invisible(import_save(f, paste0(nm, ".csv"), ",", c("snp", "ea", "oa", "eaf", "beta", "se", "p", "n"), mpl, fct(nm, role, ind))) }
+w5(b1, "MV X1", "either", "yes"); w5(b2, "MV X2", "either", "yes"); w5(y5, "MV Y", "outcome", "no")
+lm50 <- library_mv_input(c("lib:MV X1", "lib:MV X2"), "lib:MV Y", pthr = 1e-6, clump = function(snp, p, pop) data.frame(variant_id = snp, status = "index", stringsAsFactors = FALSE))
+expect("Round 50: library MVMR data hold the union of both exposures' instruments with each exposure's effect at every one", lm50$ledger$mv$union == 80L && lm50$ledger$mv$final == 80L && all(c("beta_x_1", "beta_x_2", "n_x_1") %in% names(lm50$input$data)) && identical(lm50$input$kind, "multi_iv"))
+expect("Round 50: library MVMR data recover the direct effects (0.3 and 0)", { d <- lm50$input$data; f <- MendelianRandomization::mr_mvivw(MendelianRandomization::mr_mvinput(bx = as.matrix(d[, c("beta_x_1", "beta_x_2")]), bxse = as.matrix(d[, c("se_x_1", "se_x_2")]), by = d$beta_y, byse = d$se_y)); abs(f@Estimate[1] - 0.3) < 0.05 && abs(f@Estimate[2]) < 0.05 })
+m50x <- err_of(library_mv_input(c("lib:MV X1", "lib:Trait X"), "lib:MV Y", 1e-6, clump = function(snp, p, pop) data.frame(variant_id = snp, status = "index")))
+expect("Round 50: an exposure that holds only its own instruments is refused for MVMR", grepl("holds only its own instruments|full summary statistics", m50x))
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

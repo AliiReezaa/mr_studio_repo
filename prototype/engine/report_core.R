@@ -6,6 +6,7 @@
 # ---------- small helpers ----------
 .xe <- function(s) { s <- as.character(s); s[is.na(s)] <- ""; s <- gsub("&", "&amp;", s, fixed = TRUE); s <- gsub("<", "&lt;", s, fixed = TRUE); s <- gsub(">", "&gt;", s, fixed = TRUE); gsub("\"", "&quot;", s, fixed = TRUE) }
 .fnum <- function(x, d = 3) ifelse(is.na(x), "NA", formatC(x, digits = d, format = "f"))
+.nth <- function(x, i) if (i <= length(x)) x[[i]] else NULL   # Round 50: lists that cover only the univariable pairs
 .fp <- function(p) ifelse(is.na(p), "NA", ifelse(p < 0.001, formatC(p, digits = 2, format = "e"), formatC(p, digits = 3, format = "f")))
 # Round 42: the radial detectors' level, as written in their scripts.
 .radial_level_txt <- function(st) if (identical(st$alpha_correction %||% "bonferroni", "none")) sprintf("alpha = %s per variant, no correction", format(st$alpha %||% 0.05)) else sprintf("alpha = %s divided by the number of variants (Bonferroni)", format(st$alpha %||% 0.05))
@@ -110,9 +111,14 @@ REFS <- list(
   hartwig2017 = list(pmid = "29040600", key = "Hartwig2017", authors = "Hartwig FP, Davey Smith G, Bowden J.", title = "Robust inference in summary data Mendelian randomization via the zero modal pleiotropy assumption", journal = "Int J Epidemiol", year = "2017", vol = "46", pages = "1985-1998", doi = "10.1093/ije/dyx102"),
   burgess2023 = list(pmid = "32760811", key = "Burgess2023", authors = "Burgess S, Davey Smith G, Davies NM, et al.", title = "Guidelines for performing Mendelian randomization investigations: update for summer 2023", journal = "Wellcome Open Res", year = "2023", vol = "4", pages = "186", doi = "10.12688/wellcomeopenres.15555.3"),
   skrivankova2021 = list(pmid = "34698778", key = "Skrivankova2021", authors = "Skrivankova VW, Richmond RC, Woolf BAR, et al.", title = "Strengthening the reporting of observational studies in epidemiology using Mendelian randomisation (STROBE-MR): explanation and elaboration", journal = "JAMA", year = "2021", vol = "326", pages = "1614-1621", doi = "10.1001/jama.2021.18236"))
-METHOD_REFS <- list(ivw_mre = "burgess2013", divw = "ye2021", raps = "zhao2020", conmix = "burgess2020", lasso = "rees2019", egger_simex = "bowden2016i2", egger = "bowden2015", wm = "bowden2016", smed = "bowden2016", mode = "hartwig2017", smode = "hartwig2017", presso = "verbanck2018", radial = "bowden2018", radegger = "bowden2018", steiger = "hemani2017")
+METHOD_REFS <- list(mvivw = c("sanderson2019", "sanderson2021"), mvegger = "rees2017", mvmedian = "grant2021", mvlasso = "grant2021", ivw_mre = "burgess2013", divw = "ye2021", raps = "zhao2020", conmix = "burgess2020", lasso = "rees2019", egger_simex = "bowden2016i2", egger = "bowden2015", wm = "bowden2016", smed = "bowden2016", mode = "hartwig2017", smode = "hartwig2017", presso = "verbanck2018", radial = "bowden2018", radegger = "bowden2018", steiger = "hemani2017")
 REFS$bowden2016i2 <- list(pmid = "27616674", key = "Bowden2016I2", authors = "Bowden J, Del Greco M F, Minelli C, Davey Smith G, Sheehan NA, Thompson JR.", title = "Assessing the suitability of summary data for two-sample Mendelian randomization analyses using MR-Egger regression: the role of the I2 statistic", journal = "Int J Epidemiol", year = "2016", vol = "45", pages = "1961-1974", doi = "10.1093/ije/dyw220")
 REFS$burgess2020 <- list(pmid = "31953392", key = "Burgess2020", authors = "Burgess S, Foley CN, Allara E, Staley JR, Howson JMM.", title = "A robust and efficient method for Mendelian randomization with hundreds of genetic variants", journal = "Nat Commun", year = "2020", vol = "11", pages = "376", doi = "10.1038/s41467-019-14156-4")
+# Round 50: multivariable MR (PMIDs checked in PubMed on 2026-11-18).
+REFS$sanderson2019 <- list(pmid = "30535378", key = "Sanderson2019", authors = "Sanderson E, Davey Smith G, Windmeijer F, Bowden J.", title = "An examination of multivariable Mendelian randomization in the single-sample and two-sample summary data settings", journal = "Int J Epidemiol", year = "2019", vol = "48", pages = "713-727", doi = "10.1093/ije/dyy262")
+REFS$sanderson2021 <- list(pmid = "34338327", key = "Sanderson2021", authors = "Sanderson E, Spiller W, Bowden J.", title = "Testing and correcting for weak and pleiotropic instruments in two-sample multivariable Mendelian randomization", journal = "Stat Med", year = "2021", vol = "40", pages = "5434-5452", doi = "10.1002/sim.9133")
+REFS$rees2017 <- list(pmid = "28960498", key = "Rees2017", authors = "Rees JMB, Wood AM, Burgess S.", title = "Extending the MR-Egger method for multivariable Mendelian randomization to correct for both measured and unmeasured pleiotropy", journal = "Stat Med", year = "2017", vol = "36", pages = "4705-4718", doi = "10.1002/sim.7492")
+REFS$grant2021 <- list(pmid = "34342032", key = "Grant2021", authors = "Grant AJ, Burgess S.", title = "Pleiotropy robust methods for multivariable Mendelian randomization", journal = "Stat Med", year = "2021", vol = "40", pages = "5813-5830", doi = "10.1002/sim.9156")
 REFS$rees2019 <- list(pmid = "31545794", key = "Rees2019", authors = "Rees JMB, Wood AM, Dudbridge F, Burgess S.", title = "Robust methods in Mendelian randomization via penalization of heterogeneous causal estimates", journal = "PLoS One", year = "2019", vol = "14", pages = "e0222362", doi = "10.1371/journal.pone.0222362")
 REFS$zhao2020 <- list(pmid = "", key = "Zhao2020", authors = "Zhao Q, Wang J, Hemani G, Bowden J, Small DS.", title = "Statistical inference in two-sample summary-data Mendelian randomization using robust adjusted profile score", journal = "Ann Stat", year = "2020", vol = "48", pages = "1742-1769", doi = "10.1214/19-AOS1866")
 REFS$ye2021 <- list(pmid = "", key = "Ye2021", authors = "Ye T, Shao J, Kang H.", title = "Debiased inverse-variance weighted estimator in two-sample summary-data Mendelian randomization", journal = "Ann Stat", year = "2021", vol = "49", pages = "2079-2100", doi = "10.1214/20-AOS2027")
@@ -198,7 +204,7 @@ subset_facts <- function(pay) {
 # ---------- gathering what the report needs ----------
 .est_df <- function(pay) {
   if (!length(pay$estimates)) return(NULL)
-  d <- do.call(rbind, lapply(pay$estimates, function(e) data.frame(method = e$method, name = e$method_name, estimand = e$estimand, estimate = e$estimate, se = e$se, ci_lower = e$ci_lower, ci_upper = e$ci_upper, ci_level = e$ci_level, p = e$p, n_ivs = e$n_ivs_used, scale = e$scale %||% "beta", stringsAsFactors = FALSE)))
+  d <- do.call(rbind, lapply(pay$estimates, function(e) data.frame(method = e$method, name = e$method_name, estimand = e$estimand, estimate = e$estimate, se = e$se, ci_lower = e$ci_lower, ci_upper = e$ci_upper, ci_level = e$ci_level, p = e$p, n_ivs = e$n_ivs_used, scale = e$scale %||% "beta", exposure_id = as.character(e$exposure_id %||% NA_character_), stringsAsFactors = FALSE)))
   d
 }
 .short <- c(loo = "Leave-one-out", steiger = "Steiger", ivw_mre = "IVW", divw = "dIVW", raps = "MR-RAPS", conmix = "ConMix", lasso = "MR-Lasso", egger_simex = "MR-Egger (SIMEX)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial Egger")
@@ -307,7 +313,15 @@ steiger_limitations <- function(ctxs) {
     if (any(bad)) sprintf("For %s the test did not clearly support the assumed direction.", paste(vapply(ctxs[bad], function(cx) sprintf("%s -> %s", cx$p$exName, cx$p$outName), ""), collapse = "; ")),
     if (any(!ran)) sprintf("The test was not run for %s.", paste(vapply(ctxs[!ran], function(cx) sprintf("%s -> %s", cx$p$exName, cx$p$outName), ""), collapse = "; ")))
 }
+#' Round 50: univariable pairs go through the text below; multivariable ones get their own paragraphs (mv_add_text).
 report_text <- function(ctxs, study_name) {
+  mvx <- Filter(function(cx) isTRUE(cx$mv), ctxs); uni <- Filter(function(cx) !isTRUE(cx$mv), ctxs)
+  txt <- if (length(uni)) .report_text_uni(uni, study_name) else list(methods = MV_INTRO_TEXT, results = character(), limitations = "The three core MR assumptions (relevance, independence from confounders, and no effect of the variants on the outcome except through the exposures) cannot be proven from summary data.",
+    availability = character(), legends = character(), supp = list(), supp_out = list())
+  if (length(mvx)) txt <- mv_add_text(txt, mvx)
+  txt
+}
+.report_text_uni <- function(ctxs, study_name) {
   txt <- list(methods = character(), results = character(), limitations = character(), availability = character(), legends = character())
   used <- unique(unlist(lapply(ctxs, function(x) x$methods))); anysim <- any(vapply(ctxs, `[[`, TRUE, "simulated")); anyimp <- any(!vapply(ctxs, `[[`, TRUE, "simulated"))
   mname <- c(ivw_mre = "inverse-variance weighted (IVW)", divw = "debiased inverse-variance weighted (dIVW)", raps = "MR-RAPS", conmix = "contamination mixture", lasso = "MR-Lasso", egger_simex = "MR-Egger with SIMEX correction", egger = "MR-Egger regression", wm = "weighted median", smed = "simple median", mode = "weighted mode", smode = "simple mode", presso = "MR-PRESSO", radial = "radial IVW", radegger = "radial MR-Egger")
@@ -470,7 +484,8 @@ package_dir <- function(h) { root <- file.path(h$dir, "05_publication"); dir.cre
 build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   pairs <- pairs %||% (ui_state_get(h$con, "pairs") %||% list()); pairs <- Filter(function(p) !is.null(p$folder) && !is.null(pair_results(h$dir, p$folder)), pairs)
   if (!length(pairs)) stop("There are no saved results to put in a package. Run the analysis first.")
-  ctxs <- lapply(pairs, function(p) pair_context(h, p)); pk <- package_dir(h); made <- character(); note <- character()
+  pairs <- c(Filter(function(p) !isTRUE(p$mv), pairs), Filter(function(p) isTRUE(p$mv), pairs))   # Round 50: univariable pairs first, so text and figures keep their numbering
+  ctxs <- lapply(pairs, function(p) if (isTRUE(p$mv)) mv_context(h, p) else pair_context(h, p)); pk <- package_dir(h); made <- character(); note <- character()
   add <- function(f) made <<- c(made, substring(f, nchar(h$dir) + 2L))
   txt <- report_text(ctxs, basename(h$dir)); used <- unique(c("hemani2018", "burgess2023", "skrivankova2021", unlist(METHOD_REFS[unlist(lapply(ctxs, function(x) x$methods))]), if (steiger_any_binary(ctxs)) "lee2012", if (any(vapply(ctxs, function(cx) !is.null(cx$ledger$clump), TRUE))) c("chang2015", "kgp2015")))
   figs <- list(); wmm <- as.numeric(width_mm); wmm <- if (is.finite(wmm) && wmm >= 60) wmm else 180
@@ -478,6 +493,10 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     dir.create(file.path(pk, "figures"), showWarnings = FALSE)
     for (i in seq_along(ctxs)) { cx <- ctxs[[i]]; ce <- cx$ce; if (!nrow(ce)) next; tag <- sprintf("P%d", i)
       est <- transform(ce, label = .short[method], col = .MCOL[method], unit = if (ce$scale[1] == "log_or") "log odds ratio" else "effect on outcome per unit of exposure", ratio = FALSE)
+      if (isTRUE(cx$mv)) {   # Round 50: one forest of direct effects, grouped by exposure; no scatter or variant-level plots
+        est$label <- paste0(ce$exposure_label, ": ", .short_mv(ce$method)); est$col <- "#2b3fc7"; est <- est[order(match(est$exposure_label, unique(est$exposure_label))), , drop = FALSE]
+        fh <- max(40, 22 + 8 * nrow(est)); ff <- .fig_write(file.path(pk, "figures", paste0(tag, "_mvmr_forest")), wmm, fh, function() .draw_forest(est))
+        figs[[i]] <- list(forest = ff, fh = fh); for (f in ff) add(f); next }
       fh <- max(40, 22 + 8 * nrow(est)); ff <- .fig_write(file.path(pk, "figures", paste0(tag, "_forest")), wmm, fh, function() .draw_forest(est))
       ceS <- ce[ce$method != "radegger", , drop = FALSE]   # the radial Egger intercept is on a weighted scale, so it cannot be drawn as a line on this plot
       ln <- lapply(seq_len(nrow(ceS)), function(j) { m <- ceS$method[j]; ic <- cx$est$estimate[cx$est$estimand == "pleiotropy_intercept"]; list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else if (m == "egger") 2 else 3, a = if (m == "egger" && length(ic)) ic[1] else 0, b = ceS$estimate[j]) })
@@ -510,7 +529,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   if ("tables" %in% items) {
     est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { e <- ctxs[[i]]$est; data.frame(pair = i, exposure = ctxs[[i]]$p$exName, outcome = ctxs[[i]]$p$outName, e, check.names = FALSE, stringsAsFactors = FALSE) }))
     sheets <- list(Estimates = est, Settings = do.call(rbind, lapply(seq_along(ctxs), function(i) { s <- ctxs[[i]]$settings; data.frame(pair = i, setting = names(s), value = vapply(s, function(v) paste(v, collapse = ","), ""), stringsAsFactors = FALSE) })))
-    for (i in seq_along(ctxs)) sheets[[sprintf("Pair %d variants", i)]] <- transform(ctxs[[i]]$vars, ratio = by / bx, F = (bx / sx)^2)
+    for (i in seq_along(ctxs)) sheets[[sprintf("Pair %d variants", i)]] <- if (isTRUE(ctxs[[i]]$mv)) { f <- Sys.glob(file.path(h$dir, "03_pairs", ctxs[[i]]$p$folder, "01_data", "analysis_data_*.csv")); if (length(f)) utils::read.csv(f[1], stringsAsFactors = FALSE) else data.frame() } else transform(ctxs[[i]]$vars, ratio = by / bx, F = (bx / sx)^2)
     for (i in seq_along(ctxs)) { lf <- loo_facts(ctxs[[i]]); if (!is.null(lf)) sheets[[sprintf("Pair %d leave-one-out", i)]] <- stats::setNames(lf, c("variant_left_out", "ivw_estimate_without", "ivw_se_without", "ivw_p_without", "wald_ratio", "wald_ratio_se", "wald_ratio_p")) }
     f <- file.path(pk, "supplement_tables.xlsx"); xlsx_write(f, sheets); add(f)
   }
@@ -521,13 +540,13 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     H("Methods"); P(txt$methods); H("Results"); P(txt$results)
     if (with_figs) for (i in seq_along(figs)) { f <- figs[[i]]; if (is.null(f)) next; png <- grep("forest\\.png$", f$forest, value = TRUE); sp <- grep("scatter\\.png$", f$scatter, value = TRUE)
       if (length(png)) b[[length(b) + 1L]] <- list(type = "image", file = png, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$fh / wmm, alt = txt$legends[2L * i - 1L]); P(txt$legends[2L * i - 1L])
-      if (length(sp)) b[[length(b) + 1L]] <- list(type = "image", file = sp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$sh / wmm, alt = txt$legends[2L * i]); P(txt$legends[2L * i]) }
+      if (length(sp)) { b[[length(b) + 1L]] <- list(type = "image", file = sp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$sh / wmm, alt = txt$legends[2L * i]); P(txt$legends[2L * i]) } }
     if (with_figs && any(vapply(figs, function(f) !is.null(f$loo) || !is.null(f$oc), TRUE))) { H("Supplementary figures", 2)   # Round 39
-      for (i in seq_along(figs)) { f <- figs[[i]]; if (is.null(f$loo) || is.null(txt$supp[[i]])) next
+      for (i in seq_along(figs)) { f <- figs[[i]]; if (is.null(f$loo) || is.null(.nth(txt$supp, i))) next
         lp <- grep("\\.png$", f$loo, value = TRUE); fp <- grep("\\.png$", f$funnel, value = TRUE)
         if (length(lp)) b[[length(b) + 1L]] <- list(type = "image", file = lp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$lh / wmm, alt = txt$supp[[i]][1]); P(txt$supp[[i]][1])
         if (length(fp)) b[[length(b) + 1L]] <- list(type = "image", file = fp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * 0.75, alt = txt$supp[[i]][2]); P(txt$supp[[i]][2]) }
-      for (i in seq_along(figs)) { f <- figs[[i]]; so <- txt$supp_out[[i]]; if (is.null(f$oc) || is.null(so)) next   # Round 44
+      for (i in seq_along(figs)) { f <- figs[[i]]; so <- .nth(txt$supp_out, i); if (is.null(f$oc) || is.null(so)) next   # Round 44
         im <- list(comparison = list(f$oc, f$oh / wmm), agreement = list(f$oa, NA), radial = list(f$or, 0.75), loo = list(f$ol, 55 / wmm))
         for (k in names(so)) { pn <- grep("\\.png$", im[[k]][[1]], value = TRUE); if (!length(pn)) next
           w <- if (k == "agreement") min(wmm, 120) else min(wmm, 160); hh <- if (k == "agreement") f$ah else w * im[[k]][[2]]
@@ -535,15 +554,15 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     H("Limitations"); P(txt$limitations); H("Data availability"); P(txt$availability); H("References"); P(vapply(used, function(i) ref_text(REFS[[i]]), "")); b }
   if ("text" %in% items) { f <- file.path(pk, "draft_methods_results_limitations.docx"); docx_write(f, c(list(list(type = "title", text = "Draft text: Methods, Results, Limitations")), list(list(type = "note", text = "Draft generated from the saved results and settings. Check every statement and edit it before use.")), blocks_text(FALSE))); add(f) }
   if ("report" %in% items) {
-    est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { ce <- ctxs[[i]]$ce; if (!nrow(ce)) return(NULL); data.frame(Pair = i, Exposure = ctxs[[i]]$p$exName, Outcome = ctxs[[i]]$p$outName, Method = ce$name, Estimate = .fnum(ce$estimate), `CI lower` = .fnum(ce$ci_lower), `CI upper` = .fnum(ce$ci_upper), P = .fp(ce$p), Instruments = ce$n_ivs, check.names = FALSE, stringsAsFactors = FALSE) }))
+    est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { ce <- ctxs[[i]]$ce; if (!nrow(ce)) return(NULL); data.frame(Pair = i, Exposure = if (!is.null(ce$exposure_label)) ce$exposure_label else ctxs[[i]]$p$exName, Outcome = ctxs[[i]]$p$outName, Method = ce$name, Estimate = .fnum(ce$estimate), `CI lower` = .fnum(ce$ci_lower), `CI upper` = .fnum(ce$ci_upper), P = .fp(ce$p), Instruments = ce$n_ivs, check.names = FALSE, stringsAsFactors = FALSE) }))
     bl <- c(list(list(type = "title", text = sprintf("Mendelian randomization report: %s", basename(h$dir))), list(type = "note", text = sprintf("Generated by MR Studio on %s. A draft for the authors to check.", format(Sys.Date())))), list(list(type = "h1", text = "Summary of estimates"), list(type = "table", data = est)), blocks_text(TRUE))
     f <- file.path(pk, "report.docx"); docx_write(f, bl); add(f)
     fp <- file.path(pk, "report.pdf"); r46 <- tryCatch({ pdf_write(fp, bl); TRUE }, error = function(e) { if (file.exists(fp)) unlink(fp); note <<- c(note, paste("The PDF report could not be written:", conditionMessage(e))); FALSE }); if (r46) add(fp)   # Round 46
     esc <- function(x) .xe(x); svgs <- function(files) { s <- grep("\\.svg$", files, value = TRUE); if (length(s)) paste(sub("^<\\?xml[^>]*\\?>\\s*", "", readLines(s[1], warn = FALSE, encoding = "UTF-8")), collapse = "\n") else "<p><em>Figure not available on this computer.</em></p>" }
     sect <- function(t, ps) sprintf("<h2>%s</h2>%s", esc(t), paste(sprintf("<p>%s</p>", esc(ps)), collapse = "\n"))
-    figh <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f)) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$forest), esc(txt$legends[2L * i - 1L]), svgs(f$scatter), esc(txt$legends[2L * i])) }, ""), collapse = "\n")
-    supph <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f$loo) || is.null(txt$supp[[i]])) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$loo), esc(txt$supp[[i]][1]), svgs(f$funnel), esc(txt$supp[[i]][2])) }, ""), collapse = "\n")   # Round 39
-    supph <- paste0(supph, paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; so <- txt$supp_out[[i]]; if (is.null(f$oc) || is.null(so)) "" else   # Round 44
+    figh <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f)) "" else if (is.null(f$scatter)) sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(f$forest), esc(txt$legends[2L * i - 1L])) else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$forest), esc(txt$legends[2L * i - 1L]), svgs(f$scatter), esc(txt$legends[2L * i])) }, ""), collapse = "\n")
+    supph <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f$loo) || is.null(.nth(txt$supp, i))) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$loo), esc(txt$supp[[i]][1]), svgs(f$funnel), esc(txt$supp[[i]][2])) }, ""), collapse = "\n")   # Round 39
+    supph <- paste0(supph, paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; so <- .nth(txt$supp_out, i); if (is.null(f$oc) || is.null(so)) "" else   # Round 44
       paste(vapply(names(so), function(k) { fl <- switch(k, comparison = f$oc, agreement = f$oa, radial = f$or, loo = f$ol); if (!length(fl)) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(fl), esc(so[[k]])) }, ""), collapse = "") }, ""), collapse = ""))
     if (nzchar(supph)) supph <- paste0("<h2>Supplementary figures</h2>", supph)
     tab <- paste0("<table><thead><tr>", paste(sprintf("<th>%s</th>", esc(names(est))), collapse = ""), "</tr></thead><tbody>", paste(vapply(seq_len(nrow(est)), function(i) paste0("<tr>", paste(sprintf("<td>%s</td>", esc(unlist(est[i, ]))), collapse = ""), "</tr>"), ""), collapse = ""), "</tbody></table>")

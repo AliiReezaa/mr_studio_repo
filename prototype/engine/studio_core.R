@@ -373,7 +373,7 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "Debiased IVW (dIVW)" = "divw", "MR-RAPS (robust adjusted profile score)" = "raps", "Contamination mixture" = "conmix", "MR-Lasso" = "lasso", "MR-Egger with SIMEX correction" = "egger_simex", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger", "MR Steiger directionality" = "steiger")
 
-param_adapters <- function() list(ivw_mre = ADAPTER_IVW_MRE_V11, divw = ADAPTER_DIVW_V11, raps = ADAPTER_RAPS_V11, conmix = ADAPTER_CONMIX_V11, lasso = ADAPTER_LASSO_V11, egger_simex = ADAPTER_EGGER_SIMEX_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11, steiger = ADAPTER_STEIGER_V11, loo = ADAPTER_LOO_V11)
+param_adapters <- function() list(mvivw = ADAPTER_MVIVW_V11, mvegger = ADAPTER_MVEGGER_V11, mvmedian = ADAPTER_MVMEDIAN_V11, mvlasso = ADAPTER_MVLASSO_V11, ivw_mre = ADAPTER_IVW_MRE_V11, divw = ADAPTER_DIVW_V11, raps = ADAPTER_RAPS_V11, conmix = ADAPTER_CONMIX_V11, lasso = ADAPTER_LASSO_V11, egger_simex = ADAPTER_EGGER_SIMEX_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11, steiger = ADAPTER_STEIGER_V11, loo = ADAPTER_LOO_V11)
 
 studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx = NULL, params = NULL, steiger_in = NULL) {
   params <- c(params[setdiff(names(params), "ci_level")], list(ci_level = if (!is.null(params$ci_level)) params$ci_level else ci_level))
@@ -391,16 +391,16 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
   r
 }
 
-METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", divw = "Debiased IVW", raps = "MR-RAPS", conmix = "Contamination mixture", lasso = "MR-Lasso", egger_simex = "MR-Egger (SIMEX)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger", steiger = "MR Steiger directionality", loo = "Leave-one-out and single-variant analyses")
+METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", mvivw = "MVMR-IVW", mvegger = "MVMR-Egger", mvmedian = "MVMR median", mvlasso = "MVMR-Lasso", divw = "Debiased IVW", raps = "MR-RAPS", conmix = "Contamination mixture", lasso = "MR-Lasso", egger_simex = "MR-Egger (SIMEX)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger", steiger = "MR Steiger directionality", loo = "Leave-one-out and single-variant analyses")
 IVW_MODEL_NAMES <- c(mre_floor = "IVW (multiplicative random effects)", mre = "IVW (multiplicative random effects, no fixed-effect floor)", fixed = "IVW (fixed effect)")
 
 #' The settings a pair was run with, read back from the settings lines of its scripts (the scripts are the record).
 pair_settings <- function(study, pair_folder) {
-  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, alpha_correction = "bonferroni", lso_fraction = 0.3, lso_repeats = 200, weights = "1", tol = 1e-4, r_xxo = 1, r_yyo = 1, dispersion = "balanced", raps_dispersion = "balanced", loss = "huber", psi = 0, ci_step = 0.01, lasso_dist = "normal", simex_b = 100)
+  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, alpha_correction = "bonferroni", lso_fraction = 0.3, lso_repeats = 200, mv_model = "default", mv_orient = 1, mv_iter = 10000, weights = "1", tol = 1e-4, r_xxo = 1, r_yyo = 1, dispersion = "balanced", raps_dispersion = "balanced", loss = "huber", psi = 0, ci_step = 0.01, lasso_dist = "normal", simex_b = 100)
   for (f in Sys.glob(file.path(study, "03_pairs", pair_folder, "02_scripts", "[0-9]*_*.R"))) {
     for (k in names(out)) {
       ln <- grep(paste0("^", k, " <- "), readLines(f, warn = FALSE), value = TRUE)
-      if (length(ln)) { v <- sub(paste0("^", k, " <- "), "", ln[1]); out[[k]] <- if (k %in% c("ivw_model", "alpha_correction", "weights", "dispersion", "raps_dispersion", "loss", "lasso_dist")) gsub("\"", "", v) else as.numeric(v) }
+      if (length(ln)) { v <- sub(paste0("^", k, " <- "), "", ln[1]); out[[k]] <- if (k %in% c("ivw_model", "mv_model", "alpha_correction", "weights", "dispersion", "raps_dispersion", "loss", "lasso_dist")) gsub("\"", "", v) else as.numeric(v) }
     }
   }
   out

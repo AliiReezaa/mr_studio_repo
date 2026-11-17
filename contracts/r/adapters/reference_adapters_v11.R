@@ -1036,3 +1036,99 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
     "  note = c(\"weighted MR-Egger slope before the correction\", \"SIMEX-corrected MR-Egger intercept (directional pleiotropy)\"), stringsAsFactors = FALSE)"),
     "fixed seed: SIMEX adds simulated measurement error, so the same seed gives the same numbers"),
   column_requirements = .colreq_basic)
+
+# ---- Round 50: multivariable MR (MVMR) from MendelianRandomization 0.10.0 (contracts input kind multi_iv) --------------------
+# Input data: one beta_x_<k> / se_x_<k> (and optional n_x_<k>) column pair per exposure, plus beta_y, se_y and mr_keep; exposure_id
+# holds the exposure IDs joined by "|". Each method reports one direct_effect row per exposure. The analysis code below is written
+# once and used both by run() (evaluated in a clean environment) and by the generated script, so the replay compares the same code.
+.mv_core <- c(
+  "K <- sum(grepl(\"^beta_x_[0-9]+$\", names(dat)))   # number of exposures",
+  "bxn <- sprintf(\"beta_x_%d\", seq_len(K)); sxn <- sprintf(\"se_x_%d\", seq_len(K))",
+  "use <- dat$mr_keep & is.finite(dat$beta_y) & is.finite(dat$se_y) & dat$se_y > 0 & stats::complete.cases(dat[, c(bxn, sxn)])",
+  "dat <- dat[use, , drop = FALSE]   # variants with every exposure and the outcome",
+  "EXPOSURE_IDS <- strsplit(EXPOSURE_ID, \"|\", fixed = TRUE)[[1]]",
+  "inp <- MendelianRandomization::mr_mvinput(bx = as.matrix(dat[, bxn]), bxse = as.matrix(dat[, sxn]), by = dat$beta_y, byse = dat$se_y,",
+  "  snps = dat$variant_id, exposure = EXPOSURE_IDS, outcome = OUTCOME_ID)",
+  "est_rows <- function(est, se, lo, hi, p, n) data.frame(estimand = \"direct_effect\", exposure_id = EXPOSURE_IDS, outcome_id = OUTCOME_ID, scale = SCALE,",
+  "  estimate = as.numeric(est), se = as.numeric(se), ci_lower = as.numeric(lo), ci_upper = as.numeric(hi), ci_level = ci_level, ci_method = \"wald\",",
+  "  p = as.numeric(p), n_ivs_used = as.integer(n), stringsAsFactors = FALSE)",
+  "drow <- function(name, value, df = NA_real_, p = NA_real_, note = NA_character_) data.frame(name = name, value = as.numeric(value), df = as.numeric(df), p = as.numeric(p), note = as.character(note), stringsAsFactors = FALSE)")
+.mv_body <- list(
+  mvivw = c("# MVMR-IVW; conditional F (Sanderson et al.) needs the exposure sample sizes, taken as the median n of each exposure",
+    "nx <- if (all(sprintf(\"n_x_%d\", seq_len(K)) %in% names(dat))) vapply(seq_len(K), function(j) stats::median(dat[[sprintf(\"n_x_%d\", j)]], na.rm = TRUE), 0) else NA",
+    "fit <- MendelianRandomization::mr_mvivw(inp, model = mv_model, nx = nx, alpha = 1 - ci_level)",
+    "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
+    "diagnostics <- rbind(drow(\"mv_cond_f\", fit@CondFstat, note = EXPOSURE_IDS),",
+    "  drow(\"mv_q\", fit@Heter.Stat[1], fit@SNPs - K, fit@Heter.Stat[2], \"Cochran's Q of the MVMR-IVW fit\"), drow(\"mv_model\", NA, note = fit@Model))"),
+  mvegger = c("# MVMR-Egger, variants oriented to a positive effect on the exposure given by mv_orient",
+    "fit <- MendelianRandomization::mr_mvegger(inp, orientate = mv_orient, alpha = 1 - ci_level)",
+    "estimates <- rbind(est_rows(fit@Estimate, fit@StdError.Est, fit@CILower.Est, fit@CIUpper.Est, fit@Pvalue.Est, fit@SNPs),",
+    "  data.frame(estimand = \"pleiotropy_intercept\", exposure_id = EXPOSURE_ID, outcome_id = OUTCOME_ID, scale = SCALE, estimate = fit@Intercept, se = fit@StdError.Int,",
+    "    ci_lower = fit@CILower.Int, ci_upper = fit@CIUpper.Int, ci_level = ci_level, ci_method = \"wald\", p = fit@Pvalue.Int, n_ivs_used = as.integer(fit@SNPs), stringsAsFactors = FALSE))",
+    "diagnostics <- rbind(drow(\"mv_q\", fit@Heter.Stat[1], fit@SNPs - K - 1, fit@Heter.Stat[2], \"residual heterogeneity of the MVMR-Egger fit\"), drow(\"mv_orient\", mv_orient, note = EXPOSURE_IDS[mv_orient]))"),
+  mvmedian = c("# MVMR median (weighted), bootstrap standard errors with the script's seed",
+    "fit <- MendelianRandomization::mr_mvmedian(inp, alpha = 1 - ci_level, iterations = mv_iter, seed = seed)",
+    "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
+    "diagnostics <- drow(\"mv_bootstrap\", mv_iter, note = \"bootstrap iterations\")"),
+  mvlasso = c("# MVMR-Lasso: penalised intercepts identify invalid variants; the estimate is the post-lasso MVMR-IVW on the valid ones",
+    "fit <- MendelianRandomization::mr_mvlasso(inp, orientate = mv_orient, alpha = 1 - ci_level)",
+    "inv <- setdiff(dat$variant_id, fit@ValidSNPs)",
+    "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@Valid)",
+    "diagnostics <- rbind(drow(\"mv_lasso_excluded\", length(inv), note = if (length(inv)) paste(inv, collapse = \";\") else NA_character_), drow(\"mv_lasso_lambda\", fit@Lambda))"))
+.mv_model_param <- list(mv_model = list(type = "enum", default = "default", values = c("default", "random", "fixed"),
+  value_labels = c(default = "Package default (random effects with more than 3 variants)", random = "Multiplicative random effects", fixed = "Fixed effect"),
+  label = "Effects model", hint = "How heterogeneity between variants enters the standard errors. The estimates do not change.",
+  package_arg = "model", kind = "enum", conventional = TRUE, advanced = FALSE, evidence = "MendelianRandomization::mr_mvivw default (model = \"default\").", affects = c("se", "ci", "p")))
+.mv_orient_param <- list(mv_orient = list(type = "integer", default = 1L, min = 1L, max = 6L, label = "Orient variants to exposure",
+  hint = "MVMR-Egger and MVMR-Lasso orient the variants so that their effect on this exposure (1 = the first listed) is positive; the intercept depends on this choice.",
+  package_arg = "orientate", kind = "integer", conventional = TRUE, advanced = TRUE, evidence = "MendelianRandomization default (orientate = 1); Rees et al. 2017.", affects = c("estimate", "se", "ci", "p")))
+.mv_iter_param <- list(mv_iter = list(type = "integer", default = 10000L, min = 500L, max = 100000L, label = "Bootstrap iterations",
+  hint = "Iterations for the bootstrap standard error of the MVMR median estimate.", package_arg = "iterations", kind = "integer", conventional = TRUE, advanced = TRUE,
+  evidence = "MendelianRandomization::mr_mvmedian default (iterations = 10000).", affects = c("se", "ci", "p")))
+.mv_colreq <- list(
+  list(column = "beta_x_<k>", level = "required", why = "Effect of each variant on exposure k (one column per exposure).", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
+  list(column = "se_x_<k>", level = "required", why = "Standard error of each exposure effect.", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
+  list(column = "beta_y", level = "required", why = "Effect of each variant on the outcome.", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
+  list(column = "se_y", level = "required", why = "Standard error of the outcome effect.", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
+  list(column = "n_x_<k>", level = "optional", why = "Sample size of each exposure, for the conditional F statistic.", if_missing = list(action = "ignore", code = NA_character_)))
+.mv_usable <- function(d) { K <- sum(grepl("^beta_x_[0-9]+$", names(d))); bxn <- sprintf("beta_x_%d", seq_len(K)); sxn <- sprintf("se_x_%d", seq_len(K))
+  d[d$mr_keep & is.finite(d$beta_y) & is.finite(d$se_y) & d$se_y > 0 & stats::complete.cases(d[, c(bxn, sxn)]), , drop = FALSE] }
+.mv_adapter <- function(id, label, extra_k, params, stochastic, body_id) {
+  a <- NULL
+  a <- mrgui_adapter(id = id, adapter_version = "1.1.0", label = label, input_kind = "multi_iv", estimands = c("direct_effect", if (id == "mvegger") "pleiotropy_intercept"),
+    requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE, needs_full_sumstats = FALSE, min_exposures = 2, max_exposures = 6),
+    packages = list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
+    params = c(.ci_param_v11, params),
+    check = function(input, params) {
+      K <- sum(grepl("^beta_x_[0-9]+$", names(input$data))); n <- nrow(.mv_usable(input$data))
+      if (K < 2) return(verdict("block", "FEAS_TOO_FEW_EXPOSURES", sprintf("%s needs at least 2 exposures; %d given.", label, K)))
+      if (n < K + extra_k) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("%s needs at least %d variants with all %d exposures (exposures + %d); %d available.", label, K + extra_k, K, extra_k, n)))
+      verdict("ok", character(), character())
+    },
+    run = function(input, params, ctx) {
+      e <- new.env(parent = globalenv()); e$dat <- input$data; for (k in names(params)) assign(k, params[[k]], envir = e)
+      e$seed <- as.integer(ctx$seed); e$EXPOSURE_ID <- input$exposure_id; e$OUTCOME_ID <- input$outcome_id; e$SCALE <- input$outcome_scale
+      RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(e$seed)
+      eval(parse(text = c(.mv_core, .mv_body[[body_id]])), envir = e)
+      list(estimates = e$estimates, diagnostics = e$diagnostics)
+    },
+    emit_script = function(spec, params, seed) {
+      txt <- c(.script_lines_head_pk(a, spec), .script_lines_guard_pk(spec, "MendelianRandomization"),
+        "# ---- 2. Settings (every adjustable argument of this method) --------------------", .param_comment_lines(a, params),
+        sprintf("seed <- %d   # %s", as.integer(seed), if (stochastic) "fixed seed: the bootstrap uses this seed" else "fixed seed (this method is deterministic; kept for the record)"),
+        sprintf("EXPOSURE_ID <- %s   # exposures, joined by |", .q(spec$exposure_id)), sprintf("OUTCOME_ID <- %s", .q(spec$outcome_id)), sprintf("SCALE <- %s", .q(spec$outcome_scale)),
+        "", .script_lines_repro(seed),
+        "# ---- 4. Data (the exact table the calculation uses) ----------------------------",
+        "dat <- utils::read.csv(DATA_FILE, stringsAsFactors = FALSE)", .mv_core, "",
+        sprintf("# ---- 5. Analysis: %s (MendelianRandomization) ----", label), .mv_body[[body_id]], "", .script_lines_write(spec))
+      script_bundle(paste0(paste(txt, collapse = "\n"), "\n"), a$packages,
+                    list(list(file = file.path("04_tables", spec$estimates_file), role = "estimates"), list(file = file.path("04_tables", spec$diagnostics_file), role = "diagnostics")),
+                    seed, spec$data_file)
+    },
+    column_requirements = .mv_colreq)
+  a
+}
+ADAPTER_MVIVW_V11 <- .mv_adapter("mvivw", "MVMR-IVW", 1L, .mv_model_param, FALSE, "mvivw")
+ADAPTER_MVEGGER_V11 <- .mv_adapter("mvegger", "MVMR-Egger", 2L, .mv_orient_param, FALSE, "mvegger")
+ADAPTER_MVMEDIAN_V11 <- .mv_adapter("mvmedian", "MVMR median", 2L, .mv_iter_param, TRUE, "mvmedian")
+ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param, FALSE, "mvlasso")
