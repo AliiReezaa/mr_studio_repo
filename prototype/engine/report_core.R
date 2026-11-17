@@ -7,6 +7,8 @@
 .xe <- function(s) { s <- as.character(s); s[is.na(s)] <- ""; s <- gsub("&", "&amp;", s, fixed = TRUE); s <- gsub("<", "&lt;", s, fixed = TRUE); s <- gsub(">", "&gt;", s, fixed = TRUE); gsub("\"", "&quot;", s, fixed = TRUE) }
 .fnum <- function(x, d = 3) ifelse(is.na(x), "NA", formatC(x, digits = d, format = "f"))
 .fp <- function(p) ifelse(is.na(p), "NA", ifelse(p < 0.001, formatC(p, digits = 2, format = "e"), formatC(p, digits = 3, format = "f")))
+# Round 42: the radial detectors' level, as written in their scripts.
+.radial_level_txt <- function(st) if (identical(st$alpha_correction %||% "bonferroni", "none")) sprintf("alpha = %s per variant, no correction", format(st$alpha %||% 0.05)) else sprintf("alpha = %s divided by the number of variants (Bonferroni)", format(st$alpha %||% 0.05))
 .pct <- function(l) paste0(format(round(l * 100, 1), nsmall = 0), "%")
 
 # ---------- minimal ZIP writer (stored, no compression) ----------
@@ -203,6 +205,11 @@ pair_context <- function(h, p) {
        overlap = tryCatch(overlap_get(h)[[overlap_key(p$ex %||% "", p$out %||% "")]], error = function(e) NULL),
        ties_sens = tryCatch({ ts <- Filter(function(x) identical(x$kind, "ties") && identical(x$parent, p$folder), ui_state_get(h$con, "sens") %||% list())
          if (length(ts) && dir.exists(file.path(h$dir, "03_pairs", ts[[1]]$folder))) list(pay = pair_payload(h$dir, ts[[1]]$folder), regions = ts[[1]]$regions %||% p$ledger$ties$regions, n_out = length(unlist(p$ledger$ties$out)), n_in = length(unlist(p$ledger$ties[["in"]])), folder = ts[[1]]$folder) else NULL }, error = function(e) NULL),
+       outl = tryCatch({ o <- Filter(function(x) identical(x$parent, p$folder), ui_state_get(h$con, "outliers") %||% list())   # Round 42
+         if (length(o)) { o <- o[[1]]; ch <- Filter(function(x) identical(x$set, o$chosen), o$scenarios); o$chosen_row <- if (length(ch)) ch[[1]] else NULL
+           rm <- sort(unlist(o$chosen_row$ids)); sn <- Filter(function(x) identical(x$parent, p$folder) && length(rm) && identical(sort(unlist(x$remove)), rm), ui_state_get(h$con, "sens") %||% list())
+           if (length(sn) && dir.exists(file.path(h$dir, "03_pairs", sn[[1]]$folder))) { e <- .est_df(pair_payload(h$dir, sn[[1]]$folder)); o$chosen_ivw <- e[e$estimand == "causal_effect" & e$method == "ivw_mre", , drop = FALSE] }
+           o } else NULL }, error = function(e) NULL),
        eaf_sens = tryCatch({ es <- Filter(function(x) identical(x$kind, "eaf") && identical(x$parent, p$folder), ui_state_get(h$con, "sens") %||% list())   # Round 34
          if (length(es) && dir.exists(file.path(h$dir, "03_pairs", es[[length(es)]]$folder))) list(pay = pair_payload(h$dir, es[[length(es)]]$folder), remove = unlist(es[[length(es)]]$remove)) else NULL }, error = function(e) NULL))
 }
@@ -321,12 +328,13 @@ report_text <- function(ctxs, study_name) {
     mode = sprintf("The weighted mode estimator, which is consistent when the largest group of variants with similar ratio estimates is valid, was computed with a bandwidth multiplier phi = %s and a bootstrapped standard error (%s replications) [Hartwig 2017].", format(st1$phi %||% 1), format(st1$nboot %||% 1000)),
     smode = sprintf("The simple mode estimator (the unweighted counterpart of the weighted mode) was computed with a bandwidth multiplier phi = %s and a bootstrapped standard error (%s replications) [Hartwig 2017].", format(st1$phi %||% 1), format(st1$nboot %||% 1000)),
     presso = sprintf("MR-PRESSO (global test of horizontal pleiotropy, outlier test and distortion test) was run with %s simulated datasets and a significance threshold of %s. Variants it flags are reported but were not removed from any analysis [Verbanck 2018].", format(st1$nbdist %||% 1000), format(st1$signif %||% 0.05)),
-    radial = sprintf("Radial IVW was used to flag outlying variants through their contribution to Cochran's Q statistic (outlier level alpha = %s, %s weights); flagged variants are reported but were not removed [Bowden 2018].", format(st1$alpha %||% 0.05), c("1" = "first-order", "2" = "second-order", "3" = "modified second-order")[[as.character(st1$weights %||% "1")]]),
+    radial = sprintf("Radial IVW was used to flag outlying variants through their contribution to Cochran's Q statistic (outlier level %s, %s weights); flagged variants are reported but were not removed [Bowden 2018].", .radial_level_txt(st1), c("1" = "first-order", "2" = "second-order", "3" = "modified second-order")[[as.character(st1$weights %||% "1")]]),
     loo = "The influence of single variants was assessed with a leave-one-out analysis (the IVW estimate recomputed with each variant omitted in turn, with the same effects model), and the single-variant (Wald ratio) estimates were shown in a funnel plot, where asymmetry can indicate directional pleiotropy [Burgess 2023].",
     steiger = paste0("The Steiger directionality test, run together with the IVW analysis, compared the variance the variants explain in the exposure with the variance they explain in the outcome, summed over variants (TwoSampleMR::mr_steiger; measurement reliability set to 1 unless stated otherwise). For a continuous trait the variance explained was computed from each variant's effect, standard error and sample size",
       if (steiger_any_binary(ctxs)) "; for a binary trait it was computed on the liability scale from the log odds ratio, the effect allele frequency, the numbers of cases and controls and the population prevalence (TwoSampleMR::get_r_from_lor, logit model) [Lee 2012]" else "",
       ". It gives no causal estimate [Hemani 2017]."),
-    radegger = sprintf("Radial MR-Egger was used to flag outlying variants and to estimate the effect allowing for directional pleiotropy (outlier level alpha = %s, %s weights); flagged variants are reported but were not removed [Bowden 2018].", format(st1$alpha %||% 0.05), c("1" = "first-order", "2" = "second-order", "3" = "modified second-order")[[as.character(st1$weights %||% "1")]]), ""), "")
+    radegger = sprintf("Radial MR-Egger was used to flag outlying variants and to estimate the effect allowing for directional pleiotropy (outlier level %s, %s weights); flagged variants are reported but were not removed [Bowden 2018].", .radial_level_txt(st1), c("1" = "first-order", "2" = "second-order", "3" = "modified second-order")[[as.character(st1$weights %||% "1")]]), ""), "")
+  if (any(vapply(ctxs, function(cx) !is.null(cx$outl), TRUE))) desc <- c(desc, outl = OUTLIER_METHODS_TEXT)   # Round 42
   txt$methods <- c(txt$methods, unname(desc[nzchar(desc)]), sprintf("Confidence intervals are %s intervals. All estimates come from TwoSampleMR (commit %s)%s in %s. Bootstrap-based methods use a fixed seed recorded in each script, and every pair was re-run from its saved scripts in a fresh R session; the replay check was %s.",
     .pct(ctxs[[1]]$ce$ci_level[1] %||% 0.95), substr(ADAPTER_IVW_MRE_V11$packages$TwoSampleMR, 1, 10), if (any(c("presso", "radial", "radegger") %in% used)) sprintf(", with %s%s%s", if ("presso" %in% used) sprintf("MRPRESSO (commit %s)", substr(PIN_MRPRESSO, 1, 10)) else "", if ("presso" %in% used && any(c("radial", "radegger") %in% used)) " and " else "", if (any(c("radial", "radegger") %in% used)) sprintf("RadialMR (commit %s)", substr(PIN_RADIALMR, 1, 10)) else "") else "", R.version.string, paste(unique(vapply(ctxs, function(x) x$pay$replay$status %||% "not run", "")), collapse = " / ")))
   for (cx in ctxs) {
@@ -346,6 +354,8 @@ report_text <- function(ctxs, study_name) {
     if (!is.null(es)) { ee <- .est_df(es$pay); ee <- ee[ee$estimand == "causal_effect" & ee$method == "ivw_mre", , drop = FALSE]
       if (nrow(ee) && any(ce$method == "ivw_mre")) txt$results <- c(txt$results, sprintf("Sensitivity analysis without the %d variant%s whose effect-allele frequency differed from the reference panel by more than %s (%s; %d instruments used): the IVW estimate was %s, compared with %s in the primary analysis.",
         length(es$remove), if (length(es$remove) == 1L) "" else "s", format(EAF_FLIP_THRESHOLD), paste(es$remove, collapse = ", "), as.integer(ee$n_ivs[1]), .ci_phrase(ee[1, ], ee$scale[1]), .ci_phrase(ce[ce$method == "ivw_mre", , drop = FALSE][1, ], sc))) }
+    ol <- cx$outl   # Round 42: outlier module (FR-103)
+    if (!is.null(ol)) txt$results <- c(txt$results, outlier_results_text(ol, ce, sc))
     sf <- steiger_facts(cx)
     if (!is.null(sf)) txt$results <- c(txt$results, sprintf("Steiger directionality test: the variants explained %s of the variance in %s and %s of the variance in %s (R2), %s (P = %s); %d of %d variants explained more variance in the outcome than in the exposure.",
       .fnum(sf$r2x, 3), cx$p$exName, .fnum(sf$r2y, 3), cx$p$outName, if (sf$ok) "so the exposure explains more, as expected if it acts on the outcome" else "so the outcome explains more, which does not match the assumed direction", .fp(sf$p), as.integer(sf$wrong), as.integer(sf$n)))
@@ -373,6 +383,7 @@ report_text <- function(ctxs, study_name) {
     if (sum(nf)) lim <- c(lim, sprintf("In %s, %d variant%s had an effect-allele frequency that differed from the 1000 Genomes reference panel by more than %s, a possible allele or strand error. %s kept in the primary analysis; %s.",
       if (sum(nf > 0) == 1L) "one pair" else sprintf("%d pairs", sum(nf > 0)), sum(nf), if (sum(nf) == 1L) "" else "s", format(EAF_FLIP_THRESHOLD), if (sum(nf) == 1L) "It was" else "They were",
       if (done) sprintf("the Results report a sensitivity analysis without %s", if (sum(nf) == 1L) "it" else "them") else sprintf("a sensitivity analysis without %s is advisable", if (sum(nf) == 1L) "it" else "them"))) }
+  if (any(vapply(ctxs, function(cx) !is.null(cx$outl), TRUE))) lim <- c(lim, "Outlier removal was a data-driven sensitivity analysis: the variants removed were chosen after seeing the data, so heterogeneity and pleiotropy P values after removal are optimistic and descriptive only. Heterogeneity can reflect real differences in the effects of valid variants and not only pleiotropy, and removing variants that act through the exposure pathway (vertical pleiotropy) can shift the estimate. The primary analysis used all instruments [Burgess 2023].")
   lim <- c(lim, overlap_limitations(ctxs),
            steiger_limitations(ctxs),
            { nfew <- sum(vapply(ctxs, function(x) "ivw_mre" %in% x$methods && !is.null(x$kept) && nrow(x$kept) < 4, TRUE))   # Round 30, rule R21b

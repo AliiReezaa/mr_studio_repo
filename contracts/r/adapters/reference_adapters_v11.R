@@ -250,12 +250,26 @@ PIN_RADIALMR <- "7ca35c052489001890347871e38998ca53a02b03"
   evidence = "0.05 is the default of MR-PRESSO (Verbanck et al. 2018).",
   affects = c("outliers", "estimate", "se", "ci", "p")))
 
+.radial_level <- function(params, n) if (identical(params$alpha_correction, "none")) params$alpha else params$alpha / n
+.radial_level_note <- function(params, n) if (identical(params$alpha_correction, "none")) "no correction" else sprintf("%s divided by %d variants", format(params$alpha), n)
+
 .radial_alpha_param_v11 <- list(alpha = list(
   type = "double", default = 0.05, min = 0.0001, max = 0.5,
   label = "Outlier significance level (alpha)",
-  hint = "A variant is flagged when its contribution to the Q statistic is significant at this level. The package applies it per variant with no multiplicity correction; dividing 0.05 by the number of variants gives a Bonferroni level.",
+  hint = "A variant is flagged when its contribution to the Q statistic is significant at this level. The package applies it per variant with no multiplicity correction; the setting below divides it by the number of variants (Bonferroni) by default.",
   package_arg = "alpha", kind = "float", conventional = TRUE, advanced = FALSE,
   evidence = "0.05 is the example value in the RadialMR documentation; Bowden et al. (2018) discuss a Bonferroni-corrected level.",
+  affects = c("outliers")))
+
+.radial_correction_param_v11 <- list(alpha_correction = list(
+  type = "enum", default = "bonferroni", values = c("bonferroni", "none"),
+  value_labels = c(bonferroni = "Divide by the number of variants", none = "None"),
+  value_hints = c(bonferroni = "Each variant is tested at alpha divided by the number of variants (Bonferroni), so about 5% of analyses flag a valid variant by chance.",
+                  none = "Each variant is tested at alpha itself, as the package does. With many variants, valid ones are flagged by chance (about 5% of them)."),
+  label = "Correction for the number of variants",
+  hint = "The level at which each variant is tested. MR Studio passes alpha divided by the number of variants to the package unless you choose None.",
+  package_arg = "alpha", kind = "enum", conventional = FALSE, advanced = FALSE,
+  evidence = "Bowden et al. (2018) discuss a Bonferroni-corrected level. MR Studio calibration (Round 32, 48,000 simulated data sets): at 0.05 radial detectors flagged about 5% of valid variants and lowered IVW coverage after removal to 0.90 to 0.92; at 0.05 divided by the number of variants under 0.5%, with coverage 0.94 to 0.95.",
   affects = c("outliers")))
 
 .radial_weights_param_v11 <- list(weights = list(
@@ -394,7 +408,7 @@ ADAPTER_RADIAL_V11 <- mrgui_adapter(
   requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE,
                   needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
   packages = list(RadialMR = PIN_RADIALMR), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
-  params = c(.ci_param_v11, .radial_alpha_param_v11, .radial_weights_param_v11, .radial_tol_param_v11, .minf_param_v11),
+  params = c(.ci_param_v11, .radial_alpha_param_v11, .radial_correction_param_v11, .radial_weights_param_v11, .radial_tol_param_v11, .minf_param_v11),
   check = function(input, params) {
     d <- .usable(input$data)
     if (nrow(d) < 3) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("Radial IVW needs at least 3 usable instruments; %d available.", nrow(d))))
@@ -404,18 +418,20 @@ ADAPTER_RADIAL_V11 <- mrgui_adapter(
   run = function(input, params, ctx) {
     d <- .usable(input$data)
     r <- RadialMR::format_radial(d$beta_x, d$beta_y, d$se_x, d$se_y, d$variant_id)
-    fit <- suppressWarnings(RadialMR::ivw_radial(r, params$alpha, as.integer(params$weights), params$tol, FALSE))
+    au <- .radial_level(params, nrow(d))
+    fit <- suppressWarnings(RadialMR::ivw_radial(r, au, as.integer(params$weights), params$tol, FALSE))
     cf <- fit$coef[1, ]; tq <- stats::qt(1 - (1 - params$ci_level) / 2, fit$df); ids <- .radial_ids(fit$outliers)
     list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale,
            cf[[1]], cf[[2]], cf[[1]] - tq * cf[[2]], cf[[1]] + tq * cf[[2]], "wald_t", cf[[4]], nrow(d), params$ci_level),
          diagnostics = rbind(diagnostic_row("radial_q", fit$qstatistic, fit$df, .radial_q_p(fit$qstatistic, fit$df)),
                              diagnostic_row("radial_outliers", length(ids), NA_real_, NA_real_, .ids_note(ids)),
-                             diagnostic_row("radial_alpha", params$alpha)))
+                             diagnostic_row("radial_alpha", au, NA_real_, NA_real_, .radial_level_note(params, nrow(d)))))
   },
   emit_script = function(spec, params, seed) .detector_emit(ADAPTER_RADIAL_V11, spec, params, seed, "RadialMR", c(
     "# ---- 5. Analysis: radial IVW (RadialMR) ------------------------------------------",
     "r_in <- RadialMR::format_radial(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, dat$variant_id)",
-    "fit <- suppressWarnings(RadialMR::ivw_radial(r_in, alpha, as.integer(weights), tol, FALSE))",
+    "alpha_used <- if (identical(alpha_correction, \"bonferroni\")) alpha / nrow(dat) else alpha   # level per variant",
+    "fit <- suppressWarnings(RadialMR::ivw_radial(r_in, alpha_used, as.integer(weights), tol, FALSE))",
     "cf <- fit$coef[1, ]   # first row is the radial IVW effect for the chosen weights",
     "tq <- stats::qt(1 - (1 - ci_level) / 2, fit$df)   # t quantile, df = number of variants - 1",
     "ids <- if (is.data.frame(fit$outliers)) as.character(fit$outliers$SNP) else character(0)",
@@ -427,7 +443,7 @@ ADAPTER_RADIAL_V11 <- mrgui_adapter(
     "diagnostics <- rbind(",
     "  data.frame(name = \"radial_q\", value = fit$qstatistic, df = fit$df, p = stats::pchisq(fit$qstatistic, fit$df, lower.tail = FALSE), note = NA_character_, stringsAsFactors = FALSE),",
     "  data.frame(name = \"radial_outliers\", value = length(ids), df = NA_real_, p = NA_real_, note = if (length(ids)) paste(ids, collapse = \";\") else NA_character_, stringsAsFactors = FALSE),",
-    "  data.frame(name = \"radial_alpha\", value = alpha, df = NA_real_, p = NA_real_, note = NA_character_, stringsAsFactors = FALSE))"),
+    "  data.frame(name = \"radial_alpha\", value = alpha_used, df = NA_real_, p = NA_real_, note = if (identical(alpha_correction, \"bonferroni\")) sprintf(\"%s divided by %d variants\", format(alpha), nrow(dat)) else \"no correction\", stringsAsFactors = FALSE))"),
     "fixed seed (this method is deterministic; kept for the record)"),
   column_requirements = .colreq_basic)
 
@@ -437,7 +453,7 @@ ADAPTER_RADEGGER_V11 <- mrgui_adapter(
   requires = list(min_ivs = 4, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE,
                   needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
   packages = list(RadialMR = PIN_RADIALMR), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
-  params = c(.ci_param_v11, .radial_alpha_param_v11, .radial_weights_param_v11, .minf_param_v11),
+  params = c(.ci_param_v11, .radial_alpha_param_v11, .radial_correction_param_v11, .radial_weights_param_v11, .minf_param_v11),
   check = function(input, params) {
     d <- .usable(input$data)
     if (nrow(d) < 4) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("Radial MR-Egger needs at least 4 usable instruments; %d available.", nrow(d))))
@@ -447,19 +463,21 @@ ADAPTER_RADEGGER_V11 <- mrgui_adapter(
   run = function(input, params, ctx) {
     d <- .usable(input$data)
     r <- RadialMR::format_radial(d$beta_x, d$beta_y, d$se_x, d$se_y, d$variant_id)
-    fit <- suppressWarnings(RadialMR::egger_radial(r, params$alpha, as.integer(params$weights), FALSE))
+    au <- .radial_level(params, nrow(d))
+    fit <- suppressWarnings(RadialMR::egger_radial(r, au, as.integer(params$weights), FALSE))
     sl <- fit$coef[2, ]; ic <- fit$coef[1, ]; tq <- stats::qt(1 - (1 - params$ci_level) / 2, fit$df); ids <- .radial_ids(fit$outliers)
     list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale,
            sl[[1]], sl[[2]], sl[[1]] - tq * sl[[2]], sl[[1]] + tq * sl[[2]], "wald_t", sl[[4]], nrow(d), params$ci_level),
          diagnostics = rbind(diagnostic_row("radial_q", fit$qstatistic, fit$df, .radial_q_p(fit$qstatistic, fit$df)),
                              diagnostic_row("radial_outliers", length(ids), NA_real_, NA_real_, .ids_note(ids)),
                              diagnostic_row("radial_intercept", ic[[1]], NA_real_, ic[[4]], "intercept of the radial Egger regression, on the weighted scale (not the same unit as the MR-Egger intercept)"),
-                             diagnostic_row("radial_alpha", params$alpha)))
+                             diagnostic_row("radial_alpha", au, NA_real_, NA_real_, .radial_level_note(params, nrow(d)))))
   },
   emit_script = function(spec, params, seed) .detector_emit(ADAPTER_RADEGGER_V11, spec, params, seed, "RadialMR", c(
     "# ---- 5. Analysis: radial MR-Egger (RadialMR) -------------------------------------",
     "r_in <- RadialMR::format_radial(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, dat$variant_id)",
-    "fit <- suppressWarnings(RadialMR::egger_radial(r_in, alpha, as.integer(weights), FALSE))",
+    "alpha_used <- if (identical(alpha_correction, \"bonferroni\")) alpha / nrow(dat) else alpha   # level per variant",
+    "fit <- suppressWarnings(RadialMR::egger_radial(r_in, alpha_used, as.integer(weights), FALSE))",
     "sl <- fit$coef[2, ]; ic <- fit$coef[1, ]   # slope = causal effect; intercept = directional pleiotropy",
     "tq <- stats::qt(1 - (1 - ci_level) / 2, fit$df)   # t quantile, df = number of variants - 2",
     "ids <- if (is.data.frame(fit$outliers)) as.character(fit$outliers$SNP) else character(0)",
@@ -472,7 +490,7 @@ ADAPTER_RADEGGER_V11 <- mrgui_adapter(
     "  data.frame(name = \"radial_q\", value = fit$qstatistic, df = fit$df, p = stats::pchisq(fit$qstatistic, fit$df, lower.tail = FALSE), note = NA_character_, stringsAsFactors = FALSE),",
     "  data.frame(name = \"radial_outliers\", value = length(ids), df = NA_real_, p = NA_real_, note = if (length(ids)) paste(ids, collapse = \";\") else NA_character_, stringsAsFactors = FALSE),",
     "  data.frame(name = \"radial_intercept\", value = ic[[1]], df = NA_real_, p = ic[[4]], note = \"intercept of the radial Egger regression, on the weighted scale (not the same unit as the MR-Egger intercept)\", stringsAsFactors = FALSE),",
-    "  data.frame(name = \"radial_alpha\", value = alpha, df = NA_real_, p = NA_real_, note = NA_character_, stringsAsFactors = FALSE))"),
+    "  data.frame(name = \"radial_alpha\", value = alpha_used, df = NA_real_, p = NA_real_, note = if (identical(alpha_correction, \"bonferroni\")) sprintf(\"%s divided by %d variants\", format(alpha), nrow(dat)) else \"no correction\", stringsAsFactors = FALSE))"),
     "fixed seed (this method is deterministic; kept for the record)"),
   column_requirements = .colreq_basic)
 

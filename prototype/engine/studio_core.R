@@ -377,11 +377,11 @@ IVW_MODEL_NAMES <- c(mre_floor = "IVW (multiplicative random effects)", mre = "I
 
 #' The settings a pair was run with, read back from the settings lines of its scripts (the scripts are the record).
 pair_settings <- function(study, pair_folder) {
-  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, weights = "1", tol = 1e-4, r_xxo = 1, r_yyo = 1, dispersion = "balanced", raps_dispersion = "balanced", loss = "huber", psi = 0, ci_step = 0.01, lasso_dist = "normal", simex_b = 100)
+  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, alpha_correction = "bonferroni", weights = "1", tol = 1e-4, r_xxo = 1, r_yyo = 1, dispersion = "balanced", raps_dispersion = "balanced", loss = "huber", psi = 0, ci_step = 0.01, lasso_dist = "normal", simex_b = 100)
   for (f in Sys.glob(file.path(study, "03_pairs", pair_folder, "02_scripts", "[0-9]*_*.R"))) {
     for (k in names(out)) {
       ln <- grep(paste0("^", k, " <- "), readLines(f, warn = FALSE), value = TRUE)
-      if (length(ln)) { v <- sub(paste0("^", k, " <- "), "", ln[1]); out[[k]] <- if (k %in% c("ivw_model", "weights", "dispersion", "raps_dispersion", "loss", "lasso_dist")) gsub("\"", "", v) else as.numeric(v) }
+      if (length(ln)) { v <- sub(paste0("^", k, " <- "), "", ln[1]); out[[k]] <- if (k %in% c("ivw_model", "alpha_correction", "weights", "dispersion", "raps_dispersion", "loss", "lasso_dist")) gsub("\"", "", v) else as.numeric(v) }
     }
   }
   out
@@ -483,7 +483,7 @@ ui_state_get <- function(con, key) {
 }
 ui_state_set <- function(con, key, value) {
   DBI::dbExecute(con, "INSERT OR REPLACE INTO ui_state(key, value_json, updated_at) VALUES (?, ?, ?)",
-                 params = list(key, as.character(jsonlite::toJSON(value, auto_unbox = TRUE, null = "null")), format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")))
+                 params = list(key, as.character(jsonlite::toJSON(value, auto_unbox = TRUE, null = "null", digits = NA)), format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")))
   invisible(TRUE)
 }
 
@@ -630,14 +630,18 @@ instrument_table <- function(exp_id, out_id, pthr = 5e-8) {
 }
 
 #' Sensitivity branch: the same pair analysed again without the chosen variants, as its own pair folder (the primary results stay as they are).
-studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8) {
-  inp <- pair_input(exp_id, out_id, pthr)
+studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8, keep_presso = FALSE)
+  studio_run_reduced(h, pair_input(exp_id, out_id, pthr), remove, methods, ci_level, idx, params, keep_presso)
+
+#' The same, for a prepared pair input (list with input, exposure_label, outcome_label); used by the outlier module and its tests.
+studio_run_reduced <- function(h, inp, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, keep_presso = FALSE) {
   d <- inp$input$data; hit <- d$variant_id %in% remove
   if (!all(remove %in% d$variant_id)) stop("Some of the chosen variants are not instruments of this pair.")
   d$mr_keep[hit] <- FALSE; inp$input$data <- d
   kept <- sum(d$mr_keep)
   if (kept < 2L) stop("At least 2 instruments must remain.")
   methods <- setdiff(methods, c("presso", "radial", "radegger", "steiger", "loo"))   # detectors are not repeated on a reduced set: they are what suggests the sensitivity analysis
+  if (keep_presso && kept > 3L) methods <- union(methods, "presso")   # Round 42: the outlier module needs the global test after removal when it started the module (FR-96)
   if (kept < 3L) methods <- setdiff(methods, c("egger", "wm", "smed", "mode", "smode", "raps", "conmix", "lasso", "egger_simex"))
   lab <- sprintf("%s [without %d]", inp$exposure_label, length(remove))
   r <- studio_run(h, lab, inp$outcome_label, inp$input, methods, ci_level, idx = idx, params = params)

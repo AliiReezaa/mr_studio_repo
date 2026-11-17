@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -393,7 +393,7 @@ pk16 <- build_package(h16, c("report", "text", "refs"), 140)
 htm16 <- paste(readLines(file.path(pk16$dir, "report.html"), warn = FALSE), collapse = "\n"); bib16 <- paste(readLines(file.path(pk16$dir, "references.bib"), warn = FALSE), collapse = "\n")
 expect("steiger16: report explains the liability scale, names the prevalence and cites Lee 2012", grepl("liability scale", htm16, fixed = TRUE) && grepl("Binary outcome 0.05", htm16, fixed = TRUE) && grepl("Lee2012", bib16, fixed = TRUE) && !grepl("Lee2012", bib15, fixed = TRUE))
 expect("steiger16: case counts come from the import facts or the OpenGWAS record", identical(.case_counts(list(facts = list(ncase = "1200", ncontrol = "3400")))$ncase, 1200) && identical(.case_counts(list(facts = list(), source = list(ncase = 60801, ncontrol = 123504)))$ncontrol, 123504) && is.na(.case_counts(list(facts = list()))$ncase))
-expect("detector schemas are in the Customise list", identical(names(param_schemas()$presso), c("ci_level", "nbdist", "signif", "min_f")) && identical(names(param_schemas()$radial), c("ci_level", "alpha", "weights", "tol", "min_f")) && identical(names(param_schemas()$radegger), c("ci_level", "alpha", "weights", "min_f")))
+expect("detector schemas are in the Customise list", identical(names(param_schemas()$presso), c("ci_level", "nbdist", "signif", "min_f")) && identical(names(param_schemas()$radial), c("ci_level", "alpha", "alpha_correction", "weights", "tol", "min_f")) && identical(names(param_schemas()$radegger), c("ci_level", "alpha", "alpha_correction", "weights", "min_f")))
 ui_state_set(h10$con, "pairs", list(list(ex = "expA", out = "outC", exName = p8$exposure_label, outName = p8$outcome_label, folder = r10$pair_folder, methods = as.list(c("ivw_mre", "smode", "presso", "radial", "radegger")), ci = 0.95, pthr = 5e-8, simulated = TRUE, ledger = NULL, anc_x = "EUR", anc_y = "EUR")))
 pk10 <- build_package(h10, c("report", "text", "refs", "figs"), 89); hs10 <- paste(readLines(file.path(pk10$dir, "report.html"), warn = FALSE), collapse = "\n")
 expect("package: detectors are described, their flagged variants reported, and nothing is said to be removed", grepl("MR-PRESSO (global test", hs10, fixed = TRUE) && grepl("flagged", hs10, fixed = TRUE) && grepl("not removed from the primary analysis", hs10, fixed = TRUE) && grepl("MRPRESSO (commit 3e3c92d7ed", hs10, fixed = TRUE))
@@ -1064,5 +1064,55 @@ expect("Round 39: STROBE-MR 13e is filled when leave-one-out ran", identical(s39
 big <- data.frame(id = sprintf("rs%d", 1:80), loo_b = seq(0.1, 0.5, length.out = 80), loo_se = 0.01, loo_p = 0.01, wr = 0, wr_se = 1, wr_p = 1)
 expect("Round 39: above 60 variants the plot shows the 30 whose removal changes the estimate most", nrow(.loo_rows(big, 0.1)) == 30L && min(.loo_rows(big, 0.1)$loo_b) > 0.3)
 expect("Round 39: the leave-one-out switch is excluded from reduced-set sensitivity runs and is not a causal method", !("loo" %in% FEAS_CAUSAL) && "loo" %in% FEAS_METHODS)
+
+# ---- Round 42: outlier module (FR-90 to FR-103) ----
+d42 <- demo_pair(args_dir)$input; out42 <- d42$data$variant_id[c(3, 11, 27)]; hit42 <- d42$data$variant_id %in% out42
+d42$data$beta_y[hit42] <- d42$data$beta_y[hit42] + 8 * d42$data$se_y[hit42]
+h42 <- studio_new("Outliers"); inp42 <- list(input = d42, exposure_label = "Exposure 42", outcome_label = "Outcome 42")
+r42 <- studio_run(h42, "Exposure 42", "Outcome 42", d42, c("ivw_mre", "egger", "wm", "radial", "radegger", "lasso"), idx = 1L, params = list(ci_level = 0.95, nboot = 200L))
+p42 <- pair_payload(h42$dir, r42$pair_folder)
+expect("Round 42: detectors and re-analysis methods run and replay identically", all(vapply(r42$results, function(x) identical(x$status, "ok"), TRUE)) && identical(p42$replay$status, "identical"))
+ra42 <- Filter(function(g) g$method == "radial" && g$name == "radial_alpha", p42$diagnostics)[[1]]
+expect("Round 42: radial detectors test each variant at 0.05 divided by the number of variants by default, written in the script",
+       abs(ra42$value - 0.05 / 40) < 1e-12 && grepl("divided by 40", ra42$note) && identical(pair_settings(h42$dir, r42$pair_folder)$alpha_correction, "bonferroni"))
+sg42 <- outlier_signals(p42)
+expect("Round 42: planted outliers give a heterogeneity signal; a detector not run gives no signal", isTRUE(sg42$q) && "q" %in% outlier_triggered(sg42) && is.na(sg42$presso))
+s42 <- outlier_sets(p42)
+expect("Round 42: one set per detector that ran, plus the consensus set", setequal(attr(s42, "detectors_run"), c("radial", "radegger", "lasso")) && "consensus" %in% s42$set)
+expect("Round 42: the radial IVW set holds the three planted outliers", all(out42 %in% s42$ids[[which(s42$set == "radial")]]))
+expect("Round 42: the cap (20%) and floor (5) decide eligibility", all(s42$eligible == (s42$n_removed > 0 & s42$n_removed <= 8 & 40 - s42$n_removed >= 5)))
+pays42 <- list(); k42 <- 1L
+for (i in which(s42$eligible)) { k42 <- k42 + 1L; rr <- studio_run_reduced(h42, inp42, s42$ids[[i]], OUTLIER_REANALYSIS, 0.95, k42, params = list(ci_level = 0.95, nboot = 200L)); pays42[[s42$set[i]]] <- pair_payload(h42$dir, rr$pair_folder) }
+sc42 <- outlier_scenarios(p42, s42, pays42); se42 <- outlier_select(sc42, outlier_triggered(sg42))
+expect("Round 42: comparison has all instruments first, with Q, I2, Rucker Q', intercept and excess reduction", sc42$set[1] == "all" && all(c("q", "i2", "q_rucker", "int_p", "excess_reduction") %in% names(sc42)) && sc42$excess_reduction[1] == 0)
+expect("Round 42: removing the planted outliers lowers Q by more than the number removed", sc42$excess_reduction[sc42$set == "radial"] > 3)
+expect("Round 42: the rule picks a set that clears the Q signal (step 2) and never reads the causal estimate",
+       se42$step == 2L && sc42$q_p[sc42$set == se42$set] >= 0.05 && identical(outlier_select(transform(sc42, ivw = -ivw, egger = 99, wm = NA), "q"), se42))
+rel42 <- outlier_write(h42$dir, r42$pair_folder, p42, s42, sc42, se42)
+fl42 <- utils::read.csv(file.path(h42$dir, rel42, "outliers_flagged.csv")); cm42 <- utils::read.csv(file.path(h42$dir, rel42, "outlier_comparison.csv"))
+expect("Round 42: flag ledger has one row per instrument with each detector's flag and the removal decision", nrow(fl42) == 40L && all(c("flagged_radial", "flagged_lasso", "n_detectors", "removed_in_selected_set") %in% names(fl42)) && all(fl42$removed_in_selected_set[fl42$variant_id %in% out42] == "yes"))
+expect("Round 42: comparison table marks the selected set and says the P values are descriptive", sum(cm42$decision == "selected by the rule") == 1L && all(grepl("descriptive only", cm42$note)))
+rec42 <- outlier_record(r42$pair_folder, sg42, outlier_triggered(sg42), sc42, se42, NULL); rec42$chosen <- "all"; outlier_write_choice(h42$dir, rec42)
+cm42b <- utils::read.csv(file.path(h42$dir, rel42, "outlier_comparison.csv")); fl42b <- utils::read.csv(file.path(h42$dir, rel42, "outliers_flagged.csv"))
+expect("Round 42: keeping all instruments is recorded as the analyst's choice beside the rule's", cm42b$decision[cm42b$set == "all"] == "chosen by the analyst" && cm42b$decision[cm42b$set == se42$set] == "selected by the rule, not adopted" && all(fl42b$removed_in_selected_set == "no"))
+expect("Round 42: the study manifest still checks clean after the module wrote its files", { mc <- manifest_check(h42$dir); all(mc$status[grepl("08_outlier_analysis", mc$relative_path)] == "ok") && !any(mc$status %in% c("missing", "modified")) })
+mk42 <- function(set, n, elig, qp, ip, agr, er) data.frame(set = set, label = set, n_removed = n, eligible = elig, q_p = qp, int_p = ip, presso_p = NA_real_, agreement = agr, excess_reduction = er, stringsAsFactors = FALSE)
+sy42 <- mk42(c("all", "a", "b", "c"), c(0, 2, 2, 5), c(TRUE, TRUE, TRUE, TRUE), c(0.001, 0.2, 0.3, 0.6), c(0.01, 0.01, 0.2, 0.3), c(NA, 1, 2, 1), c(0, 4, 3, 9))
+expect("Round 42: with two signals both must clear; fewest removed wins", outlier_select(sy42, c("q", "intercept"))$set == "b")
+expect("Round 42: equal counts go to higher detector agreement", outlier_select(sy42, "q")$set == "b" && grepl("detector agreement", outlier_select(sy42, "q")$reason))
+expect("Round 42: no set clears the signal, so the largest positive excess reduction is chosen (step 3)", { s <- sy42; s$q_p <- 0.001; r <- outlier_select(s, "q"); r$set == "c" && r$step == 3L })
+expect("Round 42: no improvement keeps all instruments", { s <- sy42; s$q_p <- 0.001; s$excess_reduction <- c(0, -1, -2, 0); outlier_select(s, "q")$set == "all" })
+expect("Round 42: no signal keeps all instruments and removes nothing", outlier_select(sy42, character())$set == "all")
+expect("Round 42: an over-cap set is shown but never chosen", { s <- sy42; s$eligible <- c(TRUE, FALSE, FALSE, TRUE); outlier_select(s, "q")$set == "c" })
+
+rec42$chosen <- se42$set; rec42$review <- "reviewed"; rec42$chosen_row <- Filter(function(x) identical(x$set, se42$set), rec42$scenarios)[[1]]
+ce42 <- data.frame(method = "ivw_mre", estimate = 0.3, ci_lower = 0.2, ci_upper = 0.4, p = 0.001, scale = "beta", stringsAsFactors = FALSE)
+tx42 <- outlier_results_text(rec42, ce42, "beta")
+expect("Round 42: Results text names the signal, the rule's set, the removed variants and the descriptive Q P", grepl("started by Cochran's Q", tx42) && grepl("pre-specified rule chose the ", tx42) && all(vapply(rec42$chosen_row$ids, function(i) grepl(i, tx42, fixed = TRUE), TRUE)) && grepl("descriptive", tx42))
+expect("Round 42: Methods text states the cap, floor, Bonferroni level, rule and that the primary used all instruments", all(vapply(c("20%", "at least 5", "divided by the number of variants", "without using the causal estimates", "primary analysis used all instruments"), function(k) grepl(k, OUTLIER_METHODS_TEXT, fixed = TRUE), TRUE)))
+expect("Round 42: the radial Methods phrase says Bonferroni unless the correction is off", grepl("Bonferroni", .radial_level_txt(list(alpha = 0.05))) && grepl("no correction", .radial_level_txt(list(alpha = 0.01, alpha_correction = "none"))))
+
+ui_state_set(h42$con, "outliers", list(rec42)); back42 <- ui_state_get(h42$con, "outliers")[[1]]
+expect("Round 42: the saved outlier record keeps small P values (study state is stored at full precision)", isTRUE(abs(back42$scenarios[[1]]$q_p - rec42$scenarios[[1]]$q_p) <= 1e-12 * max(1, rec42$scenarios[[1]]$q_p)) && rec42$scenarios[[1]]$q_p < 1e-4)
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

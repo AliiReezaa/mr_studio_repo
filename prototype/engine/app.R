@@ -72,7 +72,7 @@ mr_server <- function(engine_dir) {
       pairs <- Filter(function(p) !is.null(p$folder), pairs)
       sens <- ui_state_get(h$con, "sens") %||% list()
       for (sn in sens) if (!is.null(sn$folder) && dir.exists(file.path(h$dir, "03_pairs", sn$folder)) && !is.null(pair_results(h$dir, sn$folder))) payloads[[sn$folder]] <- pair_payload(h$dir, sn$folder)
-      ev(t, name = name, dir = h$dir, root = root, plan = plan, pairs = pairs, sens = sens, payloads = payloads, overlap = overlap_get(h), to = to, studies = studies_overview(root))
+      ev(t, name = name, dir = h$dir, root = root, plan = plan, pairs = pairs, sens = sens, outliers = ui_state_get(h$con, "outliers") %||% list(), payloads = payloads, overlap = overlap_get(h), to = to, studies = studies_overview(root))
     }
 
     observeEvent(input$impfile, {
@@ -183,6 +183,40 @@ mr_server <- function(engine_dir) {
           if (identical(a$kind, "eaf")) rec$kind <- "eaf"   # Round 34: without the variants flagged by the allele-frequency check
           sens[[length(sens) + 1L]] <- rec; ui_state_set(rv$h$con, "sens", sens)
           ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(rv$h$dir, r$pair_folder), reused = isTRUE(r$reused))
+        },
+        run_outliers = {   # Round 42: outlier module (FR-90 to FR-102). Every eligible set is analysed as its own labelled pair; the primary stays as it is.
+          req(rv$h)
+          parent <- a$folder; pay <- pair_payload(rv$h$dir, parent)
+          sig <- outlier_signals(pay); trig <- outlier_triggered(sig); sets <- outlier_sets(pay)
+          if (!length(attr(sets, "detectors_run"))) { ev("outliers_done", ok = FALSE, parent = parent, msg = "No outlier detector was run for this pair. Add MR-PRESSO, radial IVW, radial MR-Egger or MR-Lasso on the Methods screen and run again."); return() }
+          prm <- run_params(a$params); sens <- ui_state_get(rv$h$con, "sens") %||% list(); pays <- list(); done <- list()
+          for (i in which(sets$eligible)) {
+            rem <- sort(sets$ids[[i]]); key <- paste(rem, collapse = ";")
+            if (!is.null(done[[key]])) { pays[[sets$set[i]]] <- done[[key]]$pay; next }
+            old <- Filter(function(x) identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem), sens)
+            idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
+            r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, OUTLIER_REANALYSIS, prm$ci_level, idx, params = prm, pthr = as.numeric(a$pthr %||% 5e-8), keep_presso = "presso" %in% trig), error = function(e) e)
+            if (inherits(r, "error")) { ev("outliers_done", ok = FALSE, parent = parent, msg = paste0(sets$label[i], ": ", conditionMessage(r))); return() }
+            bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
+            if (length(bad)) { ev("outliers_done", ok = FALSE, parent = parent, msg = paste0(sets$label[i], ": some methods did not finish: ", paste(bad, collapse = ", "))); return() }
+            sens <- Filter(function(x) !(identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem)), sens)
+            rec <- list(parent = parent, remove = as.list(rem), folder = r$pair_folder, label = r$label, kept = r$kept, kind = "outlier", sets = as.list(sets$label[vapply(sets$ids, function(x) identical(sort(x), rem), TRUE) & sets$eligible]))
+            sens[[length(sens) + 1L]] <- rec; done[[key]] <- list(pay = pair_payload(rv$h$dir, r$pair_folder), rec = rec); pays[[sets$set[i]]] <- done[[key]]$pay
+          }
+          ui_state_set(rv$h$con, "sens", sens)
+          scen <- outlier_scenarios(pay, sets, pays); sel <- outlier_select(scen, trig)
+          res <- outlier_record(parent, sig, trig, scen, sel, NULL)
+          tryCatch(outlier_write(rv$h$dir, parent, pay, sets, scen, sel), error = function(e) NULL)
+          ol <- Filter(function(x) !identical(x$parent, parent), ui_state_get(rv$h$con, "outliers") %||% list()); ol[[length(ol) + 1L]] <- res; ui_state_set(rv$h$con, "outliers", ol)
+          ev("outliers_done", ok = TRUE, parent = parent, res = res, recs = unname(lapply(done, `[[`, "rec")), payloads = stats::setNames(lapply(done, `[[`, "pay"), vapply(done, function(d) d$rec$folder, "")))
+        },
+        outlier_choose = {   # FR-102: the analyst adopts another eligible set, or keeps all instruments; the choice is recorded beside the rule's
+          req(rv$h)
+          ol <- ui_state_get(rv$h$con, "outliers") %||% list(); j <- which(vapply(ol, function(x) identical(x$parent, a$folder), TRUE))
+          if (!length(j)) return(invisible())
+          ol[[j[1]]]$chosen <- a$set; ol[[j[1]]]$review <- "reviewed"; ui_state_set(rv$h$con, "outliers", ol)
+          tryCatch(outlier_write_choice(rv$h$dir, ol[[j[1]]]), error = function(e) NULL)
+          ev("outliers_chosen", parent = a$folder, res = ol[[j[1]]])
         },
         run_ties = {   # Round 28: tie sensitivity analysis (the strongest |beta/SE| as lead where equal P decided it)
           req(rv$h); parent <- a$folder
