@@ -219,7 +219,7 @@ pair_context <- function(h, p) {
        outl = tryCatch({ o <- Filter(function(x) identical(x$parent, p$folder), ui_state_get(h$con, "outliers") %||% list())   # Round 42
          if (length(o)) { o <- o[[1]]; ch <- Filter(function(x) identical(x$set, o$chosen), o$scenarios); o$chosen_row <- if (length(ch)) ch[[1]] else NULL
            rm <- sort(unlist(o$chosen_row$ids)); sn <- Filter(function(x) identical(x$parent, p$folder) && length(rm) && identical(sort(unlist(x$remove)), rm), ui_state_get(h$con, "sens") %||% list())
-           if (length(sn) && dir.exists(file.path(h$dir, "03_pairs", sn[[1]]$folder))) { e <- .est_df(pair_payload(h$dir, sn[[1]]$folder)); o$chosen_ivw <- e[e$estimand == "causal_effect" & e$method == "ivw_mre", , drop = FALSE] }
+           if (length(sn) && dir.exists(file.path(h$dir, "03_pairs", sn[[1]]$folder))) { o$chosen_pay <- pair_payload(h$dir, sn[[1]]$folder); e <- .est_df(o$chosen_pay); o$chosen_ivw <- e[e$estimand == "causal_effect" & e$method == "ivw_mre", , drop = FALSE] }
            o } else NULL }, error = function(e) NULL),
        eaf_sens = tryCatch({ es <- Filter(function(x) identical(x$kind, "eaf") && identical(x$parent, p$folder), ui_state_get(h$con, "sens") %||% list())   # Round 34
          if (length(es) && dir.exists(file.path(h$dir, "03_pairs", es[[length(es)]]$folder))) list(pay = pair_payload(h$dir, es[[length(es)]]$folder), remove = unlist(es[[length(es)]]$remove)) else NULL }, error = function(e) NULL))
@@ -459,7 +459,7 @@ report_text <- function(ctxs, study_name) {
     for (ij in bd) txt$results <- c(txt$results, bidir_results_text(ctxs[[ij[1]]], ctxs[[ij[2]]])) }
   txt$supp_out <- vector("list", length(ctxs)); so <- 2L * sn   # Round 44: outlier figures follow the leave-one-out ones
   for (i in seq_along(ctxs)) { ol <- ctxs[[i]]$outl; if (is.null(ol)) next
-    ag <- outlier_agreement(ol); txt$supp_out[[i]] <- outlier_legends(ol, ctxs[[i]], so + 1L, ag); so <- so + length(txt$supp_out[[i]]) }
+    ag <- outlier_agreement(ol); txt$supp_out[[i]] <- outlier_legends(ol, ctxs[[i]], so + 1L, ag, loo = outlier_has_loo(ctxs[[i]])); so <- so + length(txt$supp_out[[i]]) }
   txt
 }
 
@@ -498,7 +498,10 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
         oc <- .fig_write(file.path(pk, "figures", paste0(tag, "_outlier_comparison")), wmm, oh, function() draw_outlier_comparison(ol, est$unit[1]))
         ag <- outlier_agreement(ol); ah <- if (is.null(ag)) 0 else max(45, round(30 + 4.2 * nrow(ag$m)))
         oa <- if (is.null(ag)) character() else .fig_write(file.path(pk, "figures", paste0(tag, "_outlier_agreement")), min(wmm, 120), ah, function() draw_outlier_agreement(ag))
-        figs[[i]]$oc <- oc; figs[[i]]$oa <- oa; figs[[i]]$oh <- oh; figs[[i]]$ah <- ah; for (f in c(oc, oa)) add(f)
+        rr <- .fig_write(file.path(pk, "figures", paste0(tag, "_outlier_radial")), wmm, round(wmm * 0.75), function() draw_outlier_radial(cx$pay, ol, est$unit[1]))   # Round 47
+        lb <- loo_facts(cx); la <- if (outlier_has_loo(cx)) loo_facts(list(pay = ol$chosen_pay)) else NULL
+        ob <- if (!is.null(la)) .fig_write(file.path(pk, "figures", paste0(tag, "_outlier_leave_one_out")), wmm, 55, function() draw_outlier_loo(lb, la, ce$estimate[ce$method == "ivw_mre"][1], ol$chosen_ivw$estimate[1], est$unit[1])) else character()
+        figs[[i]]$oc <- oc; figs[[i]]$oa <- oa; figs[[i]]$oh <- oh; figs[[i]]$ah <- ah; figs[[i]]$or <- rr; figs[[i]]$ol <- ob; for (f in c(oc, oa, rr, ob)) add(f)
       } }
     if (!length(Filter(Negate(is.null), figs))) note <- c(note, "No figures could be drawn on this computer.")
     if (!isTRUE(unname(capabilities("cairo")))) note <- c(note, "SVG and PNG figures need the cairo graphics library, which this R does not have. The PDF figures were written.")
@@ -525,9 +528,10 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
         if (length(lp)) b[[length(b) + 1L]] <- list(type = "image", file = lp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$lh / wmm, alt = txt$supp[[i]][1]); P(txt$supp[[i]][1])
         if (length(fp)) b[[length(b) + 1L]] <- list(type = "image", file = fp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * 0.75, alt = txt$supp[[i]][2]); P(txt$supp[[i]][2]) }
       for (i in seq_along(figs)) { f <- figs[[i]]; so <- txt$supp_out[[i]]; if (is.null(f$oc) || is.null(so)) next   # Round 44
-        op <- grep("\\.png$", f$oc, value = TRUE); ap <- grep("\\.png$", f$oa, value = TRUE)
-        if (length(op)) b[[length(b) + 1L]] <- list(type = "image", file = op, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$oh / wmm, alt = so[1]); P(so[1])
-        if (length(ap) && length(so) > 1) { aw <- min(wmm, 120); b[[length(b) + 1L]] <- list(type = "image", file = ap, width_mm = aw, height_mm = f$ah, alt = so[2]); P(so[2]) } } }
+        im <- list(comparison = list(f$oc, f$oh / wmm), agreement = list(f$oa, NA), radial = list(f$or, 0.75), loo = list(f$ol, 55 / wmm))
+        for (k in names(so)) { pn <- grep("\\.png$", im[[k]][[1]], value = TRUE); if (!length(pn)) next
+          w <- if (k == "agreement") min(wmm, 120) else min(wmm, 160); hh <- if (k == "agreement") f$ah else w * im[[k]][[2]]
+          b[[length(b) + 1L]] <- list(type = "image", file = pn, width_mm = w, height_mm = hh, alt = so[[k]]); P(so[[k]]) } } }
     H("Limitations"); P(txt$limitations); H("Data availability"); P(txt$availability); H("References"); P(vapply(used, function(i) ref_text(REFS[[i]]), "")); b }
   if ("text" %in% items) { f <- file.path(pk, "draft_methods_results_limitations.docx"); docx_write(f, c(list(list(type = "title", text = "Draft text: Methods, Results, Limitations")), list(list(type = "note", text = "Draft generated from the saved results and settings. Check every statement and edit it before use.")), blocks_text(FALSE))); add(f) }
   if ("report" %in% items) {
@@ -540,7 +544,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     figh <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f)) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$forest), esc(txt$legends[2L * i - 1L]), svgs(f$scatter), esc(txt$legends[2L * i])) }, ""), collapse = "\n")
     supph <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f$loo) || is.null(txt$supp[[i]])) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$loo), esc(txt$supp[[i]][1]), svgs(f$funnel), esc(txt$supp[[i]][2])) }, ""), collapse = "\n")   # Round 39
     supph <- paste0(supph, paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; so <- txt$supp_out[[i]]; if (is.null(f$oc) || is.null(so)) "" else   # Round 44
-      paste0(sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(f$oc), esc(so[1])), if (length(so) > 1 && length(f$oa)) sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(f$oa), esc(so[2])) else "") }, ""), collapse = ""))
+      paste(vapply(names(so), function(k) { fl <- switch(k, comparison = f$oc, agreement = f$oa, radial = f$or, loo = f$ol); if (!length(fl)) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(fl), esc(so[[k]])) }, ""), collapse = "") }, ""), collapse = ""))
     if (nzchar(supph)) supph <- paste0("<h2>Supplementary figures</h2>", supph)
     tab <- paste0("<table><thead><tr>", paste(sprintf("<th>%s</th>", esc(names(est))), collapse = ""), "</tr></thead><tbody>", paste(vapply(seq_len(nrow(est)), function(i) paste0("<tr>", paste(sprintf("<td>%s</td>", esc(unlist(est[i, ]))), collapse = ""), "</tr>"), ""), collapse = ""), "</tbody></table>")
     sim <- if (any(vapply(ctxs, `[[`, TRUE, "simulated"))) "<div class=\"warn\">SIMULATED DATA: not for publication. At least one pair uses simulated demonstration traits.</div>" else ""

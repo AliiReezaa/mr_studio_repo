@@ -218,9 +218,46 @@ draw_outlier_agreement <- function(ag) {
   graphics::points(rep(d + 1, k), seq_len(k), pch = ifelse(ag$removed, 16, 1), cex = 1.2, col = ifelse(ag$removed, "#2b3fc7", "grey75"))
 }
 
-#' The two legends (FR-98), numbered from s.
-outlier_legends <- function(ol, cx, s, ag) c(
-  sprintf("Supplementary Figure S%d. Outlier analysis of %s on %s: one row per analysed set of instruments (all instruments and every set that removed at most 20%% of them and left at least 5). Panels show the IVW estimate with its confidence interval, which the selection rule did not use; I squared; and the MR-Egger intercept with its confidence interval%s. The adopted set is in blue; an open marker shows the rule's choice. Heterogeneity and intercept values after removal are descriptive only.",
-          s, cx$p$exName, cx$p$outName, if (any(vapply(ol$scenarios, function(x) is.finite(.outl_num(x$presso_p)), TRUE))) ", and the MR-PRESSO global test (-log10 P; dashed line at P = 0.05)" else ""),
-  if (!is.null(ag)) sprintf("Supplementary Figure S%d. Variants flagged by each outlier detector for %s on %s (filled square: flagged). The last column marks the variants removed in the adopted set.%s", s + 1L, cx$p$exName, cx$p$outName,
-          if (ag$total > nrow(ag$m)) sprintf(" The %d variants flagged most often are shown; all %d are in outliers_flagged.csv.", nrow(ag$m), ag$total) else "") else NULL)
+#' Round 47: radial plot (Bowden et al. 2018): x = |beta_x| / se_y, y = the variant's ratio estimate times x, so the IVW estimate (first-order
+#' weights) is the slope of a line through the origin. Variants flagged by any detector are filled orange; those removed in the adopted set
+#' are ringed. This is a drawing of the saved data, not a new estimate.
+draw_outlier_radial <- function(pay, ol, unit) {
+  v <- Filter(function(x) isTRUE(x$keep), pay$variants); bx <- vapply(v, function(x) .outl_num(x$bx), 0); by <- vapply(v, function(x) .outl_num(x$by), 0); sy <- vapply(v, function(x) .outl_num(x$sy), 0)
+  id <- vapply(v, function(x) as.character(x$id), ""); xr <- abs(bx) / sy; yr <- (by / bx) * xr
+  fl <- unique(unlist(lapply(Filter(function(x) x$set %in% names(OUTLIER_DETECTORS), ol$scenarios), function(x) unlist(x$ids))))
+  ch <- Filter(function(x) identical(x$set, ol$chosen), ol$scenarios); rm <- if (length(ch)) unlist(ch[[1]]$ids) else character()
+  iv <- Filter(function(e) identical(e$method, "ivw_mre") && identical(e$estimand, "causal_effect"), pay$estimates); b <- if (length(iv)) .outl_num(iv[[1]]$estimate) else sum(bx * by / sy^2) / sum(bx^2 / sy^2)
+  op <- graphics::par(mar = c(3.4, 3.8, 0.8, 0.8), mgp = c(2, 0.6, 0), cex = 0.78, las = 1); on.exit(graphics::par(op))
+  graphics::plot(xr, yr, type = "n", xlim = c(0, max(xr) * 1.05), xlab = "Square root of weight (|beta exposure| / SE outcome)", ylab = "Ratio estimate x square root of weight", bty = "l")
+  graphics::abline(h = 0, col = "grey75"); graphics::abline(a = 0, b = b, col = "#2b3fc7", lwd = 2)
+  f <- id %in% fl; graphics::points(xr[!f], yr[!f], pch = 16, cex = 0.7, col = "grey35"); graphics::points(xr[f], yr[f], pch = 16, cex = 0.95, col = "#d4874f")
+  r <- id %in% rm; if (any(r)) graphics::points(xr[r], yr[r], pch = 1, cex = 1.7, lwd = 1.3, col = "#2b3fc7")
+  graphics::legend("bottomright", legend = c(sprintf("IVW slope (%s)", format(round(b, 3), nsmall = 3)), "flagged by a detector", "removed in the adopted set"), col = c("#2b3fc7", "#d4874f", "#2b3fc7"),
+                   lty = c(1, NA, NA), pch = c(NA, 16, 1), lwd = c(2, NA, 1.3), bty = "n", cex = 0.85)
+}
+
+#' Round 47: leave-one-out before and after removal. Each row is one IVW estimate with one variant left out (from the leave-one-out task of
+#' the primary pair and of the adopted set); vertical lines are the estimates with all variants of each set.
+draw_outlier_loo <- function(lb, la, fb, fa, unit) {
+  op <- graphics::par(mar = c(3.4, 9, 0.8, 1), mgp = c(1.9, 0.6, 0), cex = 0.75, las = 1); on.exit(graphics::par(op))
+  xl <- range(c(lb$loo_b, la$loo_b, fb, fa), na.rm = TRUE); xl <- xl + c(-1, 1) * diff(xl) * 0.08
+  graphics::plot(NA, xlim = xl, ylim = c(2.6, 0.4), yaxt = "n", xlab = unit, ylab = "", bty = "n")
+  graphics::axis(2, at = 1:2, labels = c(sprintf("All instruments (%d)", nrow(lb)), sprintf("Adopted set (%d)", nrow(la))), tick = FALSE)
+  set.seed(1); jb <- 1 + stats::runif(nrow(lb), -0.22, 0.22); ja <- 2 + stats::runif(nrow(la), -0.22, 0.22)   # fixed jitter, for display only
+  graphics::points(lb$loo_b, jb, pch = 16, cex = 0.6, col = "grey35"); graphics::points(la$loo_b, ja, pch = 16, cex = 0.6, col = "grey35")
+  graphics::segments(fb, 0.65, fb, 1.35, col = "#2b3fc7", lwd = 2); graphics::segments(fa, 1.65, fa, 2.35, col = "#2b3fc7", lwd = 2)
+}
+
+#' The legends (FR-98), numbered from s, named by figure: comparison, agreement, radial, loo (only those drawn).
+outlier_legends <- function(ol, cx, s, ag, loo = FALSE) {
+  out <- c(comparison = sprintf("Supplementary Figure S%%d. Outlier analysis of %s on %s: one row per analysed set of instruments (all instruments and every set that removed at most 20%%%% of them and left at least 5). Panels show the IVW estimate with its confidence interval, which the selection rule did not use; I squared; and the MR-Egger intercept with its confidence interval%s. The adopted set is in blue; an open marker shows the rule's choice. Heterogeneity and intercept values after removal are descriptive only.",
+            cx$p$exName, cx$p$outName, if (any(vapply(ol$scenarios, function(x) is.finite(.outl_num(x$presso_p)), TRUE))) ", and the MR-PRESSO global test (-log10 P; dashed line at P = 0.05)" else ""))
+  if (!is.null(ag)) out["agreement"] <- sprintf("Supplementary Figure S%%d. Variants flagged by each outlier detector for %s on %s (filled square: flagged). The last column marks the variants removed in the adopted set.%s", cx$p$exName, cx$p$outName,
+            if (ag$total > nrow(ag$m)) sprintf(" The %d variants flagged most often are shown; all %d are in outliers_flagged.csv.", nrow(ag$m), ag$total) else "")
+  out["radial"] <- sprintf("Supplementary Figure S%%d. Radial plot of %s on %s [Bowden 2018]: each point is one variant, with the square root of its first-order weight on the x axis and its ratio estimate multiplied by that on the y axis, so the IVW estimate is the slope of the line through the origin. Orange points were flagged by at least one outlier detector; ringed points were removed in the adopted set.", cx$p$exName, cx$p$outName)
+  if (loo) out["loo"] <- sprintf("Supplementary Figure S%%d. Leave-one-out analysis of %s on %s before and after outlier removal: each point is the IVW estimate with one variant left out, for all instruments and for the adopted set; vertical lines are the estimates using every variant of each set. Points are spread vertically for legibility only.", cx$p$exName, cx$p$outName)
+  stats::setNames(sprintf(out, s + seq_along(out) - 1L), names(out))
+}
+
+#' Round 47: whether both the primary pair and the adopted set have a leave-one-out analysis (for the before-and-after figure).
+outlier_has_loo <- function(cx) { ol <- cx$outl; !is.null(ol) && !identical(ol$chosen, "all") && !is.null(ol$chosen_pay) && !is.null(loo_facts(cx)) && !is.null(loo_facts(list(pay = ol$chosen_pay))) }

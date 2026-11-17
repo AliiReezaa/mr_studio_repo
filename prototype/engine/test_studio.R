@@ -1136,7 +1136,7 @@ expect("Round 44: the removed column marks exactly the adopted set's variants", 
 f44 <- tempfile(fileext = ".pdf"); ok44 <- tryCatch({ grDevices::pdf(f44, 7, 3); draw_outlier_comparison(rec42, "beta"); draw_outlier_agreement(ag44); grDevices::dev.off(); TRUE }, error = function(e) { try(grDevices::dev.off(), silent = TRUE); FALSE })
 expect("Round 44: both figures draw without error", ok44 && file.size(f44) > 1000)
 lg44 <- outlier_legends(rec42, list(p = list(exName = "X", outName = "Y")), 3L, ag44)
-expect("Round 44: two legends numbered from the given figure, saying the estimate was not used by the rule", length(lg44) == 2L && grepl("^Supplementary Figure S3\\.", lg44[1]) && grepl("^Supplementary Figure S4\\.", lg44[2]) && grepl("did not use", lg44[1]))
+expect("Round 44: legends numbered from the given figure, saying the estimate was not used by the rule", length(lg44) == 3L && grepl("^Supplementary Figure S3\\.", lg44[1]) && grepl("^Supplementary Figure S4\\.", lg44[2]) && grepl("^Supplementary Figure S5\\. Radial", lg44[3]) && grepl("did not use", lg44[1]))
 
 # ---- Round 45: bidirectional MR ----
 rv45 <- pair_input("outB", "expB"); fw45 <- pair_input("expB", "outB")
@@ -1160,5 +1160,13 @@ pf46 <- file.path(h45$dir, grep("report\\.pdf$", pk46$files, value = TRUE))
 expect("Round 46: the package has a PDF report next to the Word and HTML ones", length(pf46) == 1L && file.exists(pf46) && file.size(pf46) > 20000 && identical(readBin(pf46, "raw", 5), charToRaw("%PDF-")))
 ff46 <- tempfile(fileext = ".pdf"); np46 <- pdf_write(ff46, list(list(type = "title", text = "T"), list(type = "p", text = paste(rep("word", 2000), collapse = " ")), list(type = "table", data = data.frame(a = 1:60, b = "x"))))
 expect("Round 46: long text and tables flow onto further pages without error", file.exists(ff46) && np46 >= 3L && file.size(ff46) > 5000)
+
+# ---- Round 47: radial plot and leave-one-out before and after outlier removal (FR-98) ----
+lg47 <- outlier_legends(rec42, list(p = list(exName = "X", outName = "Y")), 5L, ag44, loo = TRUE)
+expect("Round 47: legends are named and numbered in order: comparison, agreement, radial, leave-one-out", identical(names(lg47), c("comparison", "agreement", "radial", "loo")) && all(mapply(function(k, x) grepl(sprintf("^Supplementary Figure S%d\\.", k), x), 5:8, lg47)) && grepl("20% of them", lg47[["comparison"]], fixed = TRUE))
+f47 <- tempfile(fileext = ".pdf"); ok47 <- tryCatch({ grDevices::pdf(f47, 7, 5); draw_outlier_radial(p42, rec42, "beta"); lf47 <- data.frame(loo_b = rnorm(30, 0.3, 0.01)); draw_outlier_loo(lf47, lf47[1:25, , drop = FALSE], 0.3, 0.29, "beta"); grDevices::dev.off(); TRUE }, error = function(e) { try(grDevices::dev.off(), silent = TRUE); FALSE })
+expect("Round 47: radial and before-and-after figures draw without error", ok47 && file.size(f47) > 1000)
+rr47 <- studio_run_reduced(h42, inp42, out42, OUTLIER_REANALYSIS, 0.95, 20L, params = list(ci_level = 0.95, nboot = 200L), keep_loo = TRUE)
+expect("Round 47: an outlier set can carry its own leave-one-out analysis (one row per remaining variant)", { lf <- loo_facts(list(pay = pair_payload(h42$dir, rr47$pair_folder))); !is.null(lf) && nrow(lf) == 37L })
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

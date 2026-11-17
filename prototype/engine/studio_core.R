@@ -649,17 +649,18 @@ instrument_table <- function(exp_id, out_id, pthr = 5e-8) {
 }
 
 #' Sensitivity branch: the same pair analysed again without the chosen variants, as its own pair folder (the primary results stay as they are).
-studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8, keep_presso = FALSE)
-  studio_run_reduced(h, pair_input(exp_id, out_id, pthr), remove, methods, ci_level, idx, params, keep_presso)
+studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8, keep_presso = FALSE, keep_loo = FALSE)
+  studio_run_reduced(h, pair_input(exp_id, out_id, pthr), remove, methods, ci_level, idx, params, keep_presso, keep_loo)
 
 #' The same, for a prepared pair input (list with input, exposure_label, outcome_label); used by the outlier module and its tests.
-studio_run_reduced <- function(h, inp, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, keep_presso = FALSE) {
+studio_run_reduced <- function(h, inp, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, keep_presso = FALSE, keep_loo = FALSE) {
   d <- inp$input$data; hit <- d$variant_id %in% remove
   if (!all(remove %in% d$variant_id)) stop("Some of the chosen variants are not instruments of this pair.")
   d$mr_keep[hit] <- FALSE; inp$input$data <- d
   kept <- sum(d$mr_keep)
   if (kept < 2L) stop("At least 2 instruments must remain.")
   methods <- setdiff(methods, c("presso", "radial", "radegger", "steiger", "loo"))   # detectors are not repeated on a reduced set: they are what suggests the sensitivity analysis
+  if (keep_loo && kept >= 3L) methods <- union(methods, "loo")   # Round 47: leave-one-out before and after outlier removal (FR-98)
   if (keep_presso && kept > 3L) methods <- union(methods, "presso")   # Round 42: the outlier module needs the global test after removal when it started the module (FR-96)
   if (kept < 3L) methods <- setdiff(methods, c("egger", "wm", "smed", "mode", "smode", "raps", "conmix", "lasso", "egger_simex"))
   lab <- sprintf("%s [without %d]", inp$exposure_label, length(remove))
