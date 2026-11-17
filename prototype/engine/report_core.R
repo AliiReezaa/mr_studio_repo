@@ -428,6 +428,9 @@ report_text <- function(ctxs, study_name) {
                          if (nrow(lf) > LOO_PLOT_MAX) sprintf(" Only the %d variants whose removal changed the estimate most are shown; all %d are in the supplementary table.", LOO_PLOT_SHOWN, nrow(lf)) else ""),
                        sprintf("Supplementary Figure S%d. Funnel plot of the single-variant (Wald ratio) estimates of %s on %s against their precision (1 / standard error). Vertical lines show the %s estimate%s using all variants. Asymmetry can indicate directional pleiotropy.", 2L * sn, cx$p$exName, cx$p$outName, paste(.short[ln], collapse = " and "), if (length(ln) > 1) "s" else ""))
   }
+  txt$supp_out <- vector("list", length(ctxs)); so <- 2L * sn   # Round 44: outlier figures follow the leave-one-out ones
+  for (i in seq_along(ctxs)) { ol <- ctxs[[i]]$outl; if (is.null(ol)) next
+    ag <- outlier_agreement(ol); txt$supp_out[[i]] <- outlier_legends(ol, ctxs[[i]], so + 1L, ag); so <- so + length(txt$supp_out[[i]]) }
   txt
 }
 
@@ -459,6 +462,14 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
         fl <- lapply(intersect(c("ivw_mre", "egger"), ce$method), function(m) list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else 2, b = ce$estimate[ce$method == m][1]))
         fu <- .fig_write(file.path(pk, "figures", paste0(tag, "_funnel")), wmm, round(wmm * 0.75), function() .draw_funnel(lf, fl))
         figs[[i]]$loo <- lo; figs[[i]]$funnel <- fu; figs[[i]]$lh <- lh; for (f in c(lo, fu)) add(f)
+      }
+      ol <- cx$outl   # Round 44: outlier comparison and agreement figures (FR-98)
+      if (!is.null(ol) && exists("draw_outlier_comparison")) {
+        oh <- max(45, round(20 + 7 * length(.outl_rows(ol))))
+        oc <- .fig_write(file.path(pk, "figures", paste0(tag, "_outlier_comparison")), wmm, oh, function() draw_outlier_comparison(ol, est$unit[1]))
+        ag <- outlier_agreement(ol); ah <- if (is.null(ag)) 0 else max(45, round(30 + 4.2 * nrow(ag$m)))
+        oa <- if (is.null(ag)) character() else .fig_write(file.path(pk, "figures", paste0(tag, "_outlier_agreement")), min(wmm, 120), ah, function() draw_outlier_agreement(ag))
+        figs[[i]]$oc <- oc; figs[[i]]$oa <- oa; figs[[i]]$oh <- oh; figs[[i]]$ah <- ah; for (f in c(oc, oa)) add(f)
       } }
     if (!length(Filter(Negate(is.null), figs))) note <- c(note, "No figures could be drawn on this computer.")
     if (!isTRUE(unname(capabilities("cairo")))) note <- c(note, "SVG and PNG figures need the cairo graphics library, which this R does not have. The PDF figures were written.")
@@ -479,11 +490,15 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     if (with_figs) for (i in seq_along(figs)) { f <- figs[[i]]; if (is.null(f)) next; png <- grep("forest\\.png$", f$forest, value = TRUE); sp <- grep("scatter\\.png$", f$scatter, value = TRUE)
       if (length(png)) b[[length(b) + 1L]] <- list(type = "image", file = png, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$fh / wmm, alt = txt$legends[2L * i - 1L]); P(txt$legends[2L * i - 1L])
       if (length(sp)) b[[length(b) + 1L]] <- list(type = "image", file = sp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$sh / wmm, alt = txt$legends[2L * i]); P(txt$legends[2L * i]) }
-    if (with_figs && any(vapply(figs, function(f) !is.null(f$loo), TRUE))) { H("Supplementary figures", 2)   # Round 39
+    if (with_figs && any(vapply(figs, function(f) !is.null(f$loo) || !is.null(f$oc), TRUE))) { H("Supplementary figures", 2)   # Round 39
       for (i in seq_along(figs)) { f <- figs[[i]]; if (is.null(f$loo) || is.null(txt$supp[[i]])) next
         lp <- grep("\\.png$", f$loo, value = TRUE); fp <- grep("\\.png$", f$funnel, value = TRUE)
         if (length(lp)) b[[length(b) + 1L]] <- list(type = "image", file = lp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$lh / wmm, alt = txt$supp[[i]][1]); P(txt$supp[[i]][1])
-        if (length(fp)) b[[length(b) + 1L]] <- list(type = "image", file = fp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * 0.75, alt = txt$supp[[i]][2]); P(txt$supp[[i]][2]) } }
+        if (length(fp)) b[[length(b) + 1L]] <- list(type = "image", file = fp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * 0.75, alt = txt$supp[[i]][2]); P(txt$supp[[i]][2]) }
+      for (i in seq_along(figs)) { f <- figs[[i]]; so <- txt$supp_out[[i]]; if (is.null(f$oc) || is.null(so)) next   # Round 44
+        op <- grep("\\.png$", f$oc, value = TRUE); ap <- grep("\\.png$", f$oa, value = TRUE)
+        if (length(op)) b[[length(b) + 1L]] <- list(type = "image", file = op, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$oh / wmm, alt = so[1]); P(so[1])
+        if (length(ap) && length(so) > 1) { aw <- min(wmm, 120); b[[length(b) + 1L]] <- list(type = "image", file = ap, width_mm = aw, height_mm = f$ah, alt = so[2]); P(so[2]) } } }
     H("Limitations"); P(txt$limitations); H("Data availability"); P(txt$availability); H("References"); P(vapply(used, function(i) ref_text(REFS[[i]]), "")); b }
   if ("text" %in% items) { f <- file.path(pk, "draft_methods_results_limitations.docx"); docx_write(f, c(list(list(type = "title", text = "Draft text: Methods, Results, Limitations")), list(list(type = "note", text = "Draft generated from the saved results and settings. Check every statement and edit it before use.")), blocks_text(FALSE))); add(f) }
   if ("report" %in% items) {
@@ -494,6 +509,8 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     sect <- function(t, ps) sprintf("<h2>%s</h2>%s", esc(t), paste(sprintf("<p>%s</p>", esc(ps)), collapse = "\n"))
     figh <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f)) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$forest), esc(txt$legends[2L * i - 1L]), svgs(f$scatter), esc(txt$legends[2L * i])) }, ""), collapse = "\n")
     supph <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f$loo) || is.null(txt$supp[[i]])) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$loo), esc(txt$supp[[i]][1]), svgs(f$funnel), esc(txt$supp[[i]][2])) }, ""), collapse = "\n")   # Round 39
+    supph <- paste0(supph, paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; so <- txt$supp_out[[i]]; if (is.null(f$oc) || is.null(so)) "" else   # Round 44
+      paste0(sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(f$oc), esc(so[1])), if (length(so) > 1 && length(f$oa)) sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(f$oa), esc(so[2])) else "") }, ""), collapse = ""))
     if (nzchar(supph)) supph <- paste0("<h2>Supplementary figures</h2>", supph)
     tab <- paste0("<table><thead><tr>", paste(sprintf("<th>%s</th>", esc(names(est))), collapse = ""), "</tr></thead><tbody>", paste(vapply(seq_len(nrow(est)), function(i) paste0("<tr>", paste(sprintf("<td>%s</td>", esc(unlist(est[i, ]))), collapse = ""), "</tr>"), ""), collapse = ""), "</tbody></table>")
     sim <- if (any(vapply(ctxs, `[[`, TRUE, "simulated"))) "<div class=\"warn\">SIMULATED DATA: not for publication. At least one pair uses simulated demonstration traits.</div>" else ""

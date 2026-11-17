@@ -171,3 +171,56 @@ outlier_results_text <- function(ol, ce, sc) {
     if (!identical(ol$chosen, ol$selected)) sprintf(" The analyst adopted %s instead of the rule's choice.", lab(ol$chosen)) else if (identical(ol$review, "awaiting review")) " The choice was not yet reviewed by the analyst." else "")
 }
 
+
+# ---- Round 44: comparison figures (FR-98), drawn from the saved record. Base graphics, written by the package's .fig_write. ----
+.outl_rows <- function(ol) Filter(function(x) identical(x$set, "all") || isTRUE(x$eligible), ol$scenarios)
+.outl_num <- function(x) if (is.null(x)) NA_real_ else suppressWarnings(as.numeric(x))
+
+#' Rows: all instruments and every analysed set. Panels: IVW estimate with CI; I squared; MR-Egger intercept with CI and null line;
+#' MR-PRESSO global P when any set has it. The adopted set is drawn in the accent colour, the rule's choice with an open marker.
+draw_outlier_comparison <- function(ol, unit) {
+  r <- .outl_rows(ol); k <- length(r); lab <- vapply(r, function(x) sprintf("%s (%d out)", if (identical(x$set, "consensus")) "Consensus" else x$label, as.integer(x$n_removed)), "")
+  g <- function(f) vapply(r, function(x) .outl_num(x[[f]]), 0); pr <- g("presso_p"); np <- if (any(is.finite(pr))) 4L else 3L
+  col <- ifelse(vapply(r, function(x) identical(x$set, ol$chosen), TRUE), "#2b3fc7", "grey25"); rule <- vapply(r, function(x) identical(x$set, ol$selected), TRUE)
+  op <- graphics::par(no.readonly = TRUE); on.exit(graphics::par(op)); graphics::layout(matrix(seq_len(np), 1), widths = c(1.9, rep(1, np - 1L)))
+  panel <- function(b, lo, hi, xlab, ref = NA, ylabs = FALSE, xlim = NULL) {
+    graphics::par(mar = c(3.4, if (ylabs) 12.5 else 0.6, 1.6, 0.6), mgp = c(1.9, 0.6, 0), cex = 0.7, las = 1)
+    xl <- xlim %||% { v <- c(b, lo, hi, ref); v <- v[is.finite(v)]; if (length(v)) range(v) + c(-1, 1) * max(diff(range(v)) * 0.08, 1e-6) else c(0, 1) }
+    graphics::plot(NA, xlim = xl, ylim = c(k + 0.5, 0.5), yaxt = "n", xlab = xlab, ylab = "", bty = "n")
+    if (ylabs) graphics::axis(2, at = seq_len(k), labels = lab, tick = FALSE, cex.axis = 0.9)
+    if (is.finite(ref)) graphics::abline(v = ref, lty = 2, col = "grey55")
+    ok <- is.finite(lo) & is.finite(hi); graphics::segments(lo[ok], which(ok), hi[ok], which(ok), col = col[ok], lwd = 1.3)
+    graphics::points(b, seq_len(k), pch = ifelse(rule, 1, 16), cex = 1.1, col = col)
+  }
+  panel(g("ivw"), g("ivw_lo"), g("ivw_hi"), paste("IVW,", unit), ref = 0, ylabs = TRUE); graphics::title("Causal estimate (shown, not used)", cex.main = 0.85, font.main = 1)
+  panel(100 * g("i2"), NA, NA, "I squared (%)", xlim = c(0, 100)); graphics::title("Heterogeneity", cex.main = 0.85, font.main = 1)
+  panel(g("int"), g("int_lo"), g("int_hi"), "MR-Egger intercept", ref = 0); graphics::title("Directional pleiotropy", cex.main = 0.85, font.main = 1)
+  if (np == 4L) { panel(-log10(pr), NA, NA, "-log10 P", ref = -log10(0.05)); graphics::title("MR-PRESSO global test", cex.main = 0.85, font.main = 1) }
+}
+
+#' Which detector flagged which variant (variants flagged by at least one detector; at most 40, most agreed first), with the variants
+#' removed in the adopted set marked.
+OUTLIER_AGREE_MAX <- 40L
+outlier_agreement <- function(ol) {
+  det <- Filter(function(x) x$set %in% names(OUTLIER_DETECTORS), ol$scenarios); if (!length(det)) return(NULL)
+  ids <- unique(unlist(lapply(det, function(x) unlist(x$ids)))); if (!length(ids)) return(NULL)
+  m <- vapply(det, function(x) ids %in% unlist(x$ids), logical(length(ids))); m <- matrix(m, nrow = length(ids), dimnames = list(ids, vapply(det, `[[`, "", "label")))
+  ch <- Filter(function(x) identical(x$set, ol$chosen), ol$scenarios); rm <- if (length(ch)) unlist(ch[[1]]$ids) else character()
+  o <- order(-rowSums(m), rownames(m)); m <- m[o, , drop = FALSE]; shown <- min(nrow(m), OUTLIER_AGREE_MAX)
+  list(m = m[seq_len(shown), , drop = FALSE], removed = rownames(m)[seq_len(shown)] %in% rm, total = nrow(m))
+}
+draw_outlier_agreement <- function(ag) {
+  m <- ag$m; k <- nrow(m); d <- ncol(m)
+  op <- graphics::par(mar = c(1, 8.6, 9, 1), cex = 0.72, las = 1); on.exit(graphics::par(op))
+  graphics::plot(NA, xlim = c(0.5, d + 1.5), ylim = c(k + 0.5, 0.5), xaxt = "n", yaxt = "n", xlab = "", ylab = "", bty = "n")
+  graphics::axis(2, at = seq_len(k), labels = rownames(m), tick = FALSE, cex.axis = 0.85); graphics::axis(3, at = c(seq_len(d), d + 1), labels = c(colnames(m), "Removed"), tick = FALSE, las = 2, cex.axis = 0.85)
+  for (j in seq_len(d)) graphics::points(rep(j, k), seq_len(k), pch = ifelse(m[, j], 15, 0), cex = 1.3, col = ifelse(m[, j], "grey20", "grey75"))
+  graphics::points(rep(d + 1, k), seq_len(k), pch = ifelse(ag$removed, 16, 1), cex = 1.2, col = ifelse(ag$removed, "#2b3fc7", "grey75"))
+}
+
+#' The two legends (FR-98), numbered from s.
+outlier_legends <- function(ol, cx, s, ag) c(
+  sprintf("Supplementary Figure S%d. Outlier analysis of %s on %s: one row per analysed set of instruments (all instruments and every set that removed at most 20%% of them and left at least 5). Panels show the IVW estimate with its confidence interval, which the selection rule did not use; I squared; and the MR-Egger intercept with its confidence interval%s. The adopted set is in blue; an open marker shows the rule's choice. Heterogeneity and intercept values after removal are descriptive only.",
+          s, cx$p$exName, cx$p$outName, if (any(vapply(ol$scenarios, function(x) is.finite(.outl_num(x$presso_p)), TRUE))) ", and the MR-PRESSO global test (-log10 P; dashed line at P = 0.05)" else ""),
+  if (!is.null(ag)) sprintf("Supplementary Figure S%d. Variants flagged by each outlier detector for %s on %s (filled square: flagged). The last column marks the variants removed in the adopted set.%s", s + 1L, cx$p$exName, cx$p$outName,
+          if (ag$total > nrow(ag$m)) sprintf(" The %d variants flagged most often are shown; all %d are in outliers_flagged.csv.", nrow(ag$m), ag$total) else "") else NULL)

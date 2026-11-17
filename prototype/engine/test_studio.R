@@ -1129,4 +1129,13 @@ fr43 <- feas_rules()
 expect("Round 43: R25 names MR-RAPS, contamination mixture, MR-Lasso and the outlier analysis; R26 leaves out MR-RAPS (balanced pleiotropy only)",
        all(vapply(c("MR-RAPS", "contamination mixture", "MR-Lasso", "outlier analysis"), function(k) grepl(k, fr43$recommend[fr43$rule_id == "R25"], fixed = TRUE), TRUE)) && !grepl("MR-RAPS", fr43$recommend[fr43$rule_id == "R26"]) && grepl("MR-Lasso", fr43$recommend[fr43$rule_id == "R26"]))
 
+# ---- Round 44: outlier comparison and agreement figures (FR-98) ----
+ag44 <- outlier_agreement(rec42)
+expect("Round 44: agreement matrix has one column per detector that ran and the planted outliers flagged by radial IVW", !is.null(ag44) && setequal(colnames(ag44$m), c("Radial IVW", "Radial MR-Egger", "MR-Lasso")) && all(ag44$m[intersect(out42, rownames(ag44$m)), "Radial IVW"]))
+expect("Round 44: the removed column marks exactly the adopted set's variants", setequal(rownames(ag44$m)[ag44$removed], intersect(rownames(ag44$m), unlist(Filter(function(x) identical(x$set, rec42$chosen), rec42$scenarios)[[1]]$ids))))
+f44 <- tempfile(fileext = ".pdf"); ok44 <- tryCatch({ grDevices::pdf(f44, 7, 3); draw_outlier_comparison(rec42, "beta"); draw_outlier_agreement(ag44); grDevices::dev.off(); TRUE }, error = function(e) { try(grDevices::dev.off(), silent = TRUE); FALSE })
+expect("Round 44: both figures draw without error", ok44 && file.size(f44) > 1000)
+lg44 <- outlier_legends(rec42, list(p = list(exName = "X", outName = "Y")), 3L, ag44)
+expect("Round 44: two legends numbered from the given figure, saying the estimate was not used by the rule", length(lg44) == 2L && grepl("^Supplementary Figure S3\\.", lg44[1]) && grepl("^Supplementary Figure S4\\.", lg44[2]) && grepl("did not use", lg44[1]))
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)
