@@ -16,6 +16,12 @@ on:
 permissions:
   contents: write   # create the run's pre-release and attach the installers to it
 
+# Budget guards (the repository is private, so hosted-runner minutes draw on the monthly allowance;
+# a macOS minute costs about 6 Windows minutes): one run at a time, and a second click cancels the older run.
+concurrency:
+  group: prototype-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   REL_TAG: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || format('build-{0}', github.run_number) }}
   GH_TOKEN: ${{ github.token }}
@@ -23,6 +29,7 @@ env:
 jobs:
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Create the pre-release for this run
         run: |
@@ -41,7 +48,7 @@ jobs:
           - { os: macos-15-intel,  id: macos-x64 }
           - { os: windows-latest,  id: windows-x64 }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 45   # longest job so far took 24 minutes; a hung macOS job stops here instead of after 90
     defaults:
       run:
         shell: bash -el {0}
@@ -344,6 +351,7 @@ jobs:
   cross-os:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Fetch the test reports from the run's pre-release
