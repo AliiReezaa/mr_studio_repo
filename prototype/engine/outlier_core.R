@@ -99,12 +99,25 @@ outlier_scenarios <- function(pay, sets, pays) {
     r <- cbind(sets[i, c("set", "label", "n_removed", "agreement", "eligible", "why"), drop = FALSE], st); r$ids <- sets$ids[i]; r })
   sc <- do.call(rbind, c(list(base), rows))
   sc$q_change <- base$q - sc$q; sc$excess_reduction <- sc$q_change - sc$n_removed
+  outlier_strength(sc, pay)
+}
+
+#' Round 48 (FR-95c): instrument strength of every set, recomputed from the remaining variants: mean F ((beta_x / se_x)^2) and I2GX
+#' (Bowden 2016, TwoSampleMR::Isq on |beta_x|). A set below the R23 (mean F) or R24 (I2GX) threshold is flagged amber; it stays eligible.
+outlier_strength <- function(sc, pay) {
+  v <- Filter(function(x) isTRUE(x$keep), pay$variants); id <- vapply(v, function(x) as.character(x$id), ""); bx <- vapply(v, function(x) .o_num(x$bx), 0); sx <- vapply(v, function(x) .o_num(x$sx), 0)
+  thr <- function(r, d) { x <- tryCatch(suppressWarnings(as.numeric(feas_rules()$threshold[feas_rules()$rule_id == r])), error = function(e) NA_real_); if (length(x) && is.finite(x[1])) x[1] else d }
+  tf <- thr("R23", 10); ti <- thr("R24", 0.9)
+  st <- lapply(seq_len(nrow(sc)), function(i) { k <- !(id %in% unlist(sc$ids[[i]])); b <- bx[k]; s <- sx[k]
+    c(mean_f = mean((b / s)^2), i2gx = if (sum(k) >= 2) TwoSampleMR::Isq(abs(b), s) else NA_real_) })
+  sc$mean_f <- vapply(st, `[[`, 0, "mean_f"); sc$i2gx <- vapply(st, `[[`, 0, "i2gx")
+  sc$strength_flag <- ifelse(is.finite(sc$mean_f) & sc$mean_f < tf, sprintf("mean F below %s", format(tf)), ifelse(is.finite(sc$i2gx) & sc$i2gx < ti, sprintf("I2GX below %s", format(ti)), ""))
   sc
 }
 
 #' FR-93 and FR-97: writes the flag ledger and the comparison table into the pair folder (08_outlier_analysis) and registers them.
-outlier_write <- function(study_dir, pair_folder, pay, sets, scen, sel, user_set = NULL) {
-  rel <- file.path("03_pairs", pair_folder, "08_outlier_analysis"); dir.create(file.path(study_dir, rel), recursive = TRUE, showWarnings = FALSE)
+outlier_write <- function(study_dir, pair_folder, pay, sets, scen, sel, user_set = NULL, folders = NULL) {
+  rel <- file.path("03_pairs", pair_folder, "08_outlier_analysis"); for (d in c("01_flagged", "02_scenarios", "03_tables")) dir.create(file.path(study_dir, rel, d), recursive = TRUE, showWarnings = FALSE)   # FR-101
   ids <- outlier_instruments(pay); flags <- attr(sets, "flags") %||% list(); chosen <- user_set %||% sel$set
   rm_ids <- if (identical(chosen, "all")) character() else unlist(scen$ids[scen$set == chosen])
   vv <- Filter(function(v) isTRUE(v$keep), pay$variants)
@@ -114,12 +127,22 @@ outlier_write <- function(study_dir, pair_folder, pay, sets, scen, sel, user_set
   led$n_detectors <- if (length(flags)) rowSums(vapply(flags, function(f) led$variant_id %in% f, logical(nrow(led))) * 1) else 0
   led$removed_in_selected_set <- ifelse(led$variant_id %in% rm_ids, "yes", "no")
   led$not_removed_because <- ifelse(led$variant_id %in% rm_ids | led$n_detectors == 0, "", if (identical(chosen, "all")) "all instruments kept" else "not in the selected set")
-  utils::write.csv(led, file.path(study_dir, rel, "outliers_flagged.csv"), row.names = FALSE, na = "")
+  utils::write.csv(led, file.path(study_dir, rel, "01_flagged", "outliers_flagged.csv"), row.names = FALSE, na = "")
   cmp <- scen; cmp$removed_ids <- vapply(cmp$ids, function(x) paste(x, collapse = ";"), ""); cmp$ids <- NULL
   cmp$decision <- ifelse(cmp$set == chosen, if (is.null(user_set) || identical(user_set, sel$set)) "selected by the rule" else "chosen by the analyst", ifelse(cmp$set == sel$set, "selected by the rule, not adopted", ""))
   cmp$note <- "Q and MR-Egger intercept P values after removal are descriptive only: choosing which variants to remove makes them optimistic. Causal estimates are shown, not used for the selection."
-  utils::write.csv(cmp, file.path(study_dir, rel, "outlier_comparison.csv"), row.names = FALSE, na = "")
-  for (f in c("outliers_flagged.csv", "outlier_comparison.csv")) manifest_register(study_dir, file.path(rel, f), role = "outlier_analysis")
+  utils::write.csv(cmp, file.path(study_dir, rel, "03_tables", "outlier_comparison.csv"), row.names = FALSE, na = "")
+  if (exists("xlsx_write")) tryCatch(xlsx_write(file.path(study_dir, rel, "03_tables", "outlier_comparison.xlsx"), list(Comparison = cmp, `Flag ledger` = led)), error = function(e) NULL)
+  sc <- data.frame(set = scen$set, label = scen$label, n_removed = scen$n_removed, eligible = scen$eligible, removed_ids = vapply(scen$ids, function(x) paste(x, collapse = ";"), ""),
+                   pair_folder = vapply(scen$set, function(k) if (identical(k, "all")) pair_folder else as.character(folders[[k]] %||% ""), ""), stringsAsFactors = FALSE)
+  utils::write.csv(sc, file.path(study_dir, rel, "02_scenarios", "scenarios.csv"), row.names = FALSE, na = "")
+  writeLines(c("Outlier analysis of this pair (MR Studio; requirements FR-90 to FR-106).", "",
+               "01_flagged/   flag ledger: one row per instrument with each detector's flag, strength and the removal decision; nearest genes and other-trait associations when looked up",
+               "02_scenarios/ scenarios.csv: each candidate set and the pair folder (in 03_pairs) that holds its analysis data, scripts, console log and replay check",
+               "03_tables/    comparison of all sets (CSV and Excel); P values after removal are descriptive only",
+               "", "Figures (comparison, detector agreement, radial plot, leave-one-out before and after) are written into the publication package."),
+             file.path(study_dir, rel, "README.txt"))
+  outlier_register(study_dir, rel)
   invisible(rel)
 }
 
@@ -135,7 +158,7 @@ outlier_record <- function(parent, sig, trig, scen, sel, chosen) {
 
 #' FR-102: records the analyst's choice in the two files written by outlier_write.
 outlier_write_choice <- function(study_dir, rec) {
-  rel <- file.path("03_pairs", rec$parent, "08_outlier_analysis"); fc <- file.path(study_dir, rel, "outlier_comparison.csv"); fl <- file.path(study_dir, rel, "outliers_flagged.csv")
+  rel <- file.path("03_pairs", rec$parent, "08_outlier_analysis"); fc <- file.path(study_dir, rel, "03_tables", "outlier_comparison.csv"); fl <- file.path(study_dir, rel, "01_flagged", "outliers_flagged.csv")
   if (!file.exists(fc) || !file.exists(fl)) return(invisible(NULL))
   cmp <- utils::read.csv(fc, stringsAsFactors = FALSE, colClasses = c(removed_ids = "character")); led <- utils::read.csv(fl, stringsAsFactors = FALSE)
   own <- !identical(rec$chosen, rec$selected)
@@ -144,7 +167,8 @@ outlier_write_choice <- function(study_dir, rec) {
   led$removed_in_selected_set <- ifelse(led$variant_id %in% rm_ids, "yes", "no")
   led$not_removed_because <- ifelse(led$variant_id %in% rm_ids | led$n_detectors == 0, "", if (identical(rec$chosen, "all")) "all instruments kept" else "not in the chosen set")
   utils::write.csv(cmp, fc, row.names = FALSE, na = ""); utils::write.csv(led, fl, row.names = FALSE, na = "")
-  for (f in c("outliers_flagged.csv", "outlier_comparison.csv")) manifest_register(study_dir, file.path(rel, f), role = "outlier_analysis")
+  if (exists("xlsx_write")) tryCatch(xlsx_write(file.path(study_dir, rel, "03_tables", "outlier_comparison.xlsx"), list(Comparison = cmp, `Flag ledger` = led)), error = function(e) NULL)
+  outlier_register(study_dir, rel)
   invisible(rel)
 }
 
@@ -166,8 +190,10 @@ outlier_results_text <- function(ol, ce, sc) {
     if (NROW(ol$chosen_ivw)) .ci_phrase(ol$chosen_ivw[1, ], ol$chosen_ivw$scale[1]) else if (!is.null(ch$ivw)) sprintf("%s (%s to %s)", .fnum(ch$ivw, 3), .fnum(ch$ivw_lo, 3), .fnum(ch$ivw_hi, 3)) else "not available",
     if (nrow(base)) sprintf(", compared with %s in the primary analysis", .ci_phrase(base[1, ], sc)) else "")
   rule <- if (identical(ol$selected, "all")) "to keep all instruments" else sprintf("the %s set", lab(ol$selected))
-  sprintf("Outlier analysis (started by %s): %d eligible set%s analysed. The pre-specified rule chose %s. %s%s.%s",
+  sprintf("Outlier analysis (started by %s): %d eligible set%s analysed. The pre-specified rule chose %s. %s%s.%s%s%s",
     sig, ne, if (ne == 1) " was" else "s were", rule, toupper(substr(what, 1, 1)), substring(what, 2),
+    if (!is.null(ch) && !identical(ol$chosen, "all") && nzchar(ch$strength_flag %||% "")) sprintf(" After removal the instruments were weaker (mean F %s, I2GX %s: %s).", format(round(ch$mean_f, 1), nsmall = 1), format(round(ch$i2gx %||% NA_real_, 2), nsmall = 2), ch$strength_flag) else "",
+    outlier_lookup_text(ol),
     if (!identical(ol$chosen, ol$selected)) (if (identical(ol$chosen, "all")) " The analyst kept all instruments instead of the rule's choice." else sprintf(" The analyst adopted the %s set instead of the rule's choice.", lab(ol$chosen))) else if (identical(ol$review, "awaiting review")) " The choice was not yet reviewed by the analyst." else "")
 }
 
@@ -261,3 +287,48 @@ outlier_legends <- function(ol, cx, s, ag, loo = FALSE) {
 
 #' Round 47: whether both the primary pair and the adopted set have a leave-one-out analysis (for the before-and-after figure).
 outlier_has_loo <- function(cx) { ol <- cx$outl; !is.null(ol) && !identical(ol$chosen, "all") && !is.null(ol$chosen_pay) && !is.null(loo_facts(cx)) && !is.null(loo_facts(list(pay = ol$chosen_pay))) }
+
+# ---- Round 49: nearest gene and other-trait associations of the flagged variants (FR-93, FR-106, FR-112) -------------------------
+# Only the rsIDs of flagged variants are sent: to Ensembl VEP (GRCh37) for the nearest gene and to OpenGWAS (ieugwasr::phewas, with the
+# analyst's token) for associations at P < 5e-8. The app does not decide whether a variant is horizontally or vertically pleiotropic:
+# it lists the associations so that the analyst can judge (FR-106).
+OUTLIER_PHEWAS_P <- 5e-8
+outlier_flagged_ids <- function(ol) unique(unlist(lapply(Filter(function(x) x$set %in% names(OUTLIER_DETECTORS), ol$scenarios), function(x) unlist(x$ids))))
+outlier_lookup <- function(ol, jwt, backend = ogw_backend(), exclude = character()) {
+  ids <- outlier_flagged_ids(ol); rs <- ids[grepl("^rs[0-9]+$", ids)]
+  if (!length(ids)) stop("No variant was flagged, so there is nothing to look up.")
+  if (!length(rs)) stop("The flagged variants have no rsIDs (for example simulated traits), so genes and other-trait associations cannot be looked up.")
+  out <- data.frame(variant_id = rs, nearest_gene = NA_character_, chr = NA_character_, pos = NA_real_, n_other_traits = NA_integer_, top_other_traits = NA_character_, stringsAsFactors = FALSE)
+  notes <- character()
+  g <- tryCatch(backend$genes(rs), error = function(e) { notes <<- c(notes, paste("Nearest genes could not be looked up (Ensembl):", substr(conditionMessage(e), 1, 160))); NULL })
+  if (!is.null(g) && nrow(g)) { m <- match(out$variant_id, g$rsid); out$nearest_gene <- g$gene[m]; out$chr <- g$chr[m]; out$pos <- g$pos[m] }
+  if (is.null(jwt)) notes <- c(notes, "Other-trait associations need an OpenGWAS token (Settings); they were not looked up.") else {
+    ph <- tryCatch(backend$phewas(rs, OUTLIER_PHEWAS_P, jwt), error = function(e) { notes <<- c(notes, ogw_friendly(e)); NULL })
+    if (!is.null(ph)) {
+      ph <- ph[is.finite(suppressWarnings(as.numeric(ph$p))) & as.numeric(ph$p) < OUTLIER_PHEWAS_P & !(ph$id %in% exclude), , drop = FALSE]
+      for (i in seq_len(nrow(out))) { x <- ph[ph$rsid == out$variant_id[i], , drop = FALSE]; x <- x[order(as.numeric(x$p)), , drop = FALSE]; x <- x[!duplicated(x$trait), , drop = FALSE]
+        out$n_other_traits[i] <- nrow(x); out$top_other_traits[i] <- if (nrow(x)) paste(sprintf("%s (P = %s)", x$trait[seq_len(min(5, nrow(x)))], formatC(as.numeric(x$p[seq_len(min(5, nrow(x)))]), digits = 2, format = "e")), collapse = "; ") else "" } } }
+  list(rows = out, notes = notes, date = format(Sys.Date()), skipped = setdiff(ids, rs), sources = c(genes = "Ensembl VEP REST, GRCh37", traits = sprintf("OpenGWAS PheWAS (ieugwasr::phewas), P < %s", format(OUTLIER_PHEWAS_P))))
+}
+
+#' Registers every file of the module folder in the study manifest (so the integrity check covers them).
+outlier_register <- function(study_dir, rel) { f <- list.files(file.path(study_dir, rel), recursive = TRUE); if (length(f)) manifest_register(study_dir, file.path(rel, f), role = "outlier_analysis"); invisible(f) }
+
+#' Round 49: adds the lookup to the flag ledger (nearest gene, number and top other-trait associations) and saves it on its own.
+outlier_write_lookup <- function(study_dir, parent, lk) {
+  rel <- file.path("03_pairs", parent, "08_outlier_analysis"); fl <- file.path(study_dir, rel, "01_flagged", "outliers_flagged.csv"); if (!file.exists(fl)) return(invisible(NULL))
+  led <- utils::read.csv(fl, stringsAsFactors = FALSE); m <- match(led$variant_id, lk$rows$variant_id)
+  led$nearest_gene <- lk$rows$nearest_gene[m]; led$n_other_traits <- lk$rows$n_other_traits[m]; led$top_other_traits <- lk$rows$top_other_traits[m]
+  utils::write.csv(led, fl, row.names = FALSE, na = "")
+  utils::write.csv(cbind(lk$rows, looked_up = lk$date, genes_from = lk$sources[["genes"]], traits_from = lk$sources[["traits"]]), file.path(study_dir, rel, "01_flagged", "flagged_annotations.csv"), row.names = FALSE, na = "")
+  outlier_register(study_dir, rel)
+}
+
+#' Round 49: report sentences for the lookup (Methods once; Results per pair).
+OUTLIER_LOOKUP_METHODS <- "For the flagged variants, the nearest gene was taken from the Ensembl Variant Effect Predictor (GRCh37) and associations with other traits at P < 5e-8 from the OpenGWAS PheWAS (ieugwasr::phewas), excluding the exposure and outcome datasets, so that the analyst could judge whether a variant was more likely horizontally or vertically pleiotropic; this judgement was not automated."
+outlier_lookup_text <- function(ol) {
+  L <- ol$lookup; if (is.null(L) || !length(L$rows)) return("")
+  it <- vapply(L$rows, function(r) sprintf("%s (%s; %s)", r$variant_id, if (is.null(r$nearest_gene) || is.na(r$nearest_gene)) "gene not found" else r$nearest_gene,
+               if (is.null(r$n_other_traits) || is.na(r$n_other_traits)) "other traits not looked up" else sprintf("%d other trait%s", as.integer(r$n_other_traits), if (identical(as.integer(r$n_other_traits), 1L)) "" else "s")), "")
+  sprintf(" Flagged variants, with nearest gene and number of other traits at P < 5e-8 (looked up on %s): %s.", L$date, paste(it, collapse = ", "))
+}

@@ -100,7 +100,31 @@ ogw_ca_next <- function() {
 .ogw_real_backend <- function() { ogw_ca_setup(); list(
   info = function(jwt, id = NULL) as.data.frame(ieugwasr::gwasinfo(id, opengwas_jwt = jwt), stringsAsFactors = FALSE),
   tophits = function(id, p, r2, kb, pop, jwt, clump = 1, force = FALSE) as.data.frame(ieugwasr::tophits(id, pval = p, clump = clump, r2 = r2, kb = kb, pop = pop, force_server = force, opengwas_jwt = jwt), stringsAsFactors = FALSE),
-  outcome = function(snps, id, proxies, rsq, maf, jwt) as.data.frame(suppressMessages(TwoSampleMR::extract_outcome_data(snps, id, proxies = proxies, rsq = rsq, maf_threshold = maf, opengwas_jwt = jwt)), stringsAsFactors = FALSE)) }
+  outcome = function(snps, id, proxies, rsq, maf, jwt) as.data.frame(suppressMessages(TwoSampleMR::extract_outcome_data(snps, id, proxies = proxies, rsq = rsq, maf_threshold = maf, opengwas_jwt = jwt)), stringsAsFactors = FALSE),
+  # Round 49 (FR-106, FR-112): other-trait associations of flagged variants, and their nearest gene from Ensembl VEP (GRCh37, the build of OpenGWAS).
+  phewas = function(snps, p, jwt) as.data.frame(ieugwasr::phewas(snps, pval = p, opengwas_jwt = jwt), stringsAsFactors = FALSE),
+  genes = function(rsids) { r <- httr::POST("https://grch37.rest.ensembl.org/vep/human/id", body = list(ids = as.list(rsids)), encode = "json", query = list(nearest = "symbol", pick = 1),
+      httr::add_headers(Accept = "application/json"), httr::timeout(60)); httr::stop_for_status(r)
+    x <- httr::content(r, as = "parsed", simplifyVector = FALSE)
+    data.frame(rsid = vapply(x, function(v) as.character(v$id %||% NA_character_), ""), chr = vapply(x, function(v) as.character(v$seq_region_name %||% NA_character_), ""),
+               pos = vapply(x, function(v) as.numeric(v$start %||% NA_real_), 0),
+               gene = vapply(x, function(v) { tc <- v$transcript_consequences; ig <- v$intergenic_consequences
+                 g <- if (length(tc)) tc[[1]]$gene_symbol %||% unlist(tc[[1]]$nearest)[1] else if (length(ig)) unlist(ig[[1]]$nearest)[1] else NULL; if (is.null(g)) NA_character_ else as.character(g) }, ""),
+               stringsAsFactors = FALSE) |> .ogw_intergenic_genes() }) }
+#' Round 49: VEP names no gene for an intergenic variant; the closest protein-coding gene within 500 kb (then 2 Mb) is taken from Ensembl's
+#' overlap endpoint (distance to the nearer end of the gene), and marked with its distance.
+.ogw_intergenic_genes <- function(d) {
+  for (i in which(is.na(d$gene) & !is.na(d$chr) & is.finite(d$pos))) for (w in c(5e5, 2e6)) {
+    r <- tryCatch(httr::GET(sprintf("https://grch37.rest.ensembl.org/overlap/region/human/%s:%d-%d", d$chr[i], max(1, round(d$pos[i] - w)), round(d$pos[i] + w)),
+                            query = list(feature = "gene", biotype = "protein_coding"), httr::add_headers(Accept = "application/json"), httr::timeout(30)), error = function(e) NULL)
+    if (is.null(r) || httr::status_code(r) != 200) break
+    g <- httr::content(r, as = "parsed")
+    if (!length(g)) { if (w == 2e6) d$gene[i] <- "no protein-coding gene within 2 Mb"; next }
+    dist <- vapply(g, function(x) max(0, x$start - d$pos[i], d$pos[i] - x$end), 0); k <- which.min(dist)
+    nm <- g[[k]]$external_name %||% g[[k]]$id; d$gene[i] <- sprintf("%s (%s kb away)", nm, format(round(dist[k] / 1000))); break
+  }
+  d
+}
 ogw_backend <- function() getOption("mrgui.ogw_backend", .ogw_real_backend())
 
 #' Turn the packages' technical errors into sentences that say what to do. Tokens are removed from any text that is passed on.

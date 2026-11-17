@@ -1089,11 +1089,11 @@ expect("Round 42: removing the planted outliers lowers Q by more than the number
 expect("Round 42: the rule picks a set that clears the Q signal (step 2) and never reads the causal estimate",
        se42$step == 2L && sc42$q_p[sc42$set == se42$set] >= 0.05 && identical(outlier_select(transform(sc42, ivw = -ivw, egger = 99, wm = NA), "q"), se42))
 rel42 <- outlier_write(h42$dir, r42$pair_folder, p42, s42, sc42, se42)
-fl42 <- utils::read.csv(file.path(h42$dir, rel42, "outliers_flagged.csv")); cm42 <- utils::read.csv(file.path(h42$dir, rel42, "outlier_comparison.csv"))
+fl42 <- utils::read.csv(file.path(h42$dir, rel42, "01_flagged", "outliers_flagged.csv")); cm42 <- utils::read.csv(file.path(h42$dir, rel42, "03_tables", "outlier_comparison.csv"))
 expect("Round 42: flag ledger has one row per instrument with each detector's flag and the removal decision", nrow(fl42) == 40L && all(c("flagged_radial", "flagged_lasso", "n_detectors", "removed_in_selected_set") %in% names(fl42)) && all(fl42$removed_in_selected_set[fl42$variant_id %in% out42] == "yes"))
 expect("Round 42: comparison table marks the selected set and says the P values are descriptive", sum(cm42$decision == "selected by the rule") == 1L && all(grepl("descriptive only", cm42$note)))
 rec42 <- outlier_record(r42$pair_folder, sg42, outlier_triggered(sg42), sc42, se42, NULL); rec42$chosen <- "all"; outlier_write_choice(h42$dir, rec42)
-cm42b <- utils::read.csv(file.path(h42$dir, rel42, "outlier_comparison.csv")); fl42b <- utils::read.csv(file.path(h42$dir, rel42, "outliers_flagged.csv"))
+cm42b <- utils::read.csv(file.path(h42$dir, rel42, "03_tables", "outlier_comparison.csv")); fl42b <- utils::read.csv(file.path(h42$dir, rel42, "01_flagged", "outliers_flagged.csv"))
 expect("Round 42: keeping all instruments is recorded as the analyst's choice beside the rule's", cm42b$decision[cm42b$set == "all"] == "chosen by the analyst" && cm42b$decision[cm42b$set == se42$set] == "selected by the rule, not adopted" && all(fl42b$removed_in_selected_set == "no"))
 expect("Round 42: the study manifest still checks clean after the module wrote its files", { mc <- manifest_check(h42$dir); all(mc$status[grepl("08_outlier_analysis", mc$relative_path)] == "ok") && !any(mc$status %in% c("missing", "modified")) })
 mk42 <- function(set, n, elig, qp, ip, agr, er) data.frame(set = set, label = set, n_removed = n, eligible = elig, q_p = qp, int_p = ip, presso_p = NA_real_, agreement = agr, excess_reduction = er, stringsAsFactors = FALSE)
@@ -1168,5 +1168,26 @@ f47 <- tempfile(fileext = ".pdf"); ok47 <- tryCatch({ grDevices::pdf(f47, 7, 5);
 expect("Round 47: radial and before-and-after figures draw without error", ok47 && file.size(f47) > 1000)
 rr47 <- studio_run_reduced(h42, inp42, out42, OUTLIER_REANALYSIS, 0.95, 20L, params = list(ci_level = 0.95, nboot = 200L), keep_loo = TRUE)
 expect("Round 47: an outlier set can carry its own leave-one-out analysis (one row per remaining variant)", { lf <- loo_facts(list(pay = pair_payload(h42$dir, rr47$pair_folder))); !is.null(lf) && nrow(lf) == 37L })
+
+# ---- Round 48: instrument strength per outlier set (FR-95c) ----
+d48 <- d42$data[d42$data$mr_keep, ]
+expect("Round 48: mean F and I2GX are recomputed for every set from the remaining variants", all(c("mean_f", "i2gx", "strength_flag") %in% names(sc42)) &&
+       abs(sc42$mean_f[1] - mean((d48$beta_x / d48$se_x)^2)) < 1e-9 && { k <- !(d48$variant_id %in% sc42$ids[[which(sc42$set == "radial")]]); abs(sc42$i2gx[sc42$set == "radial"] - TwoSampleMR::Isq(abs(d48$beta_x[k]), d48$se_x[k])) < 1e-12 })
+sw48 <- sc42; sw48$mean_f[2] <- 8; sw48$i2gx[3] <- 0.5; sw48 <- outlier_strength(sw48[, setdiff(names(sw48), c("mean_f", "i2gx", "strength_flag"))], p42)
+expect("Round 48: a set below the R23 or R24 threshold is flagged but stays eligible", { f <- outlier_strength(transform(sc42[, setdiff(names(sc42), c("mean_f", "i2gx", "strength_flag"))]), list(variants = lapply(p42$variants, function(v) { v$sx <- as.numeric(v$sx) * 5; v }))); all(grepl("mean F below 10", f$strength_flag)) && identical(f$eligible, sc42$eligible) })
+
+# ---- Round 49: genes and other traits of flagged variants (FR-106, FR-112); folder layout (FR-101) ----
+expect("Round 49: the module folder has the FR-101 layout with a README, Excel comparison and the scenario index", all(file.exists(file.path(h42$dir, rel42, c("README.txt", "01_flagged/outliers_flagged.csv", "02_scenarios/scenarios.csv", "03_tables/outlier_comparison.csv", "03_tables/outlier_comparison.xlsx")))))
+rs49 <- rec42; rs49$scenarios <- lapply(rs49$scenarios, function(x) { x$ids <- as.list(sub("^demo:([0-9]+):A:G$", "rs\\1", unlist(x$ids))); x })
+fake49 <- list(genes = function(rs) data.frame(rsid = rs, chr = "1", pos = 100, gene = paste0("G", seq_along(rs)), stringsAsFactors = FALSE),
+               phewas = function(snps, p, jwt) data.frame(rsid = rep(snps[1], 4), id = c("own-1", "t-1", "t-2", "t-2"), trait = c("Own GWAS", "Height", "Waist", "Waist"), p = c(1e-20, 1e-10, 1e-9, 1e-12), stringsAsFactors = FALSE))
+lk49 <- outlier_lookup(rs49, "jwt", fake49, exclude = "own-1"); f49 <- lk49$rows[lk49$rows$variant_id == outlier_flagged_ids(rs49)[1], ]
+expect("Round 49: lookup gives nearest gene and other traits, excluding the pair's own GWAS and counting each trait once", nrow(lk49$rows) == length(outlier_flagged_ids(rs49)) && f49$n_other_traits == 2L && grepl("^Waist \\(P = 1.00e-12\\); Height", f49$top_other_traits) && !grepl("Own GWAS", f49$top_other_traits))
+expect("Round 49: without a token genes are still found and the note says traits need a token", { l <- outlier_lookup(rs49, NULL, fake49); all(!is.na(l$rows$nearest_gene)) && all(is.na(l$rows$n_other_traits)) && any(grepl("OpenGWAS token", l$notes)) })
+expect("Round 49: simulated variants without rsIDs give a clear message", grepl("no rsIDs", err_of(outlier_lookup(rec42, "jwt", fake49))))
+outlier_write_lookup(h42$dir, r42$pair_folder, lk49); fl49 <- utils::read.csv(file.path(h42$dir, rel42, "01_flagged", "outliers_flagged.csv"))
+expect("Round 49: the lookup is saved on its own and merged into the flag ledger", file.exists(file.path(h42$dir, rel42, "01_flagged", "flagged_annotations.csv")) && all(c("nearest_gene", "n_other_traits", "top_other_traits") %in% names(fl49)))
+rl49 <- rs49; rl49$lookup <- list(rows = lapply(seq_len(nrow(lk49$rows)), function(i) as.list(lk49$rows[i, ])), date = "2026-11-18")
+expect("Round 49: the report lists each flagged variant with its gene and number of other traits", grepl("Flagged variants, with nearest gene and number of other traits", outlier_lookup_text(rl49)) && grepl("G1; 2 other traits", outlier_lookup_text(rl49), fixed = TRUE))
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

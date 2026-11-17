@@ -208,9 +208,21 @@ mr_server <- function(engine_dir) {
           ui_state_set(rv$h$con, "sens", sens)
           scen <- outlier_scenarios(pay, sets, pays); sel <- outlier_select(scen, trig)
           res <- outlier_record(parent, sig, trig, scen, sel, NULL)
-          tryCatch(outlier_write(rv$h$dir, parent, pay, sets, scen, sel), error = function(e) NULL)
+          flds <- list(); for (d in done) for (k in sets$set[vapply(sets$ids, function(x) identical(sort(x), sort(unlist(d$rec$remove))), TRUE) & sets$eligible]) flds[[k]] <- d$rec$folder
+          tryCatch(outlier_write(rv$h$dir, parent, pay, sets, scen, sel, folders = flds), error = function(e) NULL)
           ol <- Filter(function(x) !identical(x$parent, parent), ui_state_get(rv$h$con, "outliers") %||% list()); ol[[length(ol) + 1L]] <- res; ui_state_set(rv$h$con, "outliers", ol)
           ev("outliers_done", ok = TRUE, parent = parent, res = res, recs = unname(lapply(done, `[[`, "rec")), payloads = stats::setNames(lapply(done, `[[`, "pay"), vapply(done, function(d) d$rec$folder, "")))
+        },
+        outlier_lookup = {   # Round 49 (FR-106, FR-112): nearest gene (Ensembl) and other-trait associations (OpenGWAS) of the flagged variants
+          req(rv$h)
+          ol <- ui_state_get(rv$h$con, "outliers") %||% list(); j <- which(vapply(ol, function(x) identical(x$parent, a$folder), TRUE))
+          if (!length(j)) return(invisible())
+          own <- unlist(lapply(c(a$ex, a$out), function(id) if (startsWith(id %||% "", "lib:")) tryCatch(library_dataset(sub("^lib:", "", id))$recipe$source$id, error = function(e) NULL)))   # the pair's own GWAS are not "other" traits
+          lk <- tryCatch(outlier_lookup(ol[[j[1]]], ogw_token_get(), exclude = own), error = function(e) e)
+          if (inherits(lk, "error")) { ev("outlier_lookup_done", ok = FALSE, parent = a$folder, msg = conditionMessage(lk)); return() }
+          ol[[j[1]]]$lookup <- list(rows = unname(lapply(seq_len(nrow(lk$rows)), function(i) as.list(lk$rows[i, , drop = FALSE]))), notes = as.list(lk$notes), date = lk$date, skipped = as.list(lk$skipped), sources = as.list(lk$sources))
+          ui_state_set(rv$h$con, "outliers", ol); tryCatch(outlier_write_lookup(rv$h$dir, a$folder, lk), error = function(e) NULL)
+          ev("outlier_lookup_done", ok = TRUE, parent = a$folder, res = ol[[j[1]]])
         },
         outlier_choose = {   # FR-102: the analyst adopts another eligible set, or keeps all instruments; the choice is recorded beside the rule's
           req(rv$h)
