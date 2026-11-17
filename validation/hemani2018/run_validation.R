@@ -82,7 +82,7 @@ same_set <- function(a, b) length(a) == length(b) && setequal(a, b)
 inst <- do.call(rbind, lapply(names(ex), function(k) { a <- exd[[k]]$snp; b <- ref_sets[[k]]
   data.frame(choice = k, app_n = length(a), ref_n = length(b), shared = length(intersect(a, b)), identical = same_set(a, b), stringsAsFactors = FALSE) }))
 tsum <- ex$local$clump$ties; tie_run <- isTRUE(tsum$regions > 0)
-if (tie_run) { ts0 <- utils::read.csv(file.path(library_dir(), ex$local$trait, "instrument_selection_ties.csv"), stringsAsFactors = FALSE); app_tie <- ts0$variant_id[ts0$status == "index"]
+if (tie_run) { ts0 <- lib_table_read(file.path(library_dir(), ex$local$trait), "instrument_selection_ties"); app_tie <- ts0$variant_id[ts0$status == "index"]
   inst <- rbind(inst, data.frame(choice = "local_ties", app_n = length(app_tie), ref_n = nrow(ref_tie), shared = length(intersect(app_tie, ref_tie$rsid)), identical = same_set(app_tie, ref_tie$rsid), stringsAsFactors = FALSE)) }
 cat("\nInstruments, MR Studio against the reference (stored: TwoSampleMR::extract_instruments; live: ieugwasr::tophits force_server; local: ieugwasr::ld_clump_local on the same panel):\n"); print(inst, row.names = FALSE)
 cat(sprintf("Candidates below 5e-8: %d; equal P values among them: %d. The primary analysis keeps PLINK's choice among them, as ieugwasr and the server do.\n", sum(ref_cand$p < 5e-8), ties))

@@ -198,11 +198,23 @@ expect("import: individual-level data is refused before anything is read", grepl
 expect("import: VCF and zip files are refused with a clear message", grepl("not supported yet", err_of(import_read_head(fi, "x.vcf.gz"))))
 rec <- import_save(fi, "bolt.tsv", hd$sep, hd$columns, mp, list(name = "Import test", role = "exposure", frq = "eaf", scale = "beta", scope = "selected", n = ""))
 sd <- file.path(library_dir(), "Import test")
-expect("import: standard copy and recipe are saved, with the checksum of the original", file.exists(file.path(sd, "standardised.csv")) && identical(rec$original$sha256, sha256_file(fi)) && identical(rec$usable_in_runs, TRUE) && identical(rec$usable_as_exposure, FALSE))
+expect("import: standard copy and recipe are saved, with the checksum of the original", file.exists(file.path(sd, "standardised.parquet")) && !file.exists(file.path(sd, "standardised.csv")) && identical(rec$original$sha256, sha256_file(fi)) && identical(rec$usable_in_runs, TRUE) && identical(rec$usable_as_exposure, FALSE))
 expect("import: the original file is unchanged", identical(sha256_file(fi), rec$original$sha256))
 expect("import: saving the same name twice is refused", grepl("already exists", err_of(import_save(fi, "bolt.tsv", hd$sep, hd$columns, mp, list(name = "Import test", frq = "eaf", scale = "beta", scope = "selected", n = "")))))
 expect("import: the library lists the dataset", length(library_list()) == 1L && identical(library_list()[[1]]$trait, "Import test"))
-std <- utils::read.csv(file.path(sd, "standardised.csv")); expect("import: the standard copy has the standard columns", all(c("snp", "ea", "oa", "beta", "se") %in% names(std)) && nrow(std) == ni)
+std <- lib_table_read(sd, "standardised"); expect("import: the standard copy has the standard columns", all(c("snp", "ea", "oa", "beta", "se") %in% names(std)) && nrow(std) == ni)
+# Round 35: library tables are Parquet; a dataset saved before as CSV is converted on first read, exactly, and the CSV removed.
+lt <- file.path(tempdir(), "r35_libtable"); dir.create(lt, showWarnings = FALSE)
+d35 <- data.frame(snp = c("rs1", "rs2", "rs3"), chr = c("1", "X", "22"), ea = c("A", "G", ""), oa = c("C", "T", "A"), beta = c(0.1234567890123456, -2e-17, NA), se = c(0.01, 0.02, 0.03), n = c(1000L, 2000L, NA), stringsAsFactors = FALSE)
+utils::write.csv(d35, file.path(lt, "standardised.csv"), row.names = FALSE, na = "")
+c35 <- utils::read.csv(file.path(lt, "standardised.csv"), stringsAsFactors = FALSE, colClasses = c(snp = "character", chr = "character", ea = "character", oa = "character"))
+r35 <- lib_table_read(lt, "standardised")
+expect("library: an old CSV table is read as before and converted to Parquet", isTRUE(all.equal(r35, c35, check.attributes = FALSE)) && file.exists(file.path(lt, "standardised.parquet")) && !file.exists(file.path(lt, "standardised.csv")))
+expect("library: the converted table reads back identical, with character columns kept as text", isTRUE(all.equal(lib_table_read(lt, "standardised"), r35, check.attributes = FALSE)) && is.character(r35$chr) && identical(r35$ea[3], ""))
+lib_table_write(d35, lt, "exact"); e35 <- lib_table_read(lt, "exact")
+expect("library: Parquet keeps every number exactly (no rounding to 15 digits)", identical(e35$beta[1], 0.1234567890123456) && identical(e35$beta[2], -2e-17) && is.na(e35$beta[3]) && is.na(e35$n[3]))
+expect("library: a missing table gives a clear message", grepl("is not in the Data library any more", tryCatch(lib_table_read(lt, "none"), error = conditionMessage)))
+unlink(lt, recursive = TRUE)
 template_save("Lab layout", hd$fingerprint, mp, list(role = "exposure"))
 expect("template: the same headings propose the template, a different layout does not", identical(template_match(hd$fingerprint)$name, "Lab layout") && is.null(template_match(c("a", "b", "c"))))
 expect("template: a near-identical set of headings still matches", !is.null(template_match(c(hd$fingerprint[-1], "extra"))) == (length(hd$fingerprint) / (length(hd$fingerprint) + 1) >= 0.8))
@@ -741,7 +753,7 @@ expect("opengwas local clump: 15 rows, 1 indel dropped, 14 candidates clumped he
 lxd <- file.path(library_dir(), lx$trait)
 expect("opengwas local clump: saved with its own name, where = local, the candidates and every candidate's status kept in the dataset folder",
        grepl("clumped here$", lx$trait) && identical(lx$source$params$where, "local") && identical(lx$facts$independent, "yes") && isTRUE(lx$usable_as_exposure) &&
-       nrow(utils::read.csv(file.path(lxd, "candidates.csv"))) == 14L && setequal(utils::read.csv(file.path(lxd, "instrument_selection.csv"))$status, c("index", "clumped", "not_in_panel")) && grepl("clumped on this computer", lx$source$note))
+       nrow(lib_table_read(lxd, "candidates")) == 14L && setequal(lib_table_read(lxd, "instrument_selection")$status, c("index", "clumped", "not_in_panel")) && grepl("clumped on this computer", lx$source$note))
 expect("opengwas local clump: a not-in-panel candidate is explained in the warnings", any(grepl("not in the reference panel", unlist(lx$warnings))))
 n22 <- length(mock22$calls); lx2 <- ogw_get_exposure("sim-exp-1", tok_ok, where = "local")
 expect("opengwas local clump: the same request reuses the saved copy without asking the server", isTRUE(lx2$reused) && length(mock22$calls) == n22)
@@ -817,7 +829,7 @@ x28 <- ogw_get_exposure("sim-exp-1", tok_ok, where = "local", name = "Ties 28")
 x28d <- library_dataset(x28$trait)$data$snp
 expect("ties from OpenGWAS: clumped in the server's order (rs9100001, first in the panel, leads block A), the tie decided 1 region and the alternative selection is saved",
        "rs9100001" %in% x28d && !"rs9100002" %in% x28d && isTRUE(x28$clump$ties$regions == 1) && identical(unlist(x28$clump$ties[["in"]]), "rs9100002") && x28$clump$ties$tied >= 2 &&
-       file.exists(file.path(library_dir(), x28$trait, "instrument_selection_ties.csv")) && grepl("order of the reference panel", x28$clump$tie_break))
+       file.exists(file.path(library_dir(), x28$trait, "instrument_selection_ties.parquet")) && grepl("order of the reference panel", x28$clump$tie_break))
 o28 <- ogw_get_outcome("sim-out-1", x28$trait, tok_ok, name = "Outcome for ties 28")
 expect("ties from OpenGWAS: the outcome lookup also asks for the 1 alternative lead, which is not counted as an instrument",
        "rs9100002" %in% tail(mock28$calls, 1)[[1]] && length(tail(mock28$calls, 1)[[1]]) == length(x28d) + 1L && o28$lookup$requested == length(x28d) && o28$lookup$tie_alternatives == 1L && o28$lookup$tie_alternatives_found == 1L)

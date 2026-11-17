@@ -17,8 +17,11 @@
 
 args <- commandArgs(trailingOnly = TRUE)
 stopifnot(length(args) == 5L)
-ex <- utils::read.csv(file.path(args[1], "standardised.csv"), stringsAsFactors = FALSE, colClasses = c(snp = "character", ea = "character", oa = "character"))
-ou <- utils::read.csv(file.path(args[2], "standardised.csv"), stringsAsFactors = FALSE, colClasses = c(snp = "character", ea = "character", oa = "character"))
+# Data library standard copy: Parquet since Round 35, CSV before.
+read_std <- function(d) { f <- file.path(d, "standardised.parquet"); if (file.exists(f)) return(as.data.frame(nanoparquet::read_parquet(f)))
+  utils::read.csv(file.path(d, "standardised.csv"), stringsAsFactors = FALSE, colClasses = c(snp = "character", ea = "character", oa = "character")) }
+ex <- read_std(args[1])
+ou <- read_std(args[2])
 panel <- args[3]; plink <- args[4]; out <- args[5]; work <- tempfile("anc"); dir.create(work)
 pops <- c("EUR", "AFR", "AMR", "EAS", "SAS")
 

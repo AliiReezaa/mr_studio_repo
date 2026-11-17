@@ -249,4 +249,4 @@ Two defects were found and fixed while testing: `formatC(..., format = "g")` pad
 1. Prove the C10 request checks on macOS and Windows (passed on Linux; the pipeline runs the same test on each OS).
 2. Confirm `synchronous=FULL` write throughput is acceptable with many small method tasks (expected yes; batch commits are the fallback).
 3. Confirm single-threaded BLAS in the bundled R on both operating systems and measure cross-OS differences on the validation datasets.
-4. Decide Parquet reader/writer (`arrow` vs `nanoparquet`) based on bundle size and Windows build reliability.
+4. DECIDED 2026-11-17 (Round 35): `nanoparquet` (conda-forge `r-nanoparquet`, no system dependencies, small) is the only Parquet reader and writer; `arrow` is not used. All Data library tables are Parquet (zstd); tables saved before as CSV are converted on first read after an exact read-back check. Files the analyst opens stay CSV.

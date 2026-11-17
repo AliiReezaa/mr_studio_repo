@@ -219,7 +219,7 @@ ogw_meta <- function(id, jwt, backend = ogw_backend()) {
   dest <- file.path(library_dir(root), name)
   p <- study_path_problem(library_dir(root)); if (!is.null(p)) stop(p, call. = FALSE)
   dir.create(dest, recursive = TRUE)
-  out <- file.path(dest, "standardised.csv"); utils::write.csv(d, out, row.names = FALSE, na = "")
+  out <- lib_table_write(d, dest, "standardised")
   rec$original$bytes <- file.size(out); rec$original$sha256 <- sha256_file(out)
   atomic_write_text(file.path(dest, "recipe.json"), jsonlite::toJSON(rec, auto_unbox = TRUE, pretty = TRUE, null = "null"))
   rec
@@ -230,7 +230,7 @@ ogw_meta <- function(id, jwt, backend = ogw_backend()) {
 #' OpenGWAS server (where = "server", ieugwasr::tophits with clump = 1) or on this computer (where = "local", Round 22): every variant
 #' below the threshold is downloaded unclumped (tophits with clump = 0) and clumped at once with the bundled PLINK (ld_clump_here, the
 #' same call as ieugwasr::ld_clump_local). Clumping at download keeps outcome lookups as small as with server clumping. The full
-#' candidate list and the status of every candidate are kept in the dataset folder (candidates.csv, instrument_selection.csv).
+#' candidate list and the status of every candidate are kept in the dataset folder (Parquet tables candidates and instrument_selection, see lib_table_write).
 #' Round 25: where = "server_live" asks the server to clump now (tophits force_server = TRUE). With the default settings (5e-8, 0.001,
 #' 10,000 kb) a plain server request ("server") returns OpenGWAS's stored, pre-computed clumps instead (tophits sets preclumped = 1);
 #' on BMI (ieu-b-40) those kept a weaker lead variant in 183 regions, while live and local clumping gave the same 510 instruments.
@@ -285,14 +285,13 @@ ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NU
               usable_as_exposure = TRUE, usable_as_outcome = FALSE, usable_in_runs = TRUE,
               source = list(type = "opengwas", role = "exposure", id = id, trait = meta$trait, population = meta$population, sample_size = meta$sample_size, ncase = meta$ncase, ncontrol = meta$ncontrol,
                             consortium = meta$consortium, author = meta$author, year = meta$year, pmid = meta$pmid, unit = meta$unit, params = params, downloaded_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
-                            packages = .ogw_versions(), note = if (where == "local") "Every variant below the threshold was downloaded without clumping (ieugwasr::tophits, clump = 0) and clumped on this computer with PLINK against the 1000 Genomes reference panel of the chosen population. candidates.csv holds the downloaded variants and instrument_selection.csv the status of each." else if (where == "server_live") "Instruments clumped live on the OpenGWAS server (ieugwasr::tophits with force_server = TRUE) against the 1000 Genomes reference panel of the chosen population." else if (ogw_stored_clumps(params)) "Instruments taken from the stored, pre-computed clumps of OpenGWAS (ieugwasr::tophits with the default settings uses preclumped = 1), made against the 1000 Genomes reference panel of the chosen population." else "Instruments clumped on the OpenGWAS server (ieugwasr::tophits) against the 1000 Genomes reference panel of the chosen population."))
+                            packages = .ogw_versions(), note = if (where == "local") "Every variant below the threshold was downloaded without clumping (ieugwasr::tophits, clump = 0) and clumped on this computer with PLINK against the 1000 Genomes reference panel of the chosen population. The Data library table candidates (candidates.parquet) holds the downloaded variants and instrument_selection (instrument_selection.parquet) the status of each." else if (where == "server_live") "Instruments clumped live on the OpenGWAS server (ieugwasr::tophits with force_server = TRUE) against the 1000 Genomes reference panel of the chosen population." else if (ogw_stored_clumps(params)) "Instruments taken from the stored, pre-computed clumps of OpenGWAS (ieugwasr::tophits with the default settings uses preclumped = 1), made against the 1000 Genomes reference panel of the chosen population." else "Instruments clumped on the OpenGWAS server (ieugwasr::tophits) against the 1000 Genomes reference panel of the chosen population."))
   if (!is.null(crec)) rec$clump <- crec
   rec <- .ogw_write(nm, std, rec, root)
   if (!is.null(sel)) {
     dest <- file.path(library_dir(root), nm)
-    utils::write.csv(cand, file.path(dest, "candidates.csv"), row.names = FALSE, na = "")
-    utils::write.csv(sel, file.path(dest, "instrument_selection.csv"), row.names = FALSE, na = "")
-    if (!is.null(alt)) utils::write.csv(alt, file.path(dest, "instrument_selection_ties.csv"), row.names = FALSE, na = "")
+    lib_table_write(cand, dest, "candidates"); lib_table_write(sel, dest, "instrument_selection")
+    if (!is.null(alt)) lib_table_write(alt, dest, "instrument_selection_ties")
   }
   rec
 }

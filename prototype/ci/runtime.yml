@@ -14,6 +14,8 @@ dependencies:
   - r-digest
   - r-dbi
   - r-rsqlite
+  # Data library tables are Parquet files (Round 35): small, dependency-free reader and writer.
+  - r-nanoparquet
   # Dependencies of TwoSampleMR (contracts v1.1: the generated scripts call it directly).
   # TwoSampleMR itself and its three GitHub-only imports (MRMix, MRPRESSO, RadialMR)
   # are installed by the pipeline from pinned commits, see prototype.yml.

@@ -118,6 +118,39 @@ import_validate <- function(path, sep, columns, mapping, facts, max_rows = 5e6) 
 #' Where imported datasets, with their recipe, live.
 library_dir <- function(root = studies_root()) file.path(root, "Data library")
 
+# ---- Data library tables (Round 35) ---------------------------------------------------------------------------------
+# Every table the Data library keeps for a dataset (the standard copy "standardised", and for OpenGWAS downloads
+# "candidates", "instrument_selection" and "instrument_selection_ties") is one Parquet file (zstd), written with nanoparquet.
+# Parquet keeps every number exactly and stays small and fast for full genome-wide files. Tables saved before Round 35 as
+# CSV are converted the first time they are read: the CSV is removed only after the Parquet copy reads back identical.
+# Files the analyst opens (study folders, analysis tables, exports) stay CSV.
+LIB_CHAR_COLS <- c("snp", "chr", "ea", "oa", "variant_id", "status", "index_variant")
+lib_table_path <- function(dir, name) file.path(dir, paste0(name, ".parquet"))
+lib_table_exists <- function(dir, name) file.exists(lib_table_path(dir, name)) || file.exists(file.path(dir, paste0(name, ".csv")))
+lib_table_write <- function(d, dir, name) {
+  d <- as.data.frame(d, stringsAsFactors = FALSE); rownames(d) <- NULL
+  tmp <- tempfile(paste0(".", name, "-"), dir, fileext = ".parquet")
+  nanoparquet::write_parquet(d, tmp, compression = "zstd")
+  out <- lib_table_path(dir, name)
+  if (!file.rename(tmp, out)) { unlink(tmp); stop("Could not save ", basename(out), " in ", dir, call. = FALSE) }
+  invisible(out)
+}
+# Character columns read back as "" where empty, as the CSV copies were read before Round 35.
+.lib_norm <- function(d) { d <- as.data.frame(d, stringsAsFactors = FALSE); rownames(d) <- NULL
+  for (n in names(d)) if (is.character(d[[n]])) d[[n]][is.na(d[[n]])] <- ""
+  d }
+lib_table_read <- function(dir, name) {
+  pq <- lib_table_path(dir, name)
+  if (file.exists(pq)) return(.lib_norm(nanoparquet::read_parquet(pq)))
+  cv <- file.path(dir, paste0(name, ".csv"))
+  if (!file.exists(cv)) stop("The table \"", name, "\" of \"", basename(dir), "\" is not in the Data library any more.", call. = FALSE)
+  hd <- names(utils::read.csv(cv, nrows = 1, check.names = FALSE)); ch <- intersect(LIB_CHAR_COLS, hd)
+  d <- .lib_norm(utils::read.csv(cv, stringsAsFactors = FALSE, check.names = FALSE, colClasses = stats::setNames(rep("character", length(ch)), ch)))
+  ok <- tryCatch({ lib_table_write(d, dir, name); isTRUE(all.equal(d, .lib_norm(nanoparquet::read_parquet(pq)), check.attributes = FALSE)) }, error = function(e) FALSE)
+  if (ok) unlink(cv) else unlink(pq)   # a copy that does not read back identical is dropped and the CSV kept
+  d
+}
+
 #' Write the standard copy and the recipe (file name, size, sha256, mapping, facts: FR-75). The original file is never changed.
 import_save <- function(path, orig_name, sep, columns, mapping, facts, root = studies_root()) {
   v <- import_validate(path, sep, columns, mapping, facts); if (!v$ok) stop(paste(v$errors, collapse = " "))
@@ -142,7 +175,7 @@ import_save <- function(path, orig_name, sep, columns, mapping, facts, root = st
   if (dir.exists(dest)) stop("A dataset named \"", nm, "\" already exists in the Data library. Choose another name.")
   p <- study_path_problem(library_dir(root)); if (!is.null(p)) stop(p)
   dir.create(dest, recursive = TRUE)
-  out <- file.path(dest, "standardised.csv"); utils::write.csv(d, out, row.names = FALSE, na = "")
+  lib_table_write(d, dest, "standardised")
   rec <- list(trait = nm, role = facts$role, facts = facts, mapping = mp, original = list(file = orig_name, bytes = file.size(path), sha256 = sha256_file(path)),
               rows_in_file = v$stats$rows, rows_kept = nrow(d), warnings = v$warnings, saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
               usable_as_exposure = isTRUE(facts$role %in% c("exposure", "either")) && (identical(facts$independent, "yes") || identical(facts$independent, "clump")),
@@ -183,10 +216,8 @@ template_match <- function(fingerprint) {
 #' One imported dataset, read back from the Data library: its recipe and its standard copy.
 library_dataset <- function(trait, root = studies_root()) {
   dir <- file.path(library_dir(root), basename(trait))
-  rf <- file.path(dir, "recipe.json"); cf <- file.path(dir, "standardised.csv")
-  if (!file.exists(rf) || !file.exists(cf)) stop("The dataset \"", trait, "\" is not in the Data library any more.")
+  rf <- file.path(dir, "recipe.json")
+  if (!file.exists(rf) || !lib_table_exists(dir, "standardised")) stop("The dataset \"", trait, "\" is not in the Data library any more.")
   rec <- jsonlite::fromJSON(rf, simplifyVector = FALSE)
-  hd <- names(utils::read.csv(cf, nrows = 1, check.names = FALSE)); cc <- c(snp = "character", chr = "character", ea = "character", oa = "character")
-  d <- utils::read.csv(cf, stringsAsFactors = FALSE, colClasses = cc[intersect(names(cc), hd)])
-  list(recipe = rec, data = d, dir = dir)
+  list(recipe = rec, data = lib_table_read(dir, "standardised"), dir = dir)
 }

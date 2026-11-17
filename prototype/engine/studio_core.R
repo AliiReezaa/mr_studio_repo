@@ -207,22 +207,19 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
     led$clump <- c(attr(sel, "settings"), list(clumped = sum(sel$status == "clumped"), not_in_panel = sum(sel$status == "not_in_panel"), kept = nrow(X)))
   }
   if (!is.null(ex$recipe$clump) && identical(ex$recipe$source$params$where, "local")) {   # Round 22: an OpenGWAS exposure clumped on this computer at download
-    sf <- file.path(ex$dir, "instrument_selection.csv")
-    if (file.exists(sf)) {
-      s0 <- utils::read.csv(sf, stringsAsFactors = FALSE, colClasses = c(variant_id = "character", status = "character", index_variant = "character"))
+    if (lib_table_exists(ex$dir, "instrument_selection")) {
+      s0 <- lib_table_read(ex$dir, "instrument_selection")
       # Clumping keeps variants in order of P, so the clumped set of the candidates below a stricter threshold is exactly the
       # clumped set restricted to that threshold: the selection is cut, not clumped again.
       sel <- s0[is.finite(s0$p) & s0$p < pthr, , drop = FALSE]; rownames(sel) <- NULL
       st0 <- ex$recipe$clump[intersect(c("r2", "kb", "pop", "panel", "plink", "command", "tie_break", "tie_order"), names(ex$recipe$clump))]
-      sft <- file.path(ex$dir, "instrument_selection_ties.csv")   # Round 28: the same candidates with equal P broken by |beta/SE|
-      if (file.exists(sft)) {
-        a0 <- utils::read.csv(sft, stringsAsFactors = FALSE, colClasses = c(variant_id = "character", status = "character", index_variant = "character"))
+      if (lib_table_exists(ex$dir, "instrument_selection_ties")) {   # Round 28: the same candidates with equal P broken by |beta/SE|
+        a0 <- lib_table_read(ex$dir, "instrument_selection_ties")
         alt <- a0[is.finite(a0$p) & a0$p < pthr, , drop = FALSE]; rownames(alt) <- NULL
         led$ties <- ld_tie_summary(sel, alt)
         if (identical(ties, "strongest")) {
-          cf <- file.path(ex$dir, "candidates.csv")
-          if (!file.exists(cf)) stop("The downloaded candidates of \"", ex$recipe$trait, "\" are missing, so the tie sensitivity analysis cannot be built. Download the exposure again.")
-          cd <- utils::read.csv(cf, stringsAsFactors = FALSE, colClasses = c(snp = "character", chr = "character", ea = "character", oa = "character")); cd$key <- cd$snp
+          if (!lib_table_exists(ex$dir, "candidates")) stop("The downloaded candidates of \"", ex$recipe$trait, "\" are missing, so the tie sensitivity analysis cannot be built. Download the exposure again.")
+          cd <- lib_table_read(ex$dir, "candidates"); cd$key <- cd$snp
           X <- cd[cd$key %in% alt$variant_id[alt$status == "index"], intersect(names(X), names(cd)), drop = FALSE]
           sel <- alt; st0$tie_break <- "equal P ordered by |beta/SE|"; st0$tie_order <- "strongest"
         }

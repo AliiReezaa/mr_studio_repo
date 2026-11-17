@@ -15,13 +15,16 @@ work <- tempfile("eafflip"); dir.create(work)
 
 # ---- 1. one dataset per OpenGWAS ID, EUR, with an EAF column ----
 sets <- list()
+# Data library standard copy: Parquet since Round 35, CSV before.
+read_std <- function(d) { f <- file.path(d, "standardised.parquet"); if (file.exists(f)) return(as.data.frame(nanoparquet::read_parquet(f)))
+  utils::read.csv(file.path(d, "standardised.csv"), stringsAsFactors = FALSE, colClasses = c(snp = "character", ea = "character", oa = "character")) }
 for (d in sort(list.dirs(lib, recursive = FALSE))) {
-  rj <- file.path(d, "recipe.json"); sf <- file.path(d, "standardised.csv")
-  if (!file.exists(rj) || !file.exists(sf)) next
+  rj <- file.path(d, "recipe.json"); has_std <- any(file.exists(file.path(d, c("standardised.parquet", "standardised.csv"))))
+  if (!file.exists(rj) || !has_std) next
   r <- jsonlite::fromJSON(rj, simplifyVector = FALSE)
   id <- r$source$params$id %||% r$source$id %||% NULL
   if (!identical(r$source$type, "opengwas") || is.null(id) || !identical(r$facts$ancestry, "EUR") || id %in% names(sets)) next
-  x <- utils::read.csv(sf, stringsAsFactors = FALSE, colClasses = c(snp = "character", ea = "character", oa = "character"))
+  x <- read_std(d)
   if (!"eaf" %in% names(x)) next
   x <- x[is.finite(x$eaf) & x$eaf > 0 & x$eaf < 1 & grepl("^rs[0-9]+$", x$snp), c("snp", "ea", "oa", "eaf")]
   x$dataset <- id; sets[[id]] <- x
