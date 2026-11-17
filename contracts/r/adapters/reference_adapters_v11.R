@@ -809,3 +809,116 @@ ADAPTER_LOO_V11 <- mrgui_adapter(
     "  ci_method = character(0), p = numeric(0), n_ivs_used = integer(0), stringsAsFactors = FALSE)   # diagnostic only"),
     "fixed seed (this analysis is deterministic; kept for the record)"),
   column_requirements = .colreq_basic)
+
+# ---- Round 40: contamination mixture (Burgess et al. 2020, Nat Commun 11:376, PMID 31953392) and MR-Lasso ------------
+# (Rees, Wood, Dudbridge and Burgess 2019, PLoS One 14:e0222362, PMID 31545794), both from MendelianRandomization 0.10.0.
+.conmix_psi_param_v11 <- list(psi = list(
+  type = "double", default = 0, min = 0, max = 1000,
+  label = "Spread of the invalid estimates (psi)",
+  hint = "Standard deviation assumed for the ratio estimates of invalid variants. 0 lets the package choose 1.5 times the standard deviation of all ratio estimates, which is its default.",
+  package_arg = "psi", kind = "float", conventional = TRUE, advanced = TRUE,
+  evidence = "MendelianRandomization::mr_conmix default (psi = 0); Burgess et al. 2020 (PMID 31953392).",
+  affects = c("estimate", "ci", "p")))
+.conmix_step_param_v11 <- list(ci_step = list(
+  type = "double", default = 0.01, min = 1e-5, max = 1,
+  label = "Grid step",
+  hint = "The estimate and its confidence interval are found on a grid of candidate values with this spacing, so they are precise only to this step. 0.01 is the package default; choose a smaller step when the effect is small (for example below 0.1).",
+  package_arg = "CIStep", kind = "float", conventional = TRUE, advanced = FALSE,
+  evidence = "MendelianRandomization::mr_conmix default (CIStep = 0.01).",
+  affects = c("estimate", "ci")))
+.lasso_dist_param_v11 <- list(lasso_dist = list(
+  type = "enum", default = "normal", values = c("normal", "t-dist"),
+  value_labels = c(normal = "Normal distribution (standard)", "t-dist" = "t distribution"),
+  value_hints = c(normal = "Confidence interval and P value from the normal distribution (MendelianRandomization default).",
+                  "t-dist" = "Confidence interval and P value from a t distribution, a little wider with few variants."),
+  label = "Distribution for the interval",
+  hint = "Distribution used for the confidence interval and P value of the post-lasso estimate. The estimate itself does not change.",
+  package_arg = "distribution", kind = "enum", conventional = TRUE, advanced = FALSE,
+  evidence = "MendelianRandomization::mr_lasso default (distribution = \"normal\").",
+  affects = c("ci", "p")))
+
+.mr_input_line <- "MendelianRandomization::mr_input(bx = dat$beta_x, bxse = dat$se_x, by = dat$beta_y, byse = dat$se_y, snps = dat$variant_id)"
+.mrin <- function(d) MendelianRandomization::mr_input(bx = d$beta_x, bxse = d$se_x, by = d$beta_y, byse = d$se_y, snps = d$variant_id)
+.mr_pkg_check <- function(label, min) function(input, params) {
+  d <- .usable(input$data)
+  if (nrow(d) < min) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("%s needs at least %d usable instruments; %d available.", label, min, nrow(d))))
+  w <- .common_warnings(d); verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+}
+.conmix_diag <- function(fit, ids) {
+  nr <- length(fit@CILower); inv <- setdiff(ids, ids[fit@Valid])
+  rbind(diagnostic_row("conmix_psi", fit@Psi, NA_real_, NA_real_, "standard deviation of the invalid estimates used"),
+        diagnostic_row("conmix_invalid", length(inv), NA_real_, NA_real_, if (length(inv)) paste(inv, collapse = ";") else NA_character_),
+        diagnostic_row("conmix_ci_ranges", nr, NA_real_, NA_real_, if (nr > 1) paste(sprintf("%.6g to %.6g", fit@CILower, fit@CIUpper), collapse = "; ") else "a single range of values"),
+        diagnostic_row("conmix_grid_step", fit@CIStep, NA_real_, NA_real_, "the estimate and interval are precise to this step"))
+}
+ADAPTER_CONMIX_V11 <- NULL
+ADAPTER_CONMIX_V11 <- mrgui_adapter(
+  id = "conmix", adapter_version = "1.1.0", label = "Contamination mixture", input_kind = "pair_iv", estimands = "causal_effect",
+  requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .conmix_psi_param_v11, .conmix_step_param_v11, .minf_param_v11),
+  check = .mr_pkg_check("The contamination mixture method", 3L),
+  run = function(input, params, ctx) {
+    d <- .usable(input$data)
+    fit <- MendelianRandomization::mr_conmix(.mrin(d), psi = params$psi, CIStep = params$ci_step, alpha = 1 - params$ci_level)
+    list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale,
+           fit@Estimate, NA_real_, min(fit@CILower), max(fit@CIUpper), "profile", fit@Pvalue, as.integer(fit@SNPs), params$ci_level),
+         diagnostics = .conmix_diag(fit, d$variant_id))
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_CONMIX_V11, spec, params, seed, "MendelianRandomization", c(
+    "# ---- 5. Analysis: contamination mixture method (MendelianRandomization) --------",
+    sprintf("fit <- MendelianRandomization::mr_conmix(%s,", .mr_input_line),
+    "  psi = psi,            # 0: package default, 1.5 x SD of the ratio estimates",
+    "  CIStep = ci_step,     # grid step: estimate and interval are precise to this step",
+    "  alpha = 1 - ci_level)",
+    "# The method gives no standard error. Its profile-likelihood interval can be several separate ranges;",
+    "# the outer limits are reported here and every range is listed in the diagnostics.",
+    "estimates <- data.frame(estimand = \"causal_effect\",",
+    paste0("  ", .est_cols(spec)),
+    "  estimate = fit@Estimate, se = NA_real_, ci_lower = min(fit@CILower), ci_upper = max(fit@CIUpper),",
+    "  ci_level = ci_level, ci_method = \"profile\", p = fit@Pvalue, n_ivs_used = as.integer(fit@SNPs),",
+    "  stringsAsFactors = FALSE)",
+    "nr <- length(fit@CILower); inv <- setdiff(dat$variant_id, dat$variant_id[fit@Valid])",
+    "diagnostics <- data.frame(name = c(\"conmix_psi\", \"conmix_invalid\", \"conmix_ci_ranges\", \"conmix_grid_step\"),",
+    "  value = c(fit@Psi, length(inv), nr, fit@CIStep), df = NA_real_, p = NA_real_,",
+    "  note = c(\"standard deviation of the invalid estimates used\", if (length(inv)) paste(inv, collapse = \";\") else NA_character_,",
+    "           if (nr > 1) paste(sprintf(\"%.6g to %.6g\", fit@CILower, fit@CIUpper), collapse = \"; \") else \"a single range of values\",",
+    "           \"the estimate and interval are precise to this step\"), stringsAsFactors = FALSE)"),
+    "fixed seed (this method is deterministic; kept for the record)"),
+  column_requirements = .colreq_basic)
+
+ADAPTER_LASSO_V11 <- NULL
+ADAPTER_LASSO_V11 <- mrgui_adapter(
+  id = "lasso", adapter_version = "1.1.0", label = "MR-Lasso", input_kind = "pair_iv", estimands = "causal_effect",
+  requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .lasso_dist_param_v11, .minf_param_v11),
+  check = .mr_pkg_check("MR-Lasso", 3L),
+  run = function(input, params, ctx) {
+    d <- .usable(input$data)
+    fit <- MendelianRandomization::mr_lasso(.mrin(d), distribution = params$lasso_dist, alpha = 1 - params$ci_level)
+    inv <- setdiff(d$variant_id, fit@ValidSNPs)
+    list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale,
+           fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, if (identical(params$lasso_dist, "t-dist")) "wald_t" else "wald", fit@Pvalue, as.integer(fit@Valid), params$ci_level),
+         diagnostics = rbind(diagnostic_row("lasso_excluded", length(inv), NA_real_, NA_real_, if (length(inv)) paste(inv, collapse = ";") else NA_character_),
+                             diagnostic_row("lasso_lambda", fit@Lambda, NA_real_, NA_real_, "tuning parameter chosen by the package (heterogeneity stopping rule)"),
+                             diagnostic_row("lasso_regression_estimate", fit@RegEstimate, NA_real_, NA_real_, "penalised regression estimate before the post-lasso IVW step")))
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_LASSO_V11, spec, params, seed, "MendelianRandomization", c(
+    "# ---- 5. Analysis: MR-Lasso (MendelianRandomization) ---------------------------",
+    sprintf("fit <- MendelianRandomization::mr_lasso(%s,", .mr_input_line),
+    "  distribution = lasso_dist,   # interval and P value: normal (default) or t-dist",
+    "  alpha = 1 - ci_level)",
+    "# The reported estimate is the post-lasso IVW estimate on the variants the lasso kept as valid.",
+    "inv <- setdiff(dat$variant_id, fit@ValidSNPs)",
+    "estimates <- data.frame(estimand = \"causal_effect\",",
+    paste0("  ", .est_cols(spec)),
+    "  estimate = fit@Estimate, se = fit@StdError, ci_lower = fit@CILower, ci_upper = fit@CIUpper,",
+    "  ci_level = ci_level, ci_method = if (identical(lasso_dist, \"t-dist\")) \"wald_t\" else \"wald\", p = fit@Pvalue, n_ivs_used = as.integer(fit@Valid),",
+    "  stringsAsFactors = FALSE)",
+    "diagnostics <- data.frame(name = c(\"lasso_excluded\", \"lasso_lambda\", \"lasso_regression_estimate\"),",
+    "  value = c(length(inv), fit@Lambda, fit@RegEstimate), df = NA_real_, p = NA_real_,",
+    "  note = c(if (length(inv)) paste(inv, collapse = \";\") else NA_character_, \"tuning parameter chosen by the package (heterogeneity stopping rule)\",",
+    "           \"penalised regression estimate before the post-lasso IVW step\"), stringsAsFactors = FALSE)"),
+    "fixed seed (this method is deterministic; kept for the record)"),
+  column_requirements = .colreq_basic)

@@ -945,6 +945,9 @@ expect("Round 38: MR-RAPS is offered with its two settings, citation and a separ
 expect("Round 38: run_params passes the enum settings of the new methods and refuses values outside their schema",
        identical(run_params(list(loss = "tukey", raps_dispersion = "none", dispersion = "none"))[c("loss", "raps_dispersion", "dispersion")], list(loss = "tukey", raps_dispersion = "none", dispersion = "none")) &&
        is.null(run_params(list(loss = "bogus"))$loss) && identical(run_params(list(ivw_model = "fixed"))$ivw_model, "fixed"))
+expect("Round 40: contamination mixture and MR-Lasso are offered with their settings, citations and the R21 instrument-count warning",
+       all(c("psi", "ci_step") %in% names(param_schemas()$conmix)) && "lasso_dist" %in% names(param_schemas()$lasso) && identical(METHOD_REFS$conmix, "burgess2020") && identical(METHOD_REFS$lasso, "rees2019") &&
+       "R21" %in% rl(f3, "conmix") && "R21" %in% rl(f3, "lasso") && identical(run_params(list(psi = 2, ci_step = 0.001, lasso_dist = "t-dist"))[c("psi", "ci_step", "lasso_dist")], list(psi = 2, ci_step = 0.001, lasso_dist = "t-dist")))
 r21m <- function(n, m) { r <- feasibility(list(mk(instruments = n)))$methods[[m]]$reasons; r[[which(vapply(r, `[[`, "", "rule") == "R21")]]$msg }
 expect("Round 35: R21 adds the median false-positive note for the weighted and simple median with 3 or 4 instruments only",
        grepl("about 10% instead of 5%", r21m(3, "wm")) && grepl("about 10% instead of 5%", r21m(4, "smed")) && !grepl("about 10%", r21m(5, "wm")) &&

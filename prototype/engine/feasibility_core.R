@@ -3,7 +3,7 @@
 # with every rule that fired, its message and its source. Rules that need results (stage "result") are evaluated on a saved pair.
 # The adapters' own check() stays the final guard at run time; a test keeps the two from disagreeing on a block.
 
-FEAS_METHODS <- c("ivw_mre", "divw", "raps", "egger", "wm", "smed", "mode", "smode", "presso", "radial", "radegger", "steiger", "loo")
+FEAS_METHODS <- c("ivw_mre", "divw", "raps", "conmix", "lasso", "egger", "wm", "smed", "mode", "smode", "presso", "radial", "radegger", "steiger", "loo")
 FEAS_CAUSAL <- setdiff(FEAS_METHODS, c("steiger", "loo"))
 
 #' The rule table (read once).

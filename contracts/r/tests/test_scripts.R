@@ -218,6 +218,27 @@ expect("loo: follows the IVW effects model of the primary analysis", isTRUE(all.
 expect("loo: replay is identical", identical(replay_check(pair39, "loo", list(loo = r39))$status, "identical"))
 expect("loo schema complete", length(validate_param_schema(ADAPTER_LOO_V11)) == 0 && isTRUE(ADAPTER_LOO_V11$diagnostic_only))
 
+# ---- Round 40: contamination mixture and MR-Lasso (MendelianRandomization) ----
+pair40 <- file.path(out_dir, "P40_conmix_lasso")
+m40 <- list(list(adapter = ADAPTER_CONMIX_V11, input = input10, params = list(psi = 0, ci_step = 0.001)),
+            list(adapter = ADAPTER_LASSO_V11, input = input10, params = list(lasso_dist = "normal")))
+materialise_pair(pair40, m40, SEED)
+run40 <- run_in_dir(pair40, run_pair_script(pair40))
+expect("conmix and lasso: master script runs in a fresh R", run40$status == 0L)
+st40 <- list()
+for (m in m40) { a <- m$adapter; o <- a$run(input10, resolve_params(a, m$params), list(seed = SEED)); r <- read_method_results(pair40, a$id); st40[[a$id]] <- r
+  expect(sprintf("%s: script result equals oracle (1e-12)", a$id), cmp(r$estimates, o$estimates) && cmp(r$diagnostics, o$diagnostics)) }
+mi40 <- MendelianRandomization::mr_input(bx = dat10$beta_x, bxse = dat10$se_x, by = dat10$beta_y, byse = dat10$se_y, snps = dat10$variant_id)
+c40 <- MendelianRandomization::mr_conmix(mi40, CIStep = 0.001); l40 <- MendelianRandomization::mr_lasso(mi40)
+expect("conmix: equals mr_conmix, with no standard error and the outer interval limits", abs(st40$conmix$estimates$estimate - c40@Estimate) < 1e-12 && is.na(st40$conmix$estimates$se) &&
+       abs(st40$conmix$estimates$ci_lower - min(c40@CILower)) < 1e-12 && identical(st40$conmix$estimates$ci_method, "profile"))
+expect("lasso: equals mr_lasso and names the variants it excluded", abs(st40$lasso$estimates$estimate - l40@Estimate) < 1e-12 && st40$lasso$estimates$n_ivs_used == l40@Valid &&
+       identical(sort(strsplit(st40$lasso$diagnostics$note[1], ";")[[1]]), sort(setdiff(dat10$variant_id, l40@ValidSNPs))))
+ot40 <- ADAPTER_LASSO_V11$run(input10, resolve_params(ADAPTER_LASSO_V11, list(lasso_dist = "t-dist")), list(seed = SEED))
+expect("lasso: the t distribution widens the interval and keeps the estimate", abs(ot40$estimates$estimate - st40$lasso$estimates$estimate) < 1e-15 && (ot40$estimates$ci_upper - ot40$estimates$ci_lower) > (st40$lasso$estimates$ci_upper - st40$lasso$estimates$ci_lower))
+expect("conmix and lasso: replay is identical", identical(replay_check(pair40, c("conmix", "lasso"), st40)$status, "identical"))
+expect("conmix and lasso schemas complete", length(validate_param_schema(ADAPTER_CONMIX_V11)) == 0 && length(validate_param_schema(ADAPTER_LASSO_V11)) == 0)
+
 # ---- Round 15: Steiger directionality (diagnostic-only) ----
 pair15 <- file.path(out_dir, "P15_steiger")
 m15 <- list(list(adapter = ADAPTER_STEIGER_V11, input = input10, params = list(r_xxo = 0.9, r_yyo = 0.95)))
