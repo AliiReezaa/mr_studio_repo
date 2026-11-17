@@ -152,7 +152,26 @@ catalogue_all <- function(root = studies_root()) {
 .seed_of <- function(x) sum(utf8ToInt(x) * seq_along(utf8ToInt(x))) %% 2147483647
 
 #' One simulated pair of 40 instruments. The instruments belong to the exposure; the outcome noise belongs to the pair.
+# Round 45: bidirectional MR on the simulated traits. The reverse direction uses instruments of the outcome trait (other
+# variants) and their effects on the exposure trait. True reverse effects: none, except outcome B on exposure B (0.10), so
+# the demo shows one pair with an effect in both directions and the rest in one direction only.
+DEMO_REVERSE <- matrix(0, 4, 4, dimnames = list(DEMO_OUTCOMES$id, DEMO_EXPOSURES$id)); DEMO_REVERSE["outB", "expB"] <- 0.10
+demo_reverse_input <- function(out_as_exp, exp_as_out) {
+  oi <- match(out_as_exp, DEMO_OUTCOMES$id); ei <- match(exp_as_out, DEMO_EXPOSURES$id); k <- 40L
+  set.seed(.seed_of(paste("rev", out_as_exp)))
+  bx <- runif(k, 0.02, 0.12) * sample(c(-1, 1), k, replace = TRUE); sx <- runif(k, 0.005, 0.012); eaf <- round(runif(k, 0.1, 0.9), 3)
+  set.seed(.seed_of(paste("rev", out_as_exp, exp_as_out)))
+  sy <- runif(k, 0.008, 0.02); by <- DEMO_REVERSE[oi, ei] * bx + rnorm(k, 0.001, 0.006) + rnorm(k, 0, sy)
+  d <- data.frame(variant_id = sprintf("demo:%d:C:T", seq_len(k) * 1000 + 500), ea = "C", oa = "T", beta_x = round(bx, 6), se_x = round(sx, 6),
+                  eaf_x = eaf, beta_y = round(by, 6), se_y = round(sy, 6), eaf_y = eaf, p_x = signif(2 * pnorm(-abs(bx / sx)), 6),
+                  p_y = signif(2 * pnorm(-abs(by / sy)), 6), n_x = DEMO_OUTCOMES$n[oi], n_y = DEMO_EXPOSURES$n[ei],
+                  harmonise_action = "aligned", mr_keep = TRUE, stringsAsFactors = FALSE)
+  list(exposure_label = DEMO_OUTCOMES$name[oi], outcome_label = DEMO_EXPOSURES$name[ei],
+       input = list(kind = "pair_iv", data = d, exposure_id = paste0("demo:", out_as_exp), outcome_id = paste0("demo:", exp_as_out), outcome_scale = "beta", exposure_scale = "beta"))
+}
+
 demo_input <- function(exp_id, out_id) {
+  if (exp_id %in% DEMO_OUTCOMES$id && out_id %in% DEMO_EXPOSURES$id) return(demo_reverse_input(exp_id, out_id))
   ei <- match(exp_id, DEMO_EXPOSURES$id); oi <- match(out_id, DEMO_OUTCOMES$id)
   if (is.na(ei) || is.na(oi)) stop("Unknown demo trait.")
   k <- 40L

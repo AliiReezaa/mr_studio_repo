@@ -256,6 +256,32 @@ overlap_limitations <- function(ctxs) {
   out
 }
 #' Steiger test numbers of one pair, read from the saved diagnostics (NULL when the test was not run).
+# ---- Round 45: bidirectional MR. Two ordinary pairs with the roles swapped; this only reads them side by side. ----
+BIDIR_METHODS_TEXT <- "To assess the direction of effect, each analysis was repeated with the roles of exposure and outcome reversed (bidirectional MR), using genome-wide significant instruments for the original outcome and the same methods and settings [Burgess 2023]."
+BIDIR_LIMITS_TEXT <- "Bidirectional MR compares two separate analyses. It does not estimate the genetic correlation between the traits, and methods that model effects in both directions at once (bidirectional MR-cML, LHC-MR) were not run. Variants associated with both traits, or pleiotropy shared by the two sets of instruments, can produce apparent effects in both directions."
+bidir_pairs <- function(ctxs) { out <- list(); n <- length(ctxs); if (n < 2) return(out)
+  for (i in seq_len(n - 1L)) for (j in (i + 1L):n) if (identical(ctxs[[i]]$p$ex, ctxs[[j]]$p$out) && identical(ctxs[[i]]$p$out, ctxs[[j]]$p$ex)) out[[length(out) + 1L]] <- c(i, j)
+  out }
+.kept_ids <- function(cx) vapply(Filter(function(v) isTRUE(v$keep), cx$pay$variants %||% list()), function(v) as.character(v$id), "")
+bidir_verdict <- function(pf, pr) {
+  sf <- isTRUE(pf < 0.05); sr <- isTRUE(pr < 0.05)
+  if (sf && !sr) "forward" else if (!sf && sr) "reverse" else if (sf && sr) "both" else "neither" }
+bidir_results_text <- function(a, b) {
+  iv <- function(cx) cx$ce[cx$ce$method == "ivw_mre", , drop = FALSE]; fa <- iv(a); fb <- iv(b)
+  X <- a$p$exName; Y <- a$p$outName
+  if (!nrow(fa) || !nrow(fb)) return(sprintf("Bidirectional analysis (%s and %s): the IVW estimate is missing in one direction, so the two directions cannot be compared.", X, Y))
+  v <- bidir_verdict(fa$p[1], fb$p[1]); sh <- length(intersect(.kept_ids(a), .kept_ids(b)))
+  vt <- switch(v, forward = sprintf("The evidence supports an effect of %s on %s but not of %s on %s.", X, Y, Y, X),
+                  reverse = sprintf("The evidence supports an effect of %s on %s but not of %s on %s, so an association in the first direction may reflect reverse causation.", Y, X, X, Y),
+                  both = "Both directions gave P below 0.05, which can reflect a feedback loop between the traits or pleiotropy shared by the two sets of instruments; neither direction can be taken as causal on this evidence alone.",
+                  neither = "Neither direction gave P below 0.05.")
+  st <- function(cx) { f <- steiger_facts(cx); if (is.null(f)) NULL else if (f$ok) "supported" else "not supported" }
+  sa <- st(a); sb <- st(b)
+  sprintf("Bidirectional analysis (%s and %s): IVW %s -> %s %s; %s -> %s %s. %s %s%s", X, Y, X, Y, .ci_phrase(fa[1, ], fa$scale[1]), Y, X, .ci_phrase(fb[1, ], fb$scale[1]), vt,
+    if (sh) sprintf("%d variant%s %s instruments in both directions.", sh, if (sh == 1) "" else "s", if (sh == 1) "was an" else "were") else "No variant was an instrument in both directions.",
+    if (!is.null(sa) && !is.null(sb)) sprintf(" The Steiger test %s the direction %s -> %s and %s %s -> %s.", sa, X, Y, sb, Y, X) else "")
+}
+
 steiger_facts <- function(cx) {
   dg <- Filter(function(d) identical(d$method, "steiger"), cx$pay$diagnostics); if (!length(dg)) return(NULL)
   g <- function(n) { x <- Filter(function(d) identical(d$name, n), dg); if (length(x)) x[[1]] else NULL }
@@ -428,6 +454,9 @@ report_text <- function(ctxs, study_name) {
                          if (nrow(lf) > LOO_PLOT_MAX) sprintf(" Only the %d variants whose removal changed the estimate most are shown; all %d are in the supplementary table.", LOO_PLOT_SHOWN, nrow(lf)) else ""),
                        sprintf("Supplementary Figure S%d. Funnel plot of the single-variant (Wald ratio) estimates of %s on %s against their precision (1 / standard error). Vertical lines show the %s estimate%s using all variants. Asymmetry can indicate directional pleiotropy.", 2L * sn, cx$p$exName, cx$p$outName, paste(.short[ln], collapse = " and "), if (length(ln) > 1) "s" else ""))
   }
+  bd <- bidir_pairs(ctxs)   # Round 45: bidirectional MR
+  if (length(bd)) { txt$methods <- c(txt$methods, BIDIR_METHODS_TEXT); txt$limitations <- c(txt$limitations, BIDIR_LIMITS_TEXT)
+    for (ij in bd) txt$results <- c(txt$results, bidir_results_text(ctxs[[ij[1]]], ctxs[[ij[2]]])) }
   txt$supp_out <- vector("list", length(ctxs)); so <- 2L * sn   # Round 44: outlier figures follow the leave-one-out ones
   for (i in seq_along(ctxs)) { ol <- ctxs[[i]]$outl; if (is.null(ol)) next
     ag <- outlier_agreement(ol); txt$supp_out[[i]] <- outlier_legends(ol, ctxs[[i]], so + 1L, ag); so <- so + length(txt$supp_out[[i]]) }
@@ -505,6 +534,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { ce <- ctxs[[i]]$ce; if (!nrow(ce)) return(NULL); data.frame(Pair = i, Exposure = ctxs[[i]]$p$exName, Outcome = ctxs[[i]]$p$outName, Method = ce$name, Estimate = .fnum(ce$estimate), `CI lower` = .fnum(ce$ci_lower), `CI upper` = .fnum(ce$ci_upper), P = .fp(ce$p), Instruments = ce$n_ivs, check.names = FALSE, stringsAsFactors = FALSE) }))
     bl <- c(list(list(type = "title", text = sprintf("Mendelian randomization report: %s", basename(h$dir))), list(type = "note", text = sprintf("Generated by MR Studio on %s. A draft for the authors to check.", format(Sys.Date())))), list(list(type = "h1", text = "Summary of estimates"), list(type = "table", data = est)), blocks_text(TRUE))
     f <- file.path(pk, "report.docx"); docx_write(f, bl); add(f)
+    fp <- file.path(pk, "report.pdf"); r46 <- tryCatch({ pdf_write(fp, bl); TRUE }, error = function(e) { if (file.exists(fp)) unlink(fp); note <<- c(note, paste("The PDF report could not be written:", conditionMessage(e))); FALSE }); if (r46) add(fp)   # Round 46
     esc <- function(x) .xe(x); svgs <- function(files) { s <- grep("\\.svg$", files, value = TRUE); if (length(s)) paste(sub("^<\\?xml[^>]*\\?>\\s*", "", readLines(s[1], warn = FALSE, encoding = "UTF-8")), collapse = "\n") else "<p><em>Figure not available on this computer.</em></p>" }
     sect <- function(t, ps) sprintf("<h2>%s</h2>%s", esc(t), paste(sprintf("<p>%s</p>", esc(ps)), collapse = "\n"))
     figh <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f)) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$forest), esc(txt$legends[2L * i - 1L]), svgs(f$scatter), esc(txt$legends[2L * i])) }, ""), collapse = "\n")

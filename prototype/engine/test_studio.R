@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -1137,5 +1137,28 @@ f44 <- tempfile(fileext = ".pdf"); ok44 <- tryCatch({ grDevices::pdf(f44, 7, 3);
 expect("Round 44: both figures draw without error", ok44 && file.size(f44) > 1000)
 lg44 <- outlier_legends(rec42, list(p = list(exName = "X", outName = "Y")), 3L, ag44)
 expect("Round 44: two legends numbered from the given figure, saying the estimate was not used by the rule", length(lg44) == 2L && grepl("^Supplementary Figure S3\\.", lg44[1]) && grepl("^Supplementary Figure S4\\.", lg44[2]) && grepl("did not use", lg44[1]))
+
+# ---- Round 45: bidirectional MR ----
+rv45 <- pair_input("outB", "expB"); fw45 <- pair_input("expB", "outB")
+expect("Round 45: the reverse demo pair uses the outcome trait's own instruments and swaps the labels", identical(rv45$exposure_label, "Simulated outcome B") && identical(rv45$outcome_label, "Simulated exposure B") && !length(intersect(rv45$input$data$variant_id, fw45$input$data$variant_id)))
+h45 <- studio_new("Both ways"); m45 <- c("ivw_mre", "egger")
+ra45 <- studio_run(h45, fw45$exposure_label, fw45$outcome_label, fw45$input, m45, idx = 1L); rb45 <- studio_run(h45, rv45$exposure_label, rv45$outcome_label, rv45$input, m45, idx = 2L)
+ra45b <- pair_input("expA", "outA"); rc45 <- pair_input("outA", "expA")
+rA45 <- studio_run(h45, ra45b$exposure_label, ra45b$outcome_label, ra45b$input, m45, idx = 3L); rB45 <- studio_run(h45, rc45$exposure_label, rc45$outcome_label, rc45$input, m45, idx = 4L)
+pr45 <- function(ex, out, r, w) list(ex = ex, out = out, rev = w, exName = if (startsWith(ex, "exp")) DEMO_EXPOSURES$name[DEMO_EXPOSURES$id == ex] else DEMO_OUTCOMES$name[DEMO_OUTCOMES$id == ex], outName = if (startsWith(out, "exp")) DEMO_EXPOSURES$name[DEMO_EXPOSURES$id == out] else DEMO_OUTCOMES$name[DEMO_OUTCOMES$id == out], folder = r$pair_folder, methods = as.list(m45), ci = 0.95, pthr = 5e-8, simulated = TRUE)
+ui_state_set(h45$con, "pairs", list(pr45("expB", "outB", ra45, FALSE), pr45("outB", "expB", rb45, TRUE), pr45("expA", "outA", rA45, FALSE), pr45("outA", "expA", rB45, TRUE)))
+c45 <- lapply(ui_state_get(h45$con, "pairs"), function(p) pair_context(h45, p)); t45 <- report_text(c45, "Both ways")
+expect("Round 45: forward and reverse pairs are matched", identical(bidir_pairs(c45), list(c(1L, 2L), c(3L, 4L))))
+expect("Round 45: the reverse pair recovers the simulated reverse effect (0.10 for B) and none for A",
+       { b <- c45[[2]]$ce; a <- c45[[4]]$ce; abs(b$estimate[b$method == "ivw_mre"] - 0.10) < 0.05 && b$p[b$method == "ivw_mre"] < 0.05 && a$p[a$method == "ivw_mre"] >= 0.05 })
+expect("Round 45: Results say both directions for B and one direction for A", any(grepl("^Bidirectional analysis \\(Simulated exposure B .*Both directions gave P below 0.05", t45$results)) && any(grepl("^Bidirectional analysis \\(Simulated exposure A .*supports an effect of Simulated exposure A on Simulated outcome A but not", t45$results)))
+expect("Round 45: Methods and Limitations describe bidirectional MR once", sum(t45$methods == BIDIR_METHODS_TEXT) == 1L && sum(t45$limitations == BIDIR_LIMITS_TEXT) == 1L)
+expect("Round 45: verdict covers all four cases", identical(vapply(list(c(0.01, 0.5), c(0.5, 0.01), c(0.01, 0.01), c(0.5, 0.5)), function(x) bidir_verdict(x[1], x[2]), ""), c("forward", "reverse", "both", "neither")))
+# ---- Round 46: PDF report ----
+pk46 <- build_package(h45, c("report", "figs"))
+pf46 <- file.path(h45$dir, grep("report\\.pdf$", pk46$files, value = TRUE))
+expect("Round 46: the package has a PDF report next to the Word and HTML ones", length(pf46) == 1L && file.exists(pf46) && file.size(pf46) > 20000 && identical(readBin(pf46, "raw", 5), charToRaw("%PDF-")))
+ff46 <- tempfile(fileext = ".pdf"); np46 <- pdf_write(ff46, list(list(type = "title", text = "T"), list(type = "p", text = paste(rep("word", 2000), collapse = " ")), list(type = "table", data = data.frame(a = 1:60, b = "x"))))
+expect("Round 46: long text and tables flow onto further pages without error", file.exists(ff46) && np46 >= 3L && file.size(ff46) > 5000)
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

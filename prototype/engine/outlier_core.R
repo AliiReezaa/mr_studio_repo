@@ -168,7 +168,7 @@ outlier_results_text <- function(ol, ce, sc) {
   rule <- if (identical(ol$selected, "all")) "to keep all instruments" else sprintf("the %s set", lab(ol$selected))
   sprintf("Outlier analysis (started by %s): %d eligible set%s analysed. The pre-specified rule chose %s. %s%s.%s",
     sig, ne, if (ne == 1) " was" else "s were", rule, toupper(substr(what, 1, 1)), substring(what, 2),
-    if (!identical(ol$chosen, ol$selected)) sprintf(" The analyst adopted %s instead of the rule's choice.", lab(ol$chosen)) else if (identical(ol$review, "awaiting review")) " The choice was not yet reviewed by the analyst." else "")
+    if (!identical(ol$chosen, ol$selected)) (if (identical(ol$chosen, "all")) " The analyst kept all instruments instead of the rule's choice." else sprintf(" The analyst adopted the %s set instead of the rule's choice.", lab(ol$chosen))) else if (identical(ol$review, "awaiting review")) " The choice was not yet reviewed by the analyst." else "")
 }
 
 
