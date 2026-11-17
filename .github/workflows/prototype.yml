@@ -53,10 +53,10 @@ jobs:
       run:
         shell: bash -el {0}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install micromamba
-        uses: mamba-org/setup-micromamba@v2
+        uses: mamba-org/setup-micromamba@v3
         with:
           init-shell: bash
           post-cleanup: none
@@ -121,15 +121,15 @@ jobs:
       # Pinned sources of the MR packages that are not on conda-forge or CRAN for this R.
       # TwoSampleMR is the commit the reference adapters were written against (contracts C6).
       # A change to any commit here changes results provenance: update the adapters' `packages` too.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { repository: MRCIEU/TwoSampleMR, ref: 5e93ee7d8e1f67581acb8134299759389d73efba, path: _pinned/twosamplemr }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { repository: gqi/MRMix, ref: 56afdb2bc96760842405396f5d3f02e60e305039, path: _pinned/mrmix }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { repository: rondolab/MR-PRESSO, ref: 3e3c92d7eda6dce0d1d66077373ec0f7ff4f7e87, path: _pinned/mrpresso }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { repository: WSpiller/RadialMR, ref: 7ca35c052489001890347871e38998ca53a02b03, path: _pinned/radialmr }
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { repository: qingyuanzhao/mr.raps, ref: dd79b5bd74d10b699503cdd226d70c726f11c796, path: _pinned/mrraps }
 
       - name: Install the pinned MR packages into the runtime
@@ -269,8 +269,8 @@ jobs:
           # This step fails the build if a verified https call does not work from the moved runtime.
           "$RBIN" --no-echo --no-restore --vanilla --file=prototype/ci/https_check.R
 
-      - uses: actions/setup-node@v4
-        with: { node-version: 20 }
+      - uses: actions/setup-node@v7
+        with: { node-version: 24 }
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Build installers
@@ -365,7 +365,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Fetch the test reports from the run's pre-release
         run: |
           mkdir -p reports
