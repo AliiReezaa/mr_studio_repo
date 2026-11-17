@@ -883,8 +883,8 @@ expect("strobe: every row has a known status and the rows follow the checklist o
 expect("strobe: instrument selection is filled with the local clumping and the counts", identical(g19("4c"), "FILLED") && grepl("clumped on the analyst's computer with PLINK", g19("4c", "provides"), fixed = TRUE) && grepl("5 removed by clumping", g19("10a", "provides"), fixed = TRUE))
 expect("strobe: the recorded aim is quoted, one pair needs no multiple-testing correction, no direction test means AUTHOR",
        identical(g19("3"), "PARTLY") && grepl("Does X cause Y?", g19("3", "provides"), fixed = TRUE) && identical(g19("6e"), "FILLED") && identical(g19("13c"), "AUTHOR"))
-expect("strobe: items only the authors can write stay AUTHOR, and the missing leave-one-out plot is called NOT BUILT",
-       all(vapply(c("1", "2", "4e", "5", "16a", "16b", "16c", "18", "20"), function(i) identical(g19(i), "AUTHOR"), TRUE)) && grepl("NOT BUILT", g19("13e", "provides"), fixed = TRUE))
+expect("strobe: items only the authors can write stay AUTHOR, and 13e asks for leave-one-out when it was not run",
+       all(vapply(c("1", "2", "4e", "5", "16a", "16b", "16c", "18", "20"), function(i) identical(g19(i), "AUTHOR"), TRUE)) && identical(g19("13e"), "AUTHOR") && grepl("Turn on Leave-one-out", g19("13e", "provides"), fixed = TRUE))
 expect("strobe: plots count as filled only when figures are in the package", identical(g19("11d"), "FILLED") && identical(strobe_rows(c19, report_text(c19, "x"), list(), c("text"))$status[rows19$item == "11d"], "PARTLY"))
 c15 <- lapply(list(list(ex = "expA", out = "outA", exName = p8$exposure_label, outName = p8$outcome_label, folder = r15$pair_folder, methods = list("ivw_mre", "steiger"), ci = 0.95, pthr = 5e-8, simulated = TRUE)), function(p) pair_context(h15, p))
 r15s <- strobe_rows(c15, report_text(c15, "S"), list(), c("strobe"))
@@ -1034,5 +1034,28 @@ expect("Round 31: a median estimator alone is described with its majority condit
        grepl("The median estimators relax the third assumption only if a majority of the instruments are valid.", l31b, fixed = TRUE) && !grepl("mode", l31b, fixed = TRUE) &&
        grepl("The mode estimators relax the third assumption only if a plurality of the instruments are valid.", l31d, fixed = TRUE) && !grepl("median", l31d, fixed = TRUE) &&
        grepl("The median and mode estimators relax the third assumption only under their own conditions (a majority or plurality of valid instruments).", l31c, fixed = TRUE))
+
+# ---- Round 39: leave-one-out and single-variant analyses (part of IVW) ----
+h39 <- studio_new("Leave one out"); wi39 <- pair_input("expA", "outA")
+r39 <- studio_run(h39, wi39$exposure_label, wi39$outcome_label, wi39$input, c("ivw_mre", "egger", "loo"), idx = 1L)
+p39 <- pair_payload(h39$dir, r39$pair_folder); k39 <- p39$estimates[[1]]$n_ivs_used
+ui_state_set(h39$con, "pairs", list(list(ex = "expA", out = "outA", exName = wi39$exposure_label, outName = wi39$outcome_label, folder = r39$pair_folder, methods = as.list(c("ivw_mre", "egger", "loo")), ci = 0.95, pthr = 5e-8, simulated = TRUE, ledger = wi39$ledger, anc_x = "EUR", anc_y = "EUR")))
+c39 <- lapply(ui_state_get(h39$con, "pairs"), function(p) pair_context(h39, p)); lf39 <- loo_facts(c39[[1]])
+expect("Round 39: leave-one-out runs with IVW, replays identically and gives one row per variant", identical(p39$replay$status, "identical") && nrow(lf39) == k39 && all(is.finite(lf39$loo_b)) && all(is.finite(lf39$wr)))
+d39 <- wi39$input$data[wi39$input$data$mr_keep, ]; j39 <- match(lf39$id[1], d39$variant_id)
+m39 <- TwoSampleMR::mr_ivw(d39$beta_x[-j39], d39$beta_y[-j39], d39$se_x[-j39], d39$se_y[-j39])
+expect("Round 39: the stored leave-one-out estimate equals mr_ivw without that variant", abs(lf39$loo_b[1] - m39$b) < 1e-12 && abs(lf39$wr[1] - d39$beta_y[j39] / d39$beta_x[j39]) < 1e-12)
+t39 <- report_text(c39, "Leave one out")
+expect("Round 39: Results text and two supplementary legends describe the analysis", any(grepl("^Leave-one-out analysis .* the IVW estimate ranged from", t39$results)) && length(t39$supp[[1]]) == 2L &&
+       grepl("^Supplementary Figure S1\\. Leave-one-out", t39$supp[[1]][1]) && grepl("^Supplementary Figure S2\\. Funnel plot", t39$supp[[1]][2]) && any(grepl("leave-one-out analysis", t39$methods, fixed = TRUE)))
+pk39 <- build_package(h39, c("figs", "text", "tables", "report"), 140); fd39 <- file.path(pk39$dir, "figures")
+expect("Round 39: the package has the leave-one-out and funnel plots, the supplementary sheet and both in the HTML report",
+       all(file.exists(file.path(fd39, c("P1_leave_one_out.pdf", "P1_funnel.pdf")))) && any(grepl("Pair 1 leave-one-out", readLines(utils::unzip(file.path(pk39$dir, "supplement_tables.xlsx"), "xl/workbook.xml", exdir = tempfile("x39")), warn = FALSE), fixed = TRUE)) &&
+       any(grepl("Supplementary figures", readLines(file.path(pk39$dir, "report.html"), warn = FALSE), fixed = TRUE)))
+s39 <- strobe_rows(c39, t39, list(aim = "x", prereg = FALSE), c("report", "strobe"))
+expect("Round 39: STROBE-MR 13e is filled when leave-one-out ran", identical(s39$status[s39$item == "13e"], "FILLED"))
+big <- data.frame(id = sprintf("rs%d", 1:80), loo_b = seq(0.1, 0.5, length.out = 80), loo_se = 0.01, loo_p = 0.01, wr = 0, wr_se = 1, wr_p = 1)
+expect("Round 39: above 60 variants the plot shows the 30 whose removal changes the estimate most", nrow(.loo_rows(big, 0.1)) == 30L && min(.loo_rows(big, 0.1)$loo_b) > 0.3)
+expect("Round 39: the leave-one-out switch is excluded from reduced-set sensitivity runs and is not a causal method", !("loo" %in% FEAS_CAUSAL) && "loo" %in% FEAS_METHODS)
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

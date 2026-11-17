@@ -354,7 +354,7 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "Debiased IVW (dIVW)" = "divw", "MR-RAPS (robust adjusted profile score)" = "raps", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger", "MR Steiger directionality" = "steiger")
 
-param_adapters <- function() list(ivw_mre = ADAPTER_IVW_MRE_V11, divw = ADAPTER_DIVW_V11, raps = ADAPTER_RAPS_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11, steiger = ADAPTER_STEIGER_V11)
+param_adapters <- function() list(ivw_mre = ADAPTER_IVW_MRE_V11, divw = ADAPTER_DIVW_V11, raps = ADAPTER_RAPS_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11, steiger = ADAPTER_STEIGER_V11, loo = ADAPTER_LOO_V11)
 
 studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx = NULL, params = NULL, steiger_in = NULL) {
   params <- c(params[setdiff(names(params), "ci_level")], list(ci_level = if (!is.null(params$ci_level)) params$ci_level else ci_level))
@@ -372,7 +372,7 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
   r
 }
 
-METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", divw = "Debiased IVW", raps = "MR-RAPS", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger", steiger = "MR Steiger directionality")
+METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", divw = "Debiased IVW", raps = "MR-RAPS", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger", steiger = "MR Steiger directionality", loo = "Leave-one-out and single-variant analyses")
 IVW_MODEL_NAMES <- c(mre_floor = "IVW (multiplicative random effects)", mre = "IVW (multiplicative random effects, no fixed-effect floor)", fixed = "IVW (fixed effect)")
 
 #' The settings a pair was run with, read back from the settings lines of its scripts (the scripts are the record).
@@ -637,7 +637,7 @@ studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre",
   d$mr_keep[hit] <- FALSE; inp$input$data <- d
   kept <- sum(d$mr_keep)
   if (kept < 2L) stop("At least 2 instruments must remain.")
-  methods <- setdiff(methods, c("presso", "radial", "radegger", "steiger"))   # detectors are not repeated on a reduced set: they are what suggests the sensitivity analysis
+  methods <- setdiff(methods, c("presso", "radial", "radegger", "steiger", "loo"))   # detectors are not repeated on a reduced set: they are what suggests the sensitivity analysis
   if (kept < 3L) methods <- setdiff(methods, c("egger", "wm", "smed", "mode", "smode"))
   lab <- sprintf("%s [without %d]", inp$exposure_label, length(remove))
   r <- studio_run(h, lab, inp$outcome_label, inp$input, methods, ci_level, idx = idx, params = params)
@@ -649,7 +649,7 @@ studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre",
 #' where equal P values decided it, as its own pair folder (the primary results stay as they are). Detectors are not repeated.
 studio_run_ties <- function(h, exp_id, out_id, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8) {
   inp <- pair_input(exp_id, out_id, pthr, ties = "strongest")
-  methods <- setdiff(methods, c("presso", "radial", "radegger", "steiger"))
+  methods <- setdiff(methods, c("presso", "radial", "radegger", "steiger", "loo"))
   kept <- sum(inp$input$data$mr_keep)
   if (kept < 3L) methods <- setdiff(methods, c("egger", "wm", "smed", "mode", "smode"))
   if (!length(methods)) methods <- "ivw_mre"

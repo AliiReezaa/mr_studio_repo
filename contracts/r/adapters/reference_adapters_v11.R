@@ -757,3 +757,55 @@ ADAPTER_RAPS_V11 <- mrgui_adapter(
     "  note = sprintf(\"estimated variance of the pleiotropic effects (SE %s)\", format(signif(fit$tau2.se, 4))), stringsAsFactors = FALSE)"),
     "fixed seed: mr.raps draws random starting values, so the same seed gives the same numbers"),
   column_requirements = .colreq_basic)
+
+# ---- Round 39: leave-one-out and single-variant analyses (part of IVW; STROBE-MR item 13e) ----------------------------
+# Diagnostic-only. Leave-one-out: the IVW estimate with each variant left out in turn, with the same IVW model and
+# TwoSampleMR function as the primary analysis (setting ivw_model, shared with the IVW card). Single-variant: the Wald
+# ratio of each variant (TwoSampleMR::mr_wald_ratio, first-order standard error), which the funnel plot shows.
+# Every number is a diagnostics row keyed by the variant in `note`, so the replay check compares all of them.
+.loo_core <- function(d, ivw_model) {
+  fit_fun <- switch(ivw_model %||% "mre_floor", mre_floor = TwoSampleMR::mr_ivw, mre = TwoSampleMR::mr_ivw_mre, fixed = TwoSampleMR::mr_ivw_fe)
+  k <- nrow(d); row <- function(n, v, p, id) data.frame(name = n, value = as.double(v), df = NA_real_, p = as.double(p), note = id, stringsAsFactors = FALSE)
+  out <- list(row("loo_variants", k, NA_real_, NA_character_))
+  for (i in seq_len(k)) {
+    r <- fit_fun(d$beta_x[-i], d$beta_y[-i], d$se_x[-i], d$se_y[-i])
+    w <- TwoSampleMR::mr_wald_ratio(d$beta_x[i], d$beta_y[i], d$se_x[i], d$se_y[i])
+    out[[length(out) + 1L]] <- rbind(row("loo_estimate", r$b, r$pval, d$variant_id[i]), row("loo_se", r$se, NA_real_, d$variant_id[i]),
+                                     row("wald_ratio", w$b, w$pval, d$variant_id[i]), row("wald_ratio_se", w$se, NA_real_, d$variant_id[i]))
+  }
+  do.call(rbind, out)
+}
+
+ADAPTER_LOO_V11 <- NULL
+ADAPTER_LOO_V11 <- mrgui_adapter(
+  id = "loo", adapter_version = "1.1.0", label = "Leave-one-out and single-variant analyses", input_kind = "pair_iv", estimands = character(0),
+  requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE,
+                  needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(TwoSampleMR = "5e93ee7d8e1f67581acb8134299759389d73efba"), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ivw_model_param_v11, .minf_param_v11),
+  diagnostic_only = TRUE,
+  check = function(input, params) {
+    d <- .usable(input$data)
+    if (nrow(d) < 3) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("Leave-one-out analysis needs at least 3 usable instruments; %d available.", nrow(d))))
+    w <- .common_warnings(d)
+    verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+  },
+  run = function(input, params, ctx) list(estimates = .steiger_empty_estimates(), diagnostics = .loo_core(.usable(input$data), params$ivw_model)),
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_LOO_V11, spec, params, seed, "TwoSampleMR", c(
+    "# ---- 5. Analysis: leave-one-out IVW and single-variant Wald ratios (TwoSampleMR) ----",
+    "fit_fun <- switch(ivw_model,                # the same IVW model as the primary analysis",
+    "  mre_floor = TwoSampleMR::mr_ivw, mre = TwoSampleMR::mr_ivw_mre, fixed = TwoSampleMR::mr_ivw_fe)",
+    "row <- function(n, v, p, id) data.frame(name = n, value = as.double(v), df = NA_real_, p = as.double(p), note = id, stringsAsFactors = FALSE)",
+    "out <- list(row(\"loo_variants\", nrow(dat), NA_real_, NA_character_))",
+    "for (i in seq_len(nrow(dat))) {",
+    "  r <- fit_fun(dat$beta_x[-i], dat$beta_y[-i], dat$se_x[-i], dat$se_y[-i])                     # IVW without variant i",
+    "  w <- TwoSampleMR::mr_wald_ratio(dat$beta_x[i], dat$beta_y[i], dat$se_x[i], dat$se_y[i])        # variant i on its own",
+    "  out[[length(out) + 1L]] <- rbind(row(\"loo_estimate\", r$b, r$pval, dat$variant_id[i]), row(\"loo_se\", r$se, NA_real_, dat$variant_id[i]),",
+    "                                   row(\"wald_ratio\", w$b, w$pval, dat$variant_id[i]), row(\"wald_ratio_se\", w$se, NA_real_, dat$variant_id[i]))",
+    "}",
+    "diagnostics <- do.call(rbind, out)   # one row per variant and quantity; the variant is in 'note'",
+    "estimates <- data.frame(estimand = character(0), exposure_id = character(0), outcome_id = character(0), scale = character(0),",
+    "  estimate = numeric(0), se = numeric(0), ci_lower = numeric(0), ci_upper = numeric(0), ci_level = numeric(0),",
+    "  ci_method = character(0), p = numeric(0), n_ivs_used = integer(0), stringsAsFactors = FALSE)   # diagnostic only"),
+    "fixed seed (this analysis is deterministic; kept for the record)"),
+  column_requirements = .colreq_basic)

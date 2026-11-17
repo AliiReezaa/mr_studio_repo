@@ -199,6 +199,25 @@ sc38 <- readLines(list.files(file.path(pair38, "02_scripts"), pattern = "raps", 
 expect("raps: script header pins mr.raps by commit", any(grepl(sprintf("^# Package  : mr.raps commit %s$", PIN_MRRAPS), sc38)))
 expect("raps schema complete", length(validate_param_schema(ADAPTER_RAPS_V11)) == 0)
 
+# ---- Round 39: leave-one-out and single-variant analyses (diagnostic only) ----
+pair39 <- file.path(out_dir, "P39_loo")
+m39 <- list(list(adapter = ADAPTER_LOO_V11, input = input10, params = list(ivw_model = "mre_floor")))
+materialise_pair(pair39, m39, SEED)
+run39 <- run_in_dir(pair39, run_pair_script(pair39))
+expect("loo: master script runs in a fresh R", run39$status == 0L)
+o39 <- ADAPTER_LOO_V11$run(input10, resolve_params(ADAPTER_LOO_V11, m39[[1]]$params), list(seed = SEED)); r39 <- read_method_results(pair39, "loo")
+expect("loo: script result equals oracle (1e-12)", cmp(r39$diagnostics, o39$diagnostics) && nrow(r39$estimates) == 0L)
+g39 <- function(n) r39$diagnostics[r39$diagnostics$name == n, , drop = FALSE]
+expect("loo: one leave-one-out and one Wald ratio per variant", nrow(g39("loo_estimate")) == k10 && nrow(g39("wald_ratio")) == k10 && setequal(g39("loo_estimate")$note, dat10$variant_id))
+i3 <- which(dat10$variant_id == "rs3"); man <- TwoSampleMR::mr_ivw(dat10$beta_x[-i3], dat10$beta_y[-i3], dat10$se_x[-i3], dat10$se_y[-i3])
+expect("loo: leaving out rs3 equals mr_ivw on the other variants", abs(g39("loo_estimate")$value[g39("loo_estimate")$note == "rs3"] - man$b) < 1e-14 && abs(g39("loo_se")$value[g39("loo_se")$note == "rs3"] - man$se) < 1e-14)
+expect("loo: Wald ratio is beta_y / beta_x with SE se_y / |beta_x|", max(abs(g39("wald_ratio")$value - dat10$beta_y / dat10$beta_x)) < 1e-14 && max(abs(g39("wald_ratio_se")$value - dat10$se_y / abs(dat10$beta_x))) < 1e-14)
+o39f <- ADAPTER_LOO_V11$run(input10, resolve_params(ADAPTER_LOO_V11, list(ivw_model = "fixed")), list(seed = SEED))
+expect("loo: follows the IVW effects model of the primary analysis", isTRUE(all.equal(o39f$diagnostics$value[o39f$diagnostics$name == "loo_estimate"], g39("loo_estimate")$value)) &&
+       any(o39f$diagnostics$value[o39f$diagnostics$name == "loo_se"] != g39("loo_se")$value))
+expect("loo: replay is identical", identical(replay_check(pair39, "loo", list(loo = r39))$status, "identical"))
+expect("loo schema complete", length(validate_param_schema(ADAPTER_LOO_V11)) == 0 && isTRUE(ADAPTER_LOO_V11$diagnostic_only))
+
 # ---- Round 15: Steiger directionality (diagnostic-only) ----
 pair15 <- file.path(out_dir, "P15_steiger")
 m15 <- list(list(adapter = ADAPTER_STEIGER_V11, input = input10, params = list(r_xxo = 0.9, r_yyo = 0.95)))

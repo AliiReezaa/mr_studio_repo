@@ -140,6 +140,33 @@ refs_ris <- function(ids) paste(vapply(ids, function(i) { r <- REFS[[i]]; paste(
   for (l in lines) graphics::abline(a = l$a, b = l$b, col = l$col, lty = l$lty, lwd = 2)
   graphics::legend("topleft", legend = vapply(lines, `[[`, "", "name"), col = vapply(lines, `[[`, "", "col"), lty = vapply(lines, `[[`, 1, "lty"), lwd = 2, bty = "n", cex = 0.85)
 }
+# Round 39: leave-one-out plot (IVW without each variant; above 60 variants, the 30 whose removal changes it most) and funnel plot.
+LOO_PLOT_MAX <- 60L; LOO_PLOT_SHOWN <- 30L
+.loo_rows <- function(lf, full_b) { d <- lf; if (nrow(d) > LOO_PLOT_MAX) d <- d[order(-abs(d$loo_b - full_b))[seq_len(LOO_PLOT_SHOWN)], , drop = FALSE]; d[order(d$loo_b), , drop = FALSE] }
+.draw_loo <- function(lf, full, z, unit) {
+  d <- .loo_rows(lf, full$b); k <- nrow(d) + 1L
+  b <- c(d$loo_b, full$b); lo <- c(d$loo_b - z * d$loo_se, full$lo); hi <- c(d$loo_b + z * d$loo_se, full$hi)
+  op <- graphics::par(mar = c(3.4, 8.6, 0.8, 1.2), mgp = c(1.9, 0.6, 0), cex = 0.72, las = 1); on.exit(graphics::par(op))
+  xl <- range(c(lo, hi, 0), na.rm = TRUE); pad <- diff(xl) * 0.06; cols <- c(rep("grey25", k - 1L), "#2b3fc7")
+  graphics::plot(NA, xlim = xl + c(-pad, pad), ylim = c(k + 0.6, 0.4), yaxt = "n", xlab = unit, ylab = "", bty = "n")
+  graphics::abline(v = 0, lty = 2, col = "grey55"); graphics::abline(v = full$b, lty = 3, col = "#2b3fc7")
+  graphics::axis(2, at = seq_len(k), labels = c(paste("without", d$id), "All variants"), tick = FALSE, cex.axis = 0.85)
+  graphics::segments(lo, seq_len(k), hi, seq_len(k), lwd = 1.2, col = cols); graphics::points(b, seq_len(k), pch = c(rep(16, k - 1L), 18), cex = c(rep(0.8, k - 1L), 1.4), col = cols)
+}
+.draw_funnel <- function(lf, lines) {
+  op <- graphics::par(mar = c(3.4, 3.8, 0.8, 0.8), mgp = c(2, 0.6, 0), cex = 0.78, las = 1); on.exit(graphics::par(op))
+  graphics::plot(lf$wr, 1 / lf$wr_se, pch = 16, col = "grey25", xlab = "Single-variant estimate (Wald ratio)", ylab = "Precision (1 / standard error)", bty = "l")
+  graphics::abline(v = 0, col = "grey75"); for (l in lines) graphics::abline(v = l$b, col = l$col, lty = l$lty, lwd = 2)
+  if (length(lines)) graphics::legend("topright", legend = vapply(lines, `[[`, "", "name"), col = vapply(lines, `[[`, "", "col"), lty = vapply(lines, `[[`, 1, "lty"), lwd = 2, bty = "n", cex = 0.85)
+}
+#' Leave-one-out and Wald ratio results of one pair, read from the loo diagnostics (NULL if the analysis did not run).
+loo_facts <- function(cx) {
+  dg <- Filter(function(d) identical(d$method, "loo"), cx$pay$diagnostics); if (!length(dg)) return(NULL)
+  g <- function(n) { x <- Filter(function(d) identical(d$name, n), dg)
+    data.frame(id = vapply(x, function(d) as.character(d$note), ""), v = vapply(x, function(d) as.numeric(d$value), 0), p = vapply(x, function(d) suppressWarnings(as.numeric(d$p %||% NA)), 0), stringsAsFactors = FALSE) }
+  b <- g("loo_estimate"); if (!nrow(b)) return(NULL); se <- g("loo_se"); w <- g("wald_ratio"); ws <- g("wald_ratio_se")
+  data.frame(id = b$id, loo_b = b$v, loo_se = se$v[match(b$id, se$id)], loo_p = b$p, wr = w$v[match(b$id, w$id)], wr_se = ws$v[match(b$id, ws$id)], wr_p = w$p[match(b$id, w$id)], stringsAsFactors = FALSE)
+}
 .MCOL <- c(ivw_mre = "#2b3fc7", divw = "#5b6b8c", raps = "#7a5c2e", egger = "#b5541c", wm = "#2f7fd6", smed = "#8c4fd6", mode = "#d6407a", smode = "#2a9d8f", presso = "#b8860b", radial = "#3d9a38", radegger = "#a04a3d")
 .fig_write <- function(base, w_mm, h_mm, draw) {
   w <- w_mm / 25.4; h <- h_mm / 25.4; out <- character()
@@ -158,7 +185,7 @@ refs_ris <- function(ids) paste(vapply(ids, function(i) { r <- REFS[[i]]; paste(
   d <- do.call(rbind, lapply(pay$estimates, function(e) data.frame(method = e$method, name = e$method_name, estimand = e$estimand, estimate = e$estimate, se = e$se, ci_lower = e$ci_lower, ci_upper = e$ci_upper, ci_level = e$ci_level, p = e$p, n_ivs = e$n_ivs_used, scale = e$scale %||% "beta", stringsAsFactors = FALSE)))
   d
 }
-.short <- c(steiger = "Steiger", ivw_mre = "IVW", divw = "dIVW", raps = "MR-RAPS", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial Egger")
+.short <- c(loo = "Leave-one-out", steiger = "Steiger", ivw_mre = "IVW", divw = "dIVW", raps = "MR-RAPS", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial Egger")
 pair_context <- function(h, p) {
   pay <- pair_payload(h$dir, p$folder); est <- .est_df(pay); ce <- est[est$estimand == "causal_effect", , drop = FALSE]
   v <- do.call(rbind, lapply(pay$variants, function(x) data.frame(id = x$id, bx = x$bx, by = x$by, sx = x$sx, sy = x$sy, keep = x$keep, stringsAsFactors = FALSE)))
@@ -289,6 +316,7 @@ report_text <- function(ctxs, study_name) {
     smode = sprintf("The simple mode estimator (the unweighted counterpart of the weighted mode) was computed with a bandwidth multiplier phi = %s and a bootstrapped standard error (%s replications) [Hartwig 2017].", format(st1$phi %||% 1), format(st1$nboot %||% 1000)),
     presso = sprintf("MR-PRESSO (global test of horizontal pleiotropy, outlier test and distortion test) was run with %s simulated datasets and a significance threshold of %s. Variants it flags are reported but were not removed from any analysis [Verbanck 2018].", format(st1$nbdist %||% 1000), format(st1$signif %||% 0.05)),
     radial = sprintf("Radial IVW was used to flag outlying variants through their contribution to Cochran's Q statistic (outlier level alpha = %s, %s weights); flagged variants are reported but were not removed [Bowden 2018].", format(st1$alpha %||% 0.05), c("1" = "first-order", "2" = "second-order", "3" = "modified second-order")[[as.character(st1$weights %||% "1")]]),
+    loo = "The influence of single variants was assessed with a leave-one-out analysis (the IVW estimate recomputed with each variant omitted in turn, with the same effects model), and the single-variant (Wald ratio) estimates were shown in a funnel plot, where asymmetry can indicate directional pleiotropy [Burgess 2023].",
     steiger = paste0("The Steiger directionality test, run together with the IVW analysis, compared the variance the variants explain in the exposure with the variance they explain in the outcome, summed over variants (TwoSampleMR::mr_steiger; measurement reliability set to 1 unless stated otherwise). For a continuous trait the variance explained was computed from each variant's effect, standard error and sample size",
       if (steiger_any_binary(ctxs)) "; for a binary trait it was computed on the liability scale from the log odds ratio, the effect allele frequency, the numbers of cases and controls and the population prevalence (TwoSampleMR::get_r_from_lor, logit model) [Lee 2012]" else "",
       ". It gives no causal estimate [Hemani 2017]."),
@@ -354,6 +382,21 @@ report_text <- function(ctxs, study_name) {
   for (cx in ctxs) { ce <- cx$ce; if (!nrow(ce)) next; fi <- fi + 1L
     txt$legends <- c(txt$legends, sprintf("Figure %d. Forest plot of the Mendelian randomization estimates of %s on %s. Points are estimates and bars are %s confidence intervals for each method (%s). %d instruments were used.", 2L * fi - 1L, cx$p$exName, cx$p$outName, .pct(ce$ci_level[1]), paste(.short[ce$method], collapse = ", "), ce$n_ivs[1]),
                     sprintf("Figure %d. Scatter plot of variant effects. Each point is one variant: its effect on %s (x) and on %s (y), with %s intervals for the outcome effect. Variants are oriented so that the exposure effect is positive. Lines show the slope of each method; the MR-Egger line includes its intercept.", 2L * fi, cx$p$exName, cx$p$outName, "95%")) }
+  # Round 39: leave-one-out results sentence per pair and the supplementary figure legends.
+  sn <- 0L; txt$supp <- vector("list", length(ctxs))
+  for (i in seq_along(ctxs)) { cx <- ctxs[[i]]; lf <- loo_facts(cx); iv <- cx$ce[cx$ce$method == "ivw_mre", , drop = FALSE]; if (is.null(lf) || !nrow(iv)) next
+    sn <- sn + 1L; full <- iv$estimate[1]; ch <- lf$loo_b - full; j <- which.max(abs(ch)); flip <- lf$id[sign(lf$loo_b) != sign(full)]
+    lost <- if (iv$p[1] < 0.05) lf$id[lf$loo_p >= 0.05] else character(0); nm <- function(x) if (length(x) <= 5) paste(x, collapse = ", ") else sprintf("%s and %d other variants", paste(x[1:5], collapse = ", "), length(x) - 5L)
+    txt$results <- c(txt$results, sprintf("Leave-one-out analysis (%s -> %s): with each of the %d variants left out in turn, the IVW estimate ranged from %s to %s (all variants: %s); the largest change, %s%% of the estimate, came from leaving out %s. %s%s The single-variant estimates are shown in a funnel plot (Supplementary Figures S%d and S%d).",
+      cx$p$exName, cx$p$outName, nrow(lf), .fnum(min(lf$loo_b)), .fnum(max(lf$loo_b)), .fnum(full), .fnum(100 * abs(ch[j]) / abs(full), 1), lf$id[j],
+      if (length(flip)) sprintf("Leaving out %s reversed the direction of the estimate.", nm(flip)) else "No single variant reversed the direction of the estimate.",
+      if (iv$p[1] < 0.05) (if (length(lost)) sprintf(" Leaving out %s raised its P value to 0.05 or above.", nm(lost)) else " Its P value stayed below 0.05 whichever variant was left out.") else "",
+      2L * sn - 1L, 2L * sn))
+    ln <- intersect(c("ivw_mre", "egger"), cx$ce$method)
+    txt$supp[[i]] <- c(sprintf("Supplementary Figure S%d. Leave-one-out analysis of %s on %s: the IVW estimate with each variant left out in turn, with %s confidence intervals; the bottom row uses all %d variants.%s", 2L * sn - 1L, cx$p$exName, cx$p$outName, .pct(iv$ci_level[1]), nrow(lf),
+                         if (nrow(lf) > LOO_PLOT_MAX) sprintf(" Only the %d variants whose removal changed the estimate most are shown; all %d are in the supplementary table.", LOO_PLOT_SHOWN, nrow(lf)) else ""),
+                       sprintf("Supplementary Figure S%d. Funnel plot of the single-variant (Wald ratio) estimates of %s on %s against their precision (1 / standard error). Vertical lines show the %s estimate%s using all variants. Asymmetry can indicate directional pleiotropy.", 2L * sn, cx$p$exName, cx$p$outName, paste(.short[ln], collapse = " and "), if (length(ln) > 1) "s" else ""))
+  }
   txt
 }
 
@@ -376,7 +419,16 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
       ceS <- ce[ce$method != "radegger", , drop = FALSE]   # the radial Egger intercept is on a weighted scale, so it cannot be drawn as a line on this plot
       ln <- lapply(seq_len(nrow(ceS)), function(j) { m <- ceS$method[j]; ic <- cx$est$estimate[cx$est$estimand == "pleiotropy_intercept"]; list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else if (m == "egger") 2 else 3, a = if (m == "egger" && length(ic)) ic[1] else 0, b = ceS$estimate[j]) })
       sf <- .fig_write(file.path(pk, "figures", paste0(tag, "_scatter")), wmm, round(wmm * 0.75), function() .draw_scatter(cx$kept, ln, paste("Effect on", cx$p$exName), paste("Effect on", cx$p$outName)))
-      figs[[i]] <- list(forest = ff, scatter = sf, fh = fh, sh = round(wmm * 0.75)); for (f in c(ff, sf)) add(f) }
+      figs[[i]] <- list(forest = ff, scatter = sf, fh = fh, sh = round(wmm * 0.75)); for (f in c(ff, sf)) add(f)
+      lf <- loo_facts(cx); iv <- ce[ce$method == "ivw_mre", , drop = FALSE]   # Round 39: supplementary leave-one-out and funnel plots
+      if (!is.null(lf) && nrow(iv)) {
+        z <- stats::qnorm(1 - (1 - iv$ci_level[1]) / 2); full <- list(b = iv$estimate[1], lo = iv$ci_lower[1], hi = iv$ci_upper[1])
+        lh <- max(50, round(18 + 4.2 * (nrow(.loo_rows(lf, full$b)) + 1L)))
+        lo <- .fig_write(file.path(pk, "figures", paste0(tag, "_leave_one_out")), wmm, lh, function() .draw_loo(lf, full, z, est$unit[1]))
+        fl <- lapply(intersect(c("ivw_mre", "egger"), ce$method), function(m) list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else 2, b = ce$estimate[ce$method == m][1]))
+        fu <- .fig_write(file.path(pk, "figures", paste0(tag, "_funnel")), wmm, round(wmm * 0.75), function() .draw_funnel(lf, fl))
+        figs[[i]]$loo <- lo; figs[[i]]$funnel <- fu; figs[[i]]$lh <- lh; for (f in c(lo, fu)) add(f)
+      } }
     if (!length(Filter(Negate(is.null), figs))) note <- c(note, "No figures could be drawn on this computer.")
     if (!isTRUE(unname(capabilities("cairo")))) note <- c(note, "SVG and PNG figures need the cairo graphics library, which this R does not have. The PDF figures were written.")
   }
@@ -385,6 +437,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { e <- ctxs[[i]]$est; data.frame(pair = i, exposure = ctxs[[i]]$p$exName, outcome = ctxs[[i]]$p$outName, e, check.names = FALSE, stringsAsFactors = FALSE) }))
     sheets <- list(Estimates = est, Settings = do.call(rbind, lapply(seq_along(ctxs), function(i) { s <- ctxs[[i]]$settings; data.frame(pair = i, setting = names(s), value = vapply(s, function(v) paste(v, collapse = ","), ""), stringsAsFactors = FALSE) })))
     for (i in seq_along(ctxs)) sheets[[sprintf("Pair %d variants", i)]] <- transform(ctxs[[i]]$vars, ratio = by / bx, F = (bx / sx)^2)
+    for (i in seq_along(ctxs)) { lf <- loo_facts(ctxs[[i]]); if (!is.null(lf)) sheets[[sprintf("Pair %d leave-one-out", i)]] <- stats::setNames(lf, c("variant_left_out", "ivw_estimate_without", "ivw_se_without", "ivw_p_without", "wald_ratio", "wald_ratio_se", "wald_ratio_p")) }
     f <- file.path(pk, "supplement_tables.xlsx"); xlsx_write(f, sheets); add(f)
   }
   if ("refs" %in% items) { f1 <- file.path(pk, "references.bib"); writeLines(refs_bibtex(used), f1, useBytes = TRUE); f2 <- file.path(pk, "references.ris"); writeLines(refs_ris(used), f2, useBytes = TRUE); add(f1); add(f2) }
@@ -395,6 +448,11 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     if (with_figs) for (i in seq_along(figs)) { f <- figs[[i]]; if (is.null(f)) next; png <- grep("forest\\.png$", f$forest, value = TRUE); sp <- grep("scatter\\.png$", f$scatter, value = TRUE)
       if (length(png)) b[[length(b) + 1L]] <- list(type = "image", file = png, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$fh / wmm, alt = txt$legends[2L * i - 1L]); P(txt$legends[2L * i - 1L])
       if (length(sp)) b[[length(b) + 1L]] <- list(type = "image", file = sp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$sh / wmm, alt = txt$legends[2L * i]); P(txt$legends[2L * i]) }
+    if (with_figs && any(vapply(figs, function(f) !is.null(f$loo), TRUE))) { H("Supplementary figures", 2)   # Round 39
+      for (i in seq_along(figs)) { f <- figs[[i]]; if (is.null(f$loo) || is.null(txt$supp[[i]])) next
+        lp <- grep("\\.png$", f$loo, value = TRUE); fp <- grep("\\.png$", f$funnel, value = TRUE)
+        if (length(lp)) b[[length(b) + 1L]] <- list(type = "image", file = lp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$lh / wmm, alt = txt$supp[[i]][1]); P(txt$supp[[i]][1])
+        if (length(fp)) b[[length(b) + 1L]] <- list(type = "image", file = fp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * 0.75, alt = txt$supp[[i]][2]); P(txt$supp[[i]][2]) } }
     H("Limitations"); P(txt$limitations); H("Data availability"); P(txt$availability); H("References"); P(vapply(used, function(i) ref_text(REFS[[i]]), "")); b }
   if ("text" %in% items) { f <- file.path(pk, "draft_methods_results_limitations.docx"); docx_write(f, c(list(list(type = "title", text = "Draft text: Methods, Results, Limitations")), list(list(type = "note", text = "Draft generated from the saved results and settings. Check every statement and edit it before use.")), blocks_text(FALSE))); add(f) }
   if ("report" %in% items) {
@@ -404,9 +462,11 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     esc <- function(x) .xe(x); svgs <- function(files) { s <- grep("\\.svg$", files, value = TRUE); if (length(s)) paste(sub("^<\\?xml[^>]*\\?>\\s*", "", readLines(s[1], warn = FALSE, encoding = "UTF-8")), collapse = "\n") else "<p><em>Figure not available on this computer.</em></p>" }
     sect <- function(t, ps) sprintf("<h2>%s</h2>%s", esc(t), paste(sprintf("<p>%s</p>", esc(ps)), collapse = "\n"))
     figh <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f)) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$forest), esc(txt$legends[2L * i - 1L]), svgs(f$scatter), esc(txt$legends[2L * i])) }, ""), collapse = "\n")
+    supph <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f$loo) || is.null(txt$supp[[i]])) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$loo), esc(txt$supp[[i]][1]), svgs(f$funnel), esc(txt$supp[[i]][2])) }, ""), collapse = "\n")   # Round 39
+    if (nzchar(supph)) supph <- paste0("<h2>Supplementary figures</h2>", supph)
     tab <- paste0("<table><thead><tr>", paste(sprintf("<th>%s</th>", esc(names(est))), collapse = ""), "</tr></thead><tbody>", paste(vapply(seq_len(nrow(est)), function(i) paste0("<tr>", paste(sprintf("<td>%s</td>", esc(unlist(est[i, ]))), collapse = ""), "</tr>"), ""), collapse = ""), "</tbody></table>")
     sim <- if (any(vapply(ctxs, `[[`, TRUE, "simulated"))) "<div class=\"warn\">SIMULATED DATA: not for publication. At least one pair uses simulated demonstration traits.</div>" else ""
-    html <- paste0("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>MR report: ", esc(basename(h$dir)), "</title><style>body{font:16px/1.55 Georgia,'Times New Roman',serif;max-width:46rem;margin:2.5rem auto;padding:0 1.2rem;color:#1b1b1b}h1{font-size:1.9rem}h2{margin-top:2.2rem;font-size:1.3rem;border-bottom:1px solid #ccc;padding-bottom:.2rem}table{border-collapse:collapse;width:100%;font:14px/1.4 system-ui,sans-serif}th,td{border:1px solid #bbb;padding:.35rem .5rem;text-align:left}th{background:#f1f1f1}figure{margin:1.5rem 0}figure svg{max-width:100%;height:auto}figcaption{font-size:.9rem;color:#444}.warn{border:2px solid #b5541c;background:#fff4ec;padding:.7rem 1rem;margin:1rem 0;font:600 15px system-ui,sans-serif}.note{color:#555;font-style:italic}@media print{body{margin:0;max-width:none}h2{break-after:avoid}figure,table{break-inside:avoid}}</style></head><body><h1>Mendelian randomization report: ", esc(basename(h$dir)), "</h1><p class=\"note\">Generated by MR Studio on ", format(Sys.Date()), ". A draft for the authors to check. To make a PDF, open this file in a browser and print it.</p>", sim, "<h2>Summary of estimates</h2>", tab, sect("Methods", txt$methods), sect("Results", txt$results), "<h2>Figures</h2>", figh, sect("Limitations", txt$limitations), sect("Data availability", txt$availability), sprintf("<h2>References</h2><ol>%s</ol>", paste(sprintf("<li>%s</li>", esc(vapply(used, function(i) ref_text(REFS[[i]]), ""))), collapse = "")), "</body></html>")
+    html <- paste0("<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>MR report: ", esc(basename(h$dir)), "</title><style>body{font:16px/1.55 Georgia,'Times New Roman',serif;max-width:46rem;margin:2.5rem auto;padding:0 1.2rem;color:#1b1b1b}h1{font-size:1.9rem}h2{margin-top:2.2rem;font-size:1.3rem;border-bottom:1px solid #ccc;padding-bottom:.2rem}table{border-collapse:collapse;width:100%;font:14px/1.4 system-ui,sans-serif}th,td{border:1px solid #bbb;padding:.35rem .5rem;text-align:left}th{background:#f1f1f1}figure{margin:1.5rem 0}figure svg{max-width:100%;height:auto}figcaption{font-size:.9rem;color:#444}.warn{border:2px solid #b5541c;background:#fff4ec;padding:.7rem 1rem;margin:1rem 0;font:600 15px system-ui,sans-serif}.note{color:#555;font-style:italic}@media print{body{margin:0;max-width:none}h2{break-after:avoid}figure,table{break-inside:avoid}}</style></head><body><h1>Mendelian randomization report: ", esc(basename(h$dir)), "</h1><p class=\"note\">Generated by MR Studio on ", format(Sys.Date()), ". A draft for the authors to check. To make a PDF, open this file in a browser and print it.</p>", sim, "<h2>Summary of estimates</h2>", tab, sect("Methods", txt$methods), sect("Results", txt$results), "<h2>Figures</h2>", figh, supph, sect("Limitations", txt$limitations), sect("Data availability", txt$availability), sprintf("<h2>References</h2><ol>%s</ol>", paste(sprintf("<li>%s</li>", esc(vapply(used, function(i) ref_text(REFS[[i]]), ""))), collapse = "")), "</body></html>")
     f <- file.path(pk, "report.html"); writeLines(html, f, useBytes = TRUE); add(f)
   }
   if ("capsule" %in% items) {

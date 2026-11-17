@@ -104,7 +104,7 @@ strobe_rows <- function(ctxs, txt, plan = list(), items = character()) {
     r("13b", if (length(detect)) "FILLED" else "AUTHOR", if (length(detect)) sprintf("Outlier detection: %s; flagged variants are reported and were not removed from the main analysis.", paste(ests[detect], collapse = ", ")) else "No further analysis was run in MR Studio.", R),
     r("13c", if (st) "FILLED" else "AUTHOR", if (st) "Steiger directionality test for every pair where it could run." else "No direction test was run. Turn on the Steiger direction test in the IVW card, or state that direction was not tested.", if (st) R else ""),
     r("13d", "AUTHOR", "Compare with observational estimates from the literature, where relevant."),
-    r("13e", "AUTHOR", "A leave-one-out plot is NOT BUILT in MR Studio yet. The Instrument review screen can leave chosen variants out."),
+    r("13e", if ("loo" %in% used) "FILLED" else "AUTHOR", if ("loo" %in% used) "Leave-one-out and funnel plots (supplementary figures) and the leave-one-out table in the supplementary tables." else "No leave-one-out analysis was run. Turn on Leave-one-out in the IVW card, or describe other plots.", if ("loo" %in% used) R else ""),
     r("14", "PARTLY", "The results text summarises every estimate. Relate it to the objectives.", R),
     r("15", "PARTLY", "A limitations paragraph is drafted from the diagnostics (instrument strength, heterogeneity, overlap, direction, ancestry). Discuss the likely direction and size of bias.", Lm),
     r("16a", "AUTHOR", "Interpret cautiously and in the light of other evidence."),
