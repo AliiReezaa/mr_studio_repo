@@ -897,7 +897,7 @@ expect("strobe: the package reports the counts, which add up to 43", !is.null(pk
 
 # ---- Round 21: feasibility engine ----
 fr <- feas_rules(); spec_ids <- utils::read.csv(file.path(dirname(dirname(args_dir)), "mr_feasibility_rules.csv"), stringsAsFactors = FALSE)$rule_id
-known_tests <- c("several_pairs", "ancestry_differs", "steiger_data", "iv_below_min", "iv_below_recommended", "mean_f_below", "i2gx_below", "i2gx_near", "overlap", "palindromic_dropped", "palindromic_kept", "binary_exposure", "presso_nbdist", "heavy_runtime", "q_significant", "egger_intercept", "steiger_reversed")
+known_tests <- c("divw_condition_below", "several_pairs", "ancestry_differs", "steiger_data", "iv_below_min", "iv_below_recommended", "mean_f_below", "i2gx_below", "i2gx_near", "overlap", "palindromic_dropped", "palindromic_kept", "binary_exposure", "presso_nbdist", "heavy_runtime", "q_significant", "egger_intercept", "steiger_reversed")
 expect("feasibility: every rule id is unique and comes from the project's rule list, every active rule has a known test and a source",
        !anyDuplicated(fr$rule_id) && all(fr$rule_id %in% spec_ids) && all(fr$test[fr$active_v1 == "yes"] %in% known_tests) && all(nzchar(fr$source)) && all(spec_ids %in% fr$rule_id))
 fx_base <- pair_facts("expA", "outA")
@@ -913,8 +913,8 @@ expect("Round 30: R21b warns for IVW below 4 instruments only, and says why (het
        !"R21b" %in% vapply(f4$methods$ivw_mre$reasons, `[[`, "", "rule") && grepl("cannot be estimated reliably", f3$methods$ivw_mre$reasons[[1]]$msg) && grepl("3 instruments", f3$methods$ivw_mre$reasons[[1]]$msg))
 fw <- feasibility(list(mk(mean_f = 8.2, i2gx = 0.8)))
 rl <- function(fe, m) vapply(fe$methods[[m]]$reasons, `[[`, "", "rule")
-expect("feasibility: mean F below 10 warns every estimator (R23); I2GX below 0.9 warns the Egger methods only (R24)",
-       all(vapply(FEAS_CAUSAL, function(m) "R23" %in% rl(fw, m), TRUE)) && !("R23" %in% rl(fw, "steiger")) && "R24" %in% rl(fw, "egger") && "R24" %in% rl(fw, "radegger") && !("R24" %in% rl(fw, "ivw_mre")))
+expect("feasibility: mean F below 10 warns every estimator except debiased IVW and MR-RAPS (R23); I2GX below 0.9 warns the Egger methods only (R24)",
+       all(vapply(setdiff(FEAS_CAUSAL, c("divw", "raps")), function(m) "R23" %in% rl(fw, m), TRUE)) && !("R23" %in% rl(fw, "raps")) && !("R23" %in% rl(fw, "steiger")) && "R24" %in% rl(fw, "egger") && "R24" %in% rl(fw, "radegger") && !("R24" %in% rl(fw, "ivw_mre")))
 expect("feasibility: the F message does not claim that F above 10 means no bias", grepl("does not rule out bias", fw$methods$ivw_mre$reasons[[1]]$msg, fixed = TRUE))
 expect("Round 32: the F message says the Egger, median and mode methods are biased more and names selection in the same exposure GWAS",
        grepl("MR-Egger and the weighted median and mode more than IVW", fw$methods$ivw_mre$reasons[[1]]$msg, fixed = TRUE) && grepl("winner's curse", fw$methods$ivw_mre$reasons[[1]]$msg, fixed = TRUE))
@@ -932,6 +932,19 @@ fe24 <- function(ans) { ov <- if (is.null(ans)) list() else setNames(list(list(a
 expect("Round 35: R24 says diluted toward the null without declared overlap, toward the observational association with some or unknown overlap",
        grepl("diluted toward the null", fe24(NULL)) && grepl("diluted toward the null", fe24("none")) &&
        grepl("toward the observational association", fe24("some")) && grepl("toward the observational association", fe24("unknown")) && !grepl("\\{", fe24("some")))
+# Round 37: dIVW is not warned for weak-instrument bias (it removes it) but warns when its condition number is below 20.
+fd1 <- feasibility(list(mk(mean_f = 8.2, instruments = 30))); fd2 <- feasibility(list(mk(mean_f = 4, instruments = 9)))
+expect("Round 37: R23 skips debiased IVW; R23b warns when (mean F - 1) x sqrt(k) is below 20, not otherwise",
+       !("R23" %in% rl(fd1, "divw")) && "R23" %in% rl(fd1, "ivw_mre") && !("R23b" %in% rl(fd1, "divw")) && "R23b" %in% rl(fd2, "divw") &&
+       grepl("is 9.0 \\(below 20\\)", fd2$methods$divw$reasons[[which(rl(fd2, "divw") == "R23b")]]$msg) && !("R23b" %in% rl(fd2, "ivw_mre")))
+expect("Round 37: debiased IVW is offered with its schema, citation and Methods sentence",
+       "divw" %in% names(param_schemas()) && identical(METHOD_REFS$divw, "ye2021") && grepl("doi:10.1214/20-AOS2027.$", ref_text(REFS$ye2021)))
+expect("Round 38: MR-RAPS is offered with its two settings, citation and a separate setting name from debiased IVW",
+       all(c("raps_dispersion", "loss") %in% names(param_schemas()$raps)) && identical(METHOD_REFS$raps, "zhao2020") && grepl("doi:10.1214/19-AOS1866.$", ref_text(REFS$zhao2020)) &&
+       "dispersion" %in% names(param_schemas()$divw) && !("dispersion" %in% names(param_schemas()$raps)))
+expect("Round 38: run_params passes the enum settings of the new methods and refuses values outside their schema",
+       identical(run_params(list(loss = "tukey", raps_dispersion = "none", dispersion = "none"))[c("loss", "raps_dispersion", "dispersion")], list(loss = "tukey", raps_dispersion = "none", dispersion = "none")) &&
+       is.null(run_params(list(loss = "bogus"))$loss) && identical(run_params(list(ivw_model = "fixed"))$ivw_model, "fixed"))
 r21m <- function(n, m) { r <- feasibility(list(mk(instruments = n)))$methods[[m]]$reasons; r[[which(vapply(r, `[[`, "", "rule") == "R21")]]$msg }
 expect("Round 35: R21 adds the median false-positive note for the weighted and simple median with 3 or 4 instruments only",
        grepl("about 10% instead of 5%", r21m(3, "wm")) && grepl("about 10% instead of 5%", r21m(4, "smed")) && !grepl("about 10%", r21m(5, "wm")) &&

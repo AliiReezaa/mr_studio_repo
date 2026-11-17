@@ -16,6 +16,13 @@ dependencies:
   - r-rsqlite
   # Data library tables are Parquet files (Round 35): small, dependency-free reader and writer.
   - r-nanoparquet
+  # Debiased IVW (Round 37): MendelianRandomization::mr_divw.
+  - r-mendelianrandomization
+  # Imports of mr.raps (Round 38; mr.raps itself is installed from a pinned commit, see prototype.yml).
+  - r-nortest
+  - r-rootsolve
+  - r-rsnps
+  - r-ggrepel
   # Dependencies of TwoSampleMR (contracts v1.1: the generated scripts call it directly).
   # TwoSampleMR itself and its three GitHub-only imports (MRMix, MRPRESSO, RadialMR)
   # are installed by the pipeline from pinned commits, see prototype.yml.

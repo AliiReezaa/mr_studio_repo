@@ -122,20 +122,22 @@ jobs:
         with: { repository: rondolab/MR-PRESSO, ref: 3e3c92d7eda6dce0d1d66077373ec0f7ff4f7e87, path: _pinned/mrpresso }
       - uses: actions/checkout@v4
         with: { repository: WSpiller/RadialMR, ref: 7ca35c052489001890347871e38998ca53a02b03, path: _pinned/radialmr }
+      - uses: actions/checkout@v4
+        with: { repository: qingyuanzhao/mr.raps, ref: dd79b5bd74d10b699503cdd226d70c726f11c796, path: _pinned/mrraps }
 
       - name: Install the pinned MR packages into the runtime
         run: |
           pp() { if [[ "$RUNNER_OS" == "Windows" ]]; then cygpath -m "$PWD/_pinned/$1"; else echo "$PWD/_pinned/$1"; fi; }
-          export PK_MRMIX="$(pp mrmix)" PK_MRPRESSO="$(pp mrpresso)" PK_RADIALMR="$(pp radialmr)" PK_TWOSAMPLEMR="$(pp twosamplemr)"
+          export PK_MRMIX="$(pp mrmix)" PK_MRPRESSO="$(pp mrpresso)" PK_RADIALMR="$(pp radialmr)" PK_MRRAPS="$(pp mrraps)" PK_TWOSAMPLEMR="$(pp twosamplemr)"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             RT="$PWD/prototype/runtime"
             export PATH="$RT:$RT/Library/bin:$RT/Library/mingw-w64/bin:$RT/Library/usr/bin:$(dirname "$RBIN"):$PATH"
           fi
           "$RBIN" --no-echo --no-restore --vanilla -e '
-            p <- Sys.getenv(c("PK_MRMIX", "PK_MRPRESSO", "PK_RADIALMR", "PK_TWOSAMPLEMR"))   # dependency order
+            p <- Sys.getenv(c("PK_MRMIX", "PK_MRPRESSO", "PK_RADIALMR", "PK_MRRAPS", "PK_TWOSAMPLEMR"))   # dependency order
             install.packages(unname(p), repos = NULL, type = "source",
                              INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
-            for (n in c("MRMix", "MRPRESSO", "RadialMR", "TwoSampleMR")) {
+            for (n in c("MRMix", "MRPRESSO", "RadialMR", "mr.raps", "TwoSampleMR")) {
               if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n)
               cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n))))
             }'
@@ -229,6 +231,12 @@ jobs:
           "$RBIN" --no-echo --no-restore --vanilla --file=r/tests/test_contracts.R --args "$CTDIR"
           mkdir -p "$GITHUB_WORKSPACE/results-${{ matrix.id }}"
           cp "$CTDIR"/run-*/result_*.json "$GITHUB_WORKSPACE/results-${{ matrix.id }}/"
+
+      - name: Study database write speed with synchronous=FULL (information only)
+        continue-on-error: true
+        run: |
+          cd contracts
+          "$RBIN" --no-echo --no-restore --vanilla --file=../validation/storage/sqlite_throughput.R --args 500
 
       - name: Connection gate tests (contracts C10)
         run: |

@@ -142,21 +142,22 @@ local({
   scripts <- sort(list.files(file.path(here, "02_scripts"), pattern = "^[0-9]+_.*\\.R$"))
   scripts <- scripts[!grepl("^00_", scripts)]
   if (!length(scripts)) stop("There are no method scripts in 02_scripts.", call. = FALSE)
-  pins <- list()
+  pins <- list(); cran <- list()   # cran: packages pinned by a CRAN version instead of a GitHub commit (Round 37)
   for (s in scripts) {
     h <- grep("^# Package  :", readLines(file.path(here, "02_scripts", s), n = 12, warn = FALSE), value = TRUE)
     if (length(h)) for (part in trimws(strsplit(sub("^# Package  :\\s*", "", h[1]), ";")[[1]])) {
-      m <- regmatches(part, regexec("^(\\S+) commit (\\S+)$", part))[[1]]
-      if (length(m) == 3) pins[[m[2]]] <- m[3]
+      m <- regmatches(part, regexec("^(\\S+) (commit|version) (\\S+)$", part))[[1]]
+      if (length(m) == 4) { pins[[m[2]]] <- m[4]; if (m[3] == "version") cran[[m[2]]] <- m[4] }
     }
   }
-  repo <- c(TwoSampleMR = "MRCIEU/TwoSampleMR", MRPRESSO = "rondolab/MR-PRESSO", RadialMR = "WSpiller/RadialMR")
+  repo <- c(TwoSampleMR = "MRCIEU/TwoSampleMR", MRPRESSO = "rondolab/MR-PRESSO", RadialMR = "WSpiller/RadialMR", mr.raps = "qingyuanzhao/mr.raps")
   absent <- names(pins)[!vapply(names(pins), requireNamespace, logical(1), quietly = TRUE)]
   if (length(absent)) {
     say("These R packages are not installed in your R yet: ", paste(absent, collapse = ", "))
     say("Install them once by running these lines in the Console, then click Source again:")
     say("  install.packages(\"remotes\")")
-    for (p in absent) say("  remotes::install_github(\"", if (p %in% names(repo)) repo[[p]] else p, "@", pins[[p]], "\")")
+    for (p in absent) if (p %in% names(cran)) say("  remotes::install_version(\"", p, "\", version = \"", cran[[p]], "\")") else
+      say("  remotes::install_github(\"", if (p %in% names(repo)) repo[[p]] else p, "@", pins[[p]], "\")")
     stop("Missing packages. See the lines above.", call. = FALSE)
   }
 

@@ -67,7 +67,7 @@ strobe_rows <- function(ctxs, txt, plan = list(), items = character()) {
     sprintf("%s; %d instruments used, mean F %.1f (minimum %.1f, %d below 10)", sel, nrow(cx$kept), cx$mean_f, cx$min_f, cx$n_weak) }
   r <- function(item, status, provides, where = "") list(item = item, status = status, provides = provides, where = where)
   M <- "Draft text, Methods"; R <- "Draft text, Results"; Lm <- "Draft text, Limitations"
-  ests <- c(ivw_mre = "IVW", egger = "MR-Egger", wm = "weighted median", smed = "simple median", mode = "weighted mode", smode = "simple mode", presso = "MR-PRESSO", radial = "radial IVW", radegger = "radial MR-Egger")
+  ests <- c(ivw_mre = "IVW", divw = "debiased IVW", raps = "MR-RAPS", egger = "MR-Egger", wm = "weighted median", smed = "simple median", mode = "weighted mode", smode = "simple mode", presso = "MR-PRESSO", radial = "radial IVW", radegger = "radial MR-Egger")
   robust <- intersect(c("egger", "wm", "smed", "mode", "smode"), used); detect <- intersect(c("presso", "radial", "radegger"), used)
   rows <- list(
     r("1", "AUTHOR", "Name the design, for example 'a two-sample Mendelian randomization study', in the title and abstract."),

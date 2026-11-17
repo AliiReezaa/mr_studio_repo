@@ -279,7 +279,8 @@ PIN_RADIALMR <- "7ca35c052489001890347871e38998ca53a02b03"
 
 .script_lines_head_pk <- function(a, spec) {
   h <- .script_lines_head(a, spec)
-  h[grepl("^# Package  :", h)] <- sprintf("# Package  : %s", paste(sprintf("%s commit %s", names(a$packages), unlist(a$packages)), collapse = "; "))
+  pins <- unlist(a$packages); kind <- ifelse(grepl("^[0-9]+(\\.[0-9]+)+$", pins), "version", "commit")   # Round 37: CRAN packages are pinned by version
+  h[grepl("^# Package  :", h)] <- sprintf("# Package  : %s", paste(sprintf("%s %s %s", names(a$packages), kind, pins), collapse = "; "))
   h
 }
 .script_lines_guard_pk <- function(spec, pkg) c(
@@ -635,3 +636,124 @@ ADAPTER_STEIGER_V11 <- mrgui_adapter(
     list(column = "ncase_y", level = "recommended", why = "Number of cases, for a binary outcome (also ncontrol_y). Same for a binary exposure (ncase_x, ncontrol_x).", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_CASES")),
     list(column = "prevalence_y", level = "recommended", why = "Population prevalence, for a binary outcome (prevalence_x for a binary exposure). Entered by the analyst.", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_PREVALENCE")),
     list(column = "eaf_y", level = "recommended", why = "Effect allele frequency, for a binary outcome (eaf_x for a binary exposure).", if_missing = list(action = "block", code = "FEAS_STEIGER_NEEDS_EAF"))))
+
+# ---- Round 37: debiased IVW (Ye, Shao and Kang 2021, Ann Stat 49:2079-2100, doi:10.1214/20-AOS2027) ------------------
+# MendelianRandomization::mr_divw from CRAN (conda-forge r-mendelianrandomization), pinned by its released version.
+PIN_MENDELIANRANDOMIZATION <- "0.10.0"
+.divw_disp_param_v11 <- list(dispersion = list(
+  type = "enum", default = "balanced", values = c("balanced", "none"),
+  value_labels = c(balanced = "Allow for balanced pleiotropy (standard)", none = "No pleiotropy"),
+  value_hints = c(balanced = "The standard error includes a term for balanced horizontal pleiotropy estimated from the data (over.dispersion = TRUE, the MendelianRandomization default).",
+                  none = "Assumes every variant is a valid instrument, so the standard error is smaller. Use it only with a strong reason."),
+  label = "Pleiotropy in the standard error",
+  hint = "Whether the standard error allows for balanced horizontal pleiotropy. The estimate is the same either way; only the standard error, interval and P value change.",
+  package_arg = "over.dispersion", kind = "enum", conventional = TRUE, advanced = FALSE,
+  evidence = "Ye et al. 2021 (Ann Stat, doi:10.1214/20-AOS2027); over.dispersion = TRUE is the default of MendelianRandomization::mr_divw.",
+  affects = c("se", "ci", "p")))
+DIVW_CONDITION_NOTE <- "(mean F - 1) x sqrt(number of variants); the package recommends more than 20 for a reliable interval and P value"
+
+ADAPTER_DIVW_V11 <- NULL
+ADAPTER_DIVW_V11 <- mrgui_adapter(
+  id = "divw", adapter_version = "1.1.0", label = "Debiased IVW", input_kind = "pair_iv", estimands = "causal_effect",
+  requires = list(min_ivs = 2, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE,
+                  needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .divw_disp_param_v11, .minf_param_v11),
+  check = function(input, params) {
+    d <- .usable(input$data)
+    if (nrow(d) < 2) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("Debiased IVW needs at least 2 usable instruments; %d available.", nrow(d))))
+    w <- .common_warnings(d)
+    verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+  },
+  run = function(input, params, ctx) {
+    d <- .usable(input$data)
+    fit <- MendelianRandomization::mr_divw(MendelianRandomization::mr_input(bx = d$beta_x, bxse = d$se_x, by = d$beta_y, byse = d$se_y),
+                                           over.dispersion = identical(params$dispersion, "balanced"), alpha = 1 - params$ci_level)
+    list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale,
+           fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, "wald", fit@Pvalue, as.integer(fit@SNPs), params$ci_level),
+         diagnostics = diagnostic_row("divw_condition", fit@Condition, NA_real_, NA_real_, DIVW_CONDITION_NOTE))
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_DIVW_V11, spec, params, seed, "MendelianRandomization", c(
+    "# ---- 5. Analysis: debiased inverse-variance weighted estimate (MendelianRandomization) ----",
+    "fit <- MendelianRandomization::mr_divw(",
+    "  MendelianRandomization::mr_input(bx = dat$beta_x, bxse = dat$se_x, by = dat$beta_y, byse = dat$se_y),",
+    "  over.dispersion = identical(dispersion, \"balanced\"),   # TRUE allows for balanced pleiotropy (package default)",
+    "  alpha = 1 - ci_level)   # normal interval: estimate +/- z * standard error",
+    "estimates <- data.frame(estimand = \"causal_effect\",",
+    paste0("  ", .est_cols(spec)),
+    "  estimate = fit@Estimate, se = fit@StdError, ci_lower = fit@CILower, ci_upper = fit@CIUpper,",
+    "  ci_level = ci_level, ci_method = \"wald\", p = fit@Pvalue, n_ivs_used = as.integer(fit@SNPs),",
+    "  stringsAsFactors = FALSE)",
+    sprintf("diagnostics <- data.frame(name = \"divw_condition\", value = fit@Condition, df = NA_real_, p = NA_real_, note = %s,", .q(DIVW_CONDITION_NOTE)),
+    "                          stringsAsFactors = FALSE)"),
+    "fixed seed (this method is deterministic; kept for the record)"),
+  column_requirements = .colreq_basic)
+
+# ---- Round 38: MR-RAPS (Zhao, Wang, Hemani, Bowden and Small 2020, Ann Stat 48:1742-1769, doi:10.1214/19-AOS1866) -----
+# mr.raps 0.4.3 from GitHub (qingyuanzhao/mr.raps, GPL-3), pinned by commit like MR-PRESSO; its imports come from conda-forge.
+# shrinkage = FALSE gives the published robust adjusted profile score estimator, as TwoSampleMR::mr_raps does by default.
+PIN_MRRAPS <- "dd79b5bd74d10b699503cdd226d70c726f11c796"
+.raps_disp_param_v11 <- list(raps_dispersion = list(
+  type = "enum", default = "balanced", values = c("balanced", "none"),
+  value_labels = c(balanced = "Allow for balanced pleiotropy (standard)", none = "No pleiotropy"),
+  value_hints = c(balanced = "Each variant may have its own pleiotropic effect, normally distributed around zero; its variance is estimated (over.dispersion = TRUE, the default of mr.raps and TwoSampleMR).",
+                  none = "Assumes every variant is a valid instrument (over.dispersion = FALSE). Use it only with a strong reason."),
+  label = "Pleiotropy model",
+  hint = "Whether the model allows for balanced horizontal pleiotropy. It changes the estimate a little and its standard error more.",
+  package_arg = "over.dispersion", kind = "enum", conventional = TRUE, advanced = FALSE,
+  evidence = "Zhao et al. 2020 (Ann Stat, doi:10.1214/19-AOS1866); over.dispersion = TRUE is the default of mr.raps and TwoSampleMR.",
+  affects = c("estimate", "se", "ci", "p")))
+.raps_loss_param_v11 <- list(loss = list(
+  type = "enum", default = "huber", values = c("huber", "tukey", "l2"),
+  value_labels = c(huber = "Huber (standard)", tukey = "Tukey biweight", l2 = "Squared error (not robust)"),
+  value_hints = c(huber = "Limits the influence of variants with large residuals (k = 1.345). Default of mr.raps and TwoSampleMR.",
+                  tukey = "Gives variants with very large residuals no influence at all (k = 4.685); more robust to a few strong outliers.",
+                  l2 = "Every variant keeps full influence: no protection against outlying variants."),
+  label = "Robust loss function",
+  hint = "How strongly variants with large residuals (possible outliers from pleiotropy) are down-weighted.",
+  package_arg = "loss.function", kind = "enum", conventional = TRUE, advanced = FALSE,
+  evidence = "Zhao et al. 2020; Huber loss is the default of mr.raps and TwoSampleMR::default_parameters().",
+  affects = c("estimate", "se", "ci", "p")))
+
+ADAPTER_RAPS_V11 <- NULL
+ADAPTER_RAPS_V11 <- mrgui_adapter(
+  id = "raps", adapter_version = "1.1.0", label = "MR-RAPS", input_kind = "pair_iv", estimands = "causal_effect",
+  requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE,
+                  needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(mr.raps = PIN_MRRAPS), stochastic = TRUE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .raps_disp_param_v11, .raps_loss_param_v11, .minf_param_v11),
+  check = function(input, params) {
+    d <- .usable(input$data)
+    if (nrow(d) < 3) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("MR-RAPS needs at least 3 usable instruments; %d available.", nrow(d))))
+    w <- .common_warnings(d)
+    verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+  },
+  run = function(input, params, ctx) {
+    d <- .usable(input$data)
+    RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(as.integer(ctx$seed))
+    fit <- suppressWarnings(mr.raps::mr.raps(data.frame(beta.exposure = d$beta_x, beta.outcome = d$beta_y, se.exposure = d$se_x, se.outcome = d$se_y),
+             diagnostics = FALSE, over.dispersion = identical(params$raps_dispersion, "balanced"), loss.function = params$loss, shrinkage = FALSE))
+    z <- stats::qnorm(1 - (1 - params$ci_level) / 2)
+    list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale,
+           fit$beta.hat, fit$beta.se, fit$beta.hat - z * fit$beta.se, fit$beta.hat + z * fit$beta.se, "wald",
+           2 * stats::pnorm(-abs(fit$beta.hat / fit$beta.se)), nrow(d), params$ci_level),
+         diagnostics = diagnostic_row("raps_overdispersion", fit$tau2.hat, NA_real_, NA_real_, sprintf("estimated variance of the pleiotropic effects (SE %s)", format(signif(fit$tau2.se, 4)))))
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_RAPS_V11, spec, params, seed, "mr.raps", c(
+    "# ---- 5. Analysis: MR-RAPS, robust adjusted profile score (mr.raps) -------------",
+    "fit <- suppressWarnings(mr.raps::mr.raps(",
+    "  data.frame(beta.exposure = dat$beta_x, beta.outcome = dat$beta_y, se.exposure = dat$se_x, se.outcome = dat$se_y),",
+    "  diagnostics = FALSE,",
+    "  over.dispersion = identical(raps_dispersion, \"balanced\"),   # TRUE allows for balanced pleiotropy (package default)",
+    "  loss.function = loss,                                   # robust loss: huber (default), tukey or l2",
+    "  shrinkage = FALSE))                                     # the published RAPS estimator, as TwoSampleMR::mr_raps",
+    "z <- stats::qnorm(1 - (1 - ci_level) / 2)   # normal interval, as in the paper",
+    "estimates <- data.frame(estimand = \"causal_effect\",",
+    paste0("  ", .est_cols(spec)),
+    "  estimate = fit$beta.hat, se = fit$beta.se, ci_lower = fit$beta.hat - z * fit$beta.se, ci_upper = fit$beta.hat + z * fit$beta.se,",
+    "  ci_level = ci_level, ci_method = \"wald\", p = 2 * stats::pnorm(-abs(fit$beta.hat / fit$beta.se)), n_ivs_used = nrow(dat),",
+    "  stringsAsFactors = FALSE)",
+    "diagnostics <- data.frame(name = \"raps_overdispersion\", value = fit$tau2.hat, df = NA_real_, p = NA_real_,",
+    "  note = sprintf(\"estimated variance of the pleiotropic effects (SE %s)\", format(signif(fit$tau2.se, 4))), stringsAsFactors = FALSE)"),
+    "fixed seed: mr.raps draws random starting values, so the same seed gives the same numbers"),
+  column_requirements = .colreq_basic)

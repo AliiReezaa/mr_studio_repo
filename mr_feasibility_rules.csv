@@ -20,6 +20,7 @@ data,R21,n_IV < min_ivs_recommended,WARN,"Runs, but low power/unstable with {n_i
 data,R21b,n_IV < 4 for IVW,WARN,"Runs, but heterogeneity cannot be estimated reliably with {n_iv} instruments.",Burgess 2023 (PMID 32760811)
 data,R22,n_IV > max_ivs,BLOCK (offer top-N subset),Method limited to {max_ivs} instruments.,package code
 data,R23,mean F-statistic < 10 (univariable) or conditional F < 10 (MVMR),WARN + RECOMMEND dIVW / pIVW / MR-RAPS / MRlap / MVMR-cML,Weak instruments detected.,Burgess 2011 (PMID 21414999); Sanderson 2021 (PMID 34338327)
+data,R23b,dIVW condition number (mean F - 1) x sqrt(n_IV) < 20,WARN,"dIVW interval and P value may be unreliable (condition number below 20).","Ye 2021 (Ann Stat, doi:10.1214/20-AOS2027)"
 data,R24,I²GX < 0.9 for MR-Egger family,WARN + RECOMMEND SIMEX / Radial-Egger,Egger estimate may be diluted (NOME violation).,Bowden 2016 (PMID 27616674)
 data,R24b,0.9 <= I²GX < 0.95 for radial MR-Egger,NOTE,Radial MR-Egger may be diluted by about 11% (MR Studio calibration).,Bowden 2016 (PMID 27616674); MR Studio calibration (Round 29)
 data,R25,significant Cochran Q,WARN + RECOMMEND random-effects / robust methods,Heterogeneity suggests pleiotropy.,Bowden 2017 (PMID 28114746)
