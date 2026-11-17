@@ -35,6 +35,7 @@ run_params <- function(x) {
   if (!is.null(x$tol)) out$tol <- as.numeric(x$tol)
   if (!is.null(x$psi)) out$psi <- as.numeric(x$psi)   # Round 40
   if (!is.null(x$ci_step)) out$ci_step <- as.numeric(x$ci_step)
+  if (!is.null(x$simex_b)) out$simex_b <- as.integer(round(as.numeric(x$simex_b)))   # Round 41
   if (!is.null(x$r_xxo)) out$r_xxo <- as.numeric(x$r_xxo)
   if (!is.null(x$r_yyo)) out$r_yyo <- as.numeric(x$r_yyo)
   # Round 38: every enum setting a method's schema declares is passed on, so a new method's choices are never dropped.
@@ -46,7 +47,7 @@ run_params <- function(x) {
 param_schemas <- function() {
   one <- function(ad) lapply(ad$params, function(p) list(label = p$label, hint = p$hint, min = p$min, max = p$max, default = p$default, type = p$type,
                                                          values = if (!is.null(p$values)) as.list(p$values), value_labels = if (!is.null(p$value_labels)) as.list(p$value_labels), value_hints = if (!is.null(p$value_hints)) as.list(p$value_hints)))
-  list(ivw_mre = one(ADAPTER_IVW_MRE_V11), egger = one(ADAPTER_EGGER_V11), divw = one(ADAPTER_DIVW_V11), raps = one(ADAPTER_RAPS_V11), conmix = one(ADAPTER_CONMIX_V11), lasso = one(ADAPTER_LASSO_V11), wm = one(ADAPTER_WM_V11), smed = one(ADAPTER_SMED_V11), mode = one(ADAPTER_MODE_V11), smode = one(ADAPTER_SMODE_V11), presso = one(ADAPTER_PRESSO_V11), radial = one(ADAPTER_RADIAL_V11), radegger = one(ADAPTER_RADEGGER_V11), steiger = one(ADAPTER_STEIGER_V11), loo = one(ADAPTER_LOO_V11))
+  list(ivw_mre = one(ADAPTER_IVW_MRE_V11), egger = one(ADAPTER_EGGER_V11), divw = one(ADAPTER_DIVW_V11), raps = one(ADAPTER_RAPS_V11), conmix = one(ADAPTER_CONMIX_V11), lasso = one(ADAPTER_LASSO_V11), egger_simex = one(ADAPTER_EGGER_SIMEX_V11), wm = one(ADAPTER_WM_V11), smed = one(ADAPTER_SMED_V11), mode = one(ADAPTER_MODE_V11), smode = one(ADAPTER_SMODE_V11), presso = one(ADAPTER_PRESSO_V11), radial = one(ADAPTER_RADIAL_V11), radegger = one(ADAPTER_RADEGGER_V11), steiger = one(ADAPTER_STEIGER_V11), loo = one(ADAPTER_LOO_V11))
 }
 
 mr_server <- function(engine_dir) {

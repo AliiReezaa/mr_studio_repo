@@ -142,10 +142,17 @@ jobs:
             export PATH="$RT:$RT/Library/bin:$RT/Library/mingw-w64/bin:$RT/Library/usr/bin:$(dirname "$RBIN"):$PATH"
           fi
           "$RBIN" --no-echo --no-restore --vanilla -e '
+            # simex 1.8 (Round 41, MR-Egger with SIMEX correction): CRAN source file, checked by SHA-256 before installing
+            sx <- file.path(tempdir(), "simex_1.8.tar.gz"); ok <- FALSE
+            for (u in c("https://cran.r-project.org/src/contrib/simex_1.8.tar.gz", "https://cran.r-project.org/src/contrib/Archive/simex/simex_1.8.tar.gz"))
+              if (!ok) ok <- !inherits(try(utils::download.file(u, sx, mode = "wb", quiet = TRUE), silent = TRUE), "try-error")
+            if (!ok || !identical(digest::digest(file = sx, algo = "sha256"), "80c7841196b9377a9367eb6960ad80ca0bf8de511b8b18a0031bfbe7bde289a0"))
+              stop("simex 1.8 source could not be downloaded or its checksum differs")
+            install.packages(sx, repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
             p <- Sys.getenv(c("PK_MRMIX", "PK_MRPRESSO", "PK_RADIALMR", "PK_MRRAPS", "PK_TWOSAMPLEMR"))   # dependency order
             install.packages(unname(p), repos = NULL, type = "source",
                              INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
-            for (n in c("MRMix", "MRPRESSO", "RadialMR", "mr.raps", "TwoSampleMR")) {
+            for (n in c("simex", "MRMix", "MRPRESSO", "RadialMR", "mr.raps", "TwoSampleMR")) {
               if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n)
               cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n))))
             }'

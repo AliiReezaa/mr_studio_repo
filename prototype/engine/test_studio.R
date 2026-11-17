@@ -948,6 +948,10 @@ expect("Round 38: run_params passes the enum settings of the new methods and ref
 expect("Round 40: contamination mixture and MR-Lasso are offered with their settings, citations and the R21 instrument-count warning",
        all(c("psi", "ci_step") %in% names(param_schemas()$conmix)) && "lasso_dist" %in% names(param_schemas()$lasso) && identical(METHOD_REFS$conmix, "burgess2020") && identical(METHOD_REFS$lasso, "rees2019") &&
        "R21" %in% rl(f3, "conmix") && "R21" %in% rl(f3, "lasso") && identical(run_params(list(psi = 2, ci_step = 0.001, lasso_dist = "t-dist"))[c("psi", "ci_step", "lasso_dist")], list(psi = 2, ci_step = 0.001, lasso_dist = "t-dist")))
+expect("Round 41: MR-Egger with SIMEX correction is offered with its citation, R21 coverage and as the R24 recommendation",
+       "simex_b" %in% names(param_schemas()$egger_simex) && identical(METHOD_REFS$egger_simex, "bowden2016i2") && "R21" %in% rl(f3, "egger_simex") &&
+       grepl("SIMEX correction (sensitivity analysis)", feas_rules()$recommend[feas_rules()$rule_id == "R24"], fixed = TRUE) && !any(grepl("SIMEX correction (NOT BUILT)", feas_rules()$recommend, fixed = TRUE)) &&
+       identical(run_params(list(simex_b = 300))$simex_b, 300L))
 r21m <- function(n, m) { r <- feasibility(list(mk(instruments = n)))$methods[[m]]$reasons; r[[which(vapply(r, `[[`, "", "rule") == "R21")]]$msg }
 expect("Round 35: R21 adds the median false-positive note for the weighted and simple median with 3 or 4 instruments only",
        grepl("about 10% instead of 5%", r21m(3, "wm")) && grepl("about 10% instead of 5%", r21m(4, "smed")) && !grepl("about 10%", r21m(5, "wm")) &&

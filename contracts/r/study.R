@@ -154,7 +154,28 @@ archive_pair_outputs <- function(study_dir, pair_dir) {
       moved <- TRUE
     }
   }
+  # Round 41: the moved files are no longer in the pair folder, so their manifest rows go too. Otherwise a later run
+  # sees a renumbered script (for example 05_loo.R that became 07_loo.R) as missing and stops with SCRIPT_USER_MODIFIED.
+  if (moved) {
+    m <- manifest_read(study_dir); rel <- .rel(study_dir, pair_dir)
+    gone <- startsWith(m$relative_path, paste0(rel, "/")) & !file.exists(file.path(study_dir, m$relative_path))
+    if (any(gone)) manifest_write(study_dir, m[!gone, , drop = FALSE])
+  }
   if (moved) dest else NA_character_
+}
+
+#' Round 41: studies saved before this fix can list files the app itself moved to archive/ (renumbered or dropped
+#' scripts). A listed file that is missing, but whose identical copy (same SHA-256) is in archive/ under this pair,
+#' was archived by the app, so its row is dropped. A file the analyst deleted has no such copy and is still reported.
+.manifest_heal_archived <- function(study_dir, pair_dir) {
+  m <- manifest_read(study_dir); rel <- .rel(study_dir, pair_dir)
+  miss <- which(startsWith(m$relative_path, paste0(rel, "/")) & !file.exists(file.path(study_dir, m$relative_path)))
+  if (!length(miss)) return(invisible(FALSE))
+  arch <- Sys.glob(file.path(study_dir, "archive", "run_*", basename(pair_dir), "*", "*"))
+  if (!length(arch)) return(invisible(FALSE))
+  ah <- vapply(arch, sha256_file, ""); drop <- miss[m$sha256[miss] %in% ah]
+  if (length(drop)) manifest_write(study_dir, m[-drop, , drop = FALSE])
+  invisible(length(drop) > 0)
 }
 
 #' Run the methods of one pair as generated scripts (C6.2, C8 task type `script`), read the results back,
@@ -190,6 +211,7 @@ run_script_task <- function(con, study_dir, pair_index, exposure_label, outcome_
   done_same <- vapply(plans, function(p) {
     t <- db_task(con, p$task_id); nrow(t) == 1L && t$state == "done" && identical(t$fingerprint, p$fp)
   }, logical(1))
+  .manifest_heal_archived(study_dir, pair_dir)   # Round 41: rows left behind by archiving in older versions
   chk <- manifest_check(study_dir)
   pair_rel <- paste0("03_pairs/", pair_id, "/")
   touched <- chk[startsWith(chk$relative_path, pair_rel) & chk$status %in% c("modified", "missing"), , drop = FALSE]

@@ -40,6 +40,7 @@ const METHODS = [
   { id: 'conmix', name: 'Contamination mixture', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'seconds', short: 'ConMix' },
   { id: 'lasso', name: 'MR-Lasso', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'instant', short: 'MR-Lasso' },
   { id: 'egger', name: 'MR-Egger', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'instant', short: 'MR-Egger' },
+  { id: 'egger_simex', name: 'MR-Egger with SIMEX correction', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'seconds', short: 'Egger (SIMEX)' },
   { id: 'wm', name: 'Weighted median', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'seconds', short: 'Weighted median' },
   { id: 'smed', name: 'Simple median', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'seconds', short: 'Simple median' },
   { id: 'mode', name: 'Weighted mode', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'seconds', short: 'Weighted mode' },
@@ -492,7 +493,7 @@ function vMethods() {
 }
 const PRESETS = { ci_level: [[0.9, '90%'], [0.95, '95%'], [0.99, '99%']], min_f: [[0, 'Off'], [10, '10']], nboot: [[500, '500'], [1000, '1000'], [5000, '5000']], phi: [[0.25, '0.25'], [0.5, '0.5'], [1, '1']], nbdist: [[1000, '1000'], [5000, '5000'], [10000, '10000']], signif: [[0.01, '0.01'], [0.05, '0.05']], alpha: [[0.001, '0.001'], [0.01, '0.01'], [0.05, '0.05']] };
 const MSHORT = (id) => { const m = METHODS.find((x) => x.id === id) || (id === 'steiger' ? STEIGER : null); return m ? m.short : id; };
-const MCOL = { ivw_mre: 'var(--accent)', divw: '#8fa3c8', raps: '#c9a46b', conmix: '#86b96a', lasso: '#c98ab8', egger: 'var(--warn)', wm: '#6aa7ff', smed: '#c58cff', mode: '#ff8fb1', smode: '#5fd0b8', presso: '#e6b422', radial: '#7bd36b', radegger: '#c9776b' };
+const MCOL = { ivw_mre: 'var(--accent)', divw: '#8fa3c8', raps: '#c9a46b', conmix: '#86b96a', lasso: '#c98ab8', egger_simex: '#e8a873', egger: 'var(--warn)', wm: '#6aa7ff', smed: '#c58cff', mode: '#ff8fb1', smode: '#5fd0b8', presso: '#e6b422', radial: '#7bd36b', radegger: '#c9776b' };
 const schOf = (k) => (S.schemas[S.custom] || {})[k] || (S.custom === 'ivw_mre' ? (S.schemas.steiger || {})[k] : undefined);
 const pcur = (k, p) => (S.params[k] == null ? p.default : S.params[k]);
 const pisdef = (k, p) => (p.type === 'double' ? Number(pcur(k, p)) === Number(p.default) : String(pcur(k, p)) === String(p.default));
@@ -527,6 +528,7 @@ const NOT_ADJUSTABLE = {
   raps: 'Not adjustable here: the empirical Bayes shrinkage variant of mr.raps (a later method); MR Studio runs the published estimator (shrinkage = FALSE), as TwoSampleMR does by default.',
   conmix: 'Not adjustable here: the search range of the grid (CIMin, CIMax), which the package sets from the data. The method gives no standard error.',
   lasso: 'Not adjustable here: the tuning parameter lambda, which the package chooses by its heterogeneity stopping rule (reported in the diagnostics).',
+  egger_simex: 'Not adjustable here: the extrapolation (quadratic, as in Bowden et al. 2016) and the amounts of added error (the simex defaults 0.5, 1, 1.5 and 2). A sensitivity analysis for MR-Egger when I2GX is below 0.9; it corrects less well with weak instruments.',
   smed: 'The simple median in TwoSampleMR has no other adjustable arguments: all variants get equal weight. At least half of the variants must be valid instruments.',
   mode: 'Besides the bootstrap size and the bandwidth multiplier, the weighted mode in TwoSampleMR has no other adjustable arguments. The NOME variant is a separate method and is not built.',
   presso: 'Besides the number of simulated datasets and the significance threshold, MR-PRESSO has no other adjustable arguments in this app. The outlier test and the distortion test are always run, because the outlier list is what the Instrument review screen uses. MR-PRESSO can take several minutes with many variants.',

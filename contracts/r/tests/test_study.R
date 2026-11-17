@@ -140,5 +140,25 @@ DBI::dbDisconnect(con2)
 
 # keep the first pair for the cross-OS comparison
 dir.create(file.path(dirname(out_dir), "keep"), showWarnings = FALSE)
+# ---- Round 41: adding methods renumbers the scripts; the archived ones must leave the manifest ----
+st41 <- study_create(file.path(out_dir, "Renumber"))
+c41 <- db_open(file.path(st41, ".engine"))
+three <- list(list(adapter = ADAPTER_IVW_MRE_V11, input = input, params = list()), list(adapter = ADAPTER_EGGER_V11, input = input, params = list()),
+              list(adapter = ADAPTER_WM_V11, input = input, params = list(nboot = 100L)))
+invisible(run_script_task(c41, st41, 1, "A", "B", mk(), replay = FALSE))                       # 01 ivw, 02 egger
+invisible(run_script_task(c41, st41, 1, "A", "B", three, replay = FALSE))                      # adds 03 wm: earlier outputs archived
+e41 <- err_of(run_script_task(c41, st41, 1, "A", "B", mk(0.9), replay = FALSE))               # settings change again
+m41 <- manifest_read(st41); pr41 <- m41$relative_path[startsWith(m41$relative_path, "03_pairs/")]
+expect("Round 41: a run after scripts were renumbered and archived does not report them as changed outside the app",
+       is.na(e41) && all(file.exists(file.path(st41, pr41))) && !any(grepl("03_wm\\.R$", pr41)))
+m41b <- manifest_read(st41); stale <- m41b[1, ]; stale$relative_path <- sub("[^/]+$", "09_old_copy.R", m41b$relative_path[grepl("02_scripts/01_", m41b$relative_path)][1])
+stale$sha256 <- sha256_file(Sys.glob(file.path(st41, "archive", "run_*", "*", "02_scripts", "01_*.R"))[1]); manifest_write(st41, rbind(m41b, stale))
+e41b <- err_of(run_script_task(c41, st41, 1, "A", "B", mk(0.8), replay = FALSE))
+expect("Round 41: a row left by archiving in an older version is healed (its copy is in archive/)", is.na(e41b) && !any(grepl("09_old_copy", manifest_read(st41)$relative_path)))
+m41c <- manifest_read(st41); fake <- m41c[1, ]; fake$relative_path <- sub("[^/]+$", "10_mine.R", m41c$relative_path[grepl("02_scripts/01_", m41c$relative_path)][1]); fake$sha256 <- strrep("a", 64)
+manifest_write(st41, rbind(m41c, fake))
+expect("Round 41: a file the analyst deleted (no copy in archive/) is still reported", grepl("SCRIPT_USER_MODIFIED", err_of(run_script_task(c41, st41, 1, "A", "B", mk(0.7), replay = FALSE))))
+DBI::dbDisconnect(c41)
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail))
 quit(status = if (n_fail) 1L else 0L)

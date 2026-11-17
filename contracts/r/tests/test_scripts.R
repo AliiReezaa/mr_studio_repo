@@ -239,6 +239,20 @@ expect("lasso: the t distribution widens the interval and keeps the estimate", a
 expect("conmix and lasso: replay is identical", identical(replay_check(pair40, c("conmix", "lasso"), st40)$status, "identical"))
 expect("conmix and lasso schemas complete", length(validate_param_schema(ADAPTER_CONMIX_V11)) == 0 && length(validate_param_schema(ADAPTER_LASSO_V11)) == 0)
 
+# ---- Round 41: MR-Egger with SIMEX correction ----
+pair41 <- file.path(out_dir, "P41_egger_simex")
+m41 <- list(list(adapter = ADAPTER_EGGER_SIMEX_V11, input = input10, params = list(simex_b = 200L)))
+materialise_pair(pair41, m41, SEED)
+run41 <- run_in_dir(pair41, run_pair_script(pair41))
+expect("egger_simex: master script runs in a fresh R", run41$status == 0L)
+o41 <- ADAPTER_EGGER_SIMEX_V11$run(input10, resolve_params(ADAPTER_EGGER_SIMEX_V11, m41[[1]]$params), list(seed = SEED)); r41 <- read_method_results(pair41, "egger_simex")
+expect("egger_simex: script result equals oracle (1e-12)", cmp(r41$estimates, o41$estimates) && cmp(r41$diagnostics, o41$diagnostics))
+eg41 <- TwoSampleMR::mr_egger_regression(dat10$beta_x, dat10$beta_y, dat10$se_x, dat10$se_y, TwoSampleMR::default_parameters())
+expect("egger_simex: the uncorrected slope equals the TwoSampleMR MR-Egger estimate", abs(r41$diagnostics$value[r41$diagnostics$name == "simex_uncorrected_slope"] - eg41$b) < 1e-10)
+expect("egger_simex: replay is identical", identical(replay_check(pair41, "egger_simex", list(egger_simex = r41))$status, "identical"))
+sc41 <- readLines(list.files(file.path(pair41, "02_scripts"), pattern = "egger_simex", full.names = TRUE)[1], n = 12)
+expect("egger_simex: script header pins simex by its CRAN version, schema complete", any(grepl("^# Package  : simex version 1\\.8$", sc41)) && length(validate_param_schema(ADAPTER_EGGER_SIMEX_V11)) == 0)
+
 # ---- Round 15: Steiger directionality (diagnostic-only) ----
 pair15 <- file.path(out_dir, "P15_steiger")
 m15 <- list(list(adapter = ADAPTER_STEIGER_V11, input = input10, params = list(r_xxo = 0.9, r_yyo = 0.95)))

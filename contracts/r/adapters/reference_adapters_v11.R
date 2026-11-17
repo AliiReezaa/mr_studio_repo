@@ -922,3 +922,60 @@ ADAPTER_LASSO_V11 <- mrgui_adapter(
     "           \"penalised regression estimate before the post-lasso IVW step\"), stringsAsFactors = FALSE)"),
     "fixed seed (this method is deterministic; kept for the record)"),
   column_requirements = .colreq_basic)
+
+# ---- Round 41: MR-Egger with SIMEX correction (Bowden et al. 2016, Int J Epidemiol 45:1961-1974, PMID 27616674) ------
+# Variants oriented to a positive exposure effect, MR-Egger as a regression weighted by 1/se_y^2, and simulation
+# extrapolation (simex package, quadratic extrapolation) on the exposure effects with their standard errors as the
+# measurement error, as in the paper. simex 1.8 (CRAN, GPL-3, base R only) is installed from its CRAN source file, checked by SHA-256.
+PIN_SIMEX <- "1.8"
+.simex_b_param_v11 <- list(simex_b = list(
+  type = "integer", default = 100L, min = 50L, max = 10000L,
+  label = "Simulations per step",
+  hint = "Number of simulated data sets for each amount of added measurement error. 100 is the default of the simex package; more gives a smoother extrapolation and takes longer.",
+  package_arg = "B", kind = "int", conventional = TRUE, advanced = TRUE,
+  evidence = "simex::simex default (B = 100); Bowden et al. 2016 (PMID 27616674) used the simex package with quadratic extrapolation.",
+  affects = c("estimate", "se", "ci", "p")))
+.simex_core <- function(d, simex_b, ci_level) {
+  eg <- data.frame(BXG = abs(d$beta_x), BYG = d$beta_y * sign(d$beta_x)); k <- nrow(d)
+  # simex refits the model with update(), which looks up the weights in the global environment only (as in a script
+  # run at top level); the weights are placed there for the call and removed afterwards.
+  assign(".mrgui_simex_w", 1 / d$se_y^2, envir = globalenv()); on.exit(rm(".mrgui_simex_w", envir = globalenv()), add = TRUE)
+  fit <- eval(quote(stats::lm(BYG ~ BXG, data = eg, weights = .mrgui_simex_w, x = TRUE, y = TRUE)))
+  sim <- simex::simex(fit, SIMEXvariable = "BXG", measurement.error = d$se_x, B = simex_b, fitting.method = "quadratic", jackknife.estimation = "quadratic", asymptotic = FALSE)
+  cf <- summary(sim)$coefficients$jackknife; tq <- stats::qt(1 - (1 - ci_level) / 2, k - 2)
+  list(b = cf["BXG", 1], se = cf["BXG", 2], p = cf["BXG", 4], lo = cf["BXG", 1] - tq * cf["BXG", 2], hi = cf["BXG", 1] + tq * cf["BXG", 2], k = k,
+       b0 = unname(stats::coef(fit)["BXG"]), int = cf["(Intercept)", 1], int_p = cf["(Intercept)", 4])
+}
+ADAPTER_EGGER_SIMEX_V11 <- NULL
+ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
+  id = "egger_simex", adapter_version = "1.1.0", label = "MR-Egger with SIMEX correction", input_kind = "pair_iv", estimands = "causal_effect",
+  requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(simex = PIN_SIMEX), stochastic = TRUE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .simex_b_param_v11, .minf_param_v11),
+  check = .mr_pkg_check("MR-Egger with SIMEX correction", 3L),
+  run = function(input, params, ctx) {
+    d <- .usable(input$data); RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(as.integer(ctx$seed))
+    r <- .simex_core(d, params$simex_b, params$ci_level)
+    list(estimates = estimate_row("causal_effect", input$exposure_id, input$outcome_id, input$outcome_scale, r$b, r$se, r$lo, r$hi, "wald_t", r$p, as.integer(r$k), params$ci_level),
+         diagnostics = rbind(diagnostic_row("simex_uncorrected_slope", r$b0, NA_real_, NA_real_, "weighted MR-Egger slope before the correction"),
+                             diagnostic_row("simex_intercept", r$int, NA_real_, r$int_p, "SIMEX-corrected MR-Egger intercept (directional pleiotropy)")))
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_EGGER_SIMEX_V11, spec, params, seed, "simex", c(
+    "# ---- 5. Analysis: MR-Egger with SIMEX correction (Bowden et al. 2016) ---------",
+    "eg <- data.frame(BXG = abs(dat$beta_x), BYG = dat$beta_y * sign(dat$beta_x))   # variants oriented to a positive exposure effect",
+    "w <- 1 / dat$se_y^2   # weights; kept outside 'eg' because simex refits the model with update() at top level",
+    "fit <- stats::lm(BYG ~ BXG, data = eg, weights = w, x = TRUE, y = TRUE)   # weighted MR-Egger regression",
+    "sim <- simex::simex(fit, SIMEXvariable = \"BXG\", measurement.error = dat$se_x, B = simex_b,",
+    "  fitting.method = \"quadratic\", jackknife.estimation = \"quadratic\", asymptotic = FALSE)",
+    "cf <- summary(sim)$coefficients$jackknife  # jackknife standard errors",
+    "tq <- stats::qt(1 - (1 - ci_level) / 2, nrow(dat) - 2)   # t interval on k - 2 degrees of freedom, as MR-Egger",
+    "estimates <- data.frame(estimand = \"causal_effect\",",
+    paste0("  ", .est_cols(spec)),
+    "  estimate = cf[\"BXG\", 1], se = cf[\"BXG\", 2], ci_lower = cf[\"BXG\", 1] - tq * cf[\"BXG\", 2], ci_upper = cf[\"BXG\", 1] + tq * cf[\"BXG\", 2],",
+    "  ci_level = ci_level, ci_method = \"wald_t\", p = cf[\"BXG\", 4], n_ivs_used = nrow(dat),",
+    "  stringsAsFactors = FALSE)",
+    "diagnostics <- data.frame(name = c(\"simex_uncorrected_slope\", \"simex_intercept\"),",
+    "  value = c(unname(stats::coef(fit)[\"BXG\"]), cf[\"(Intercept)\", 1]), df = NA_real_, p = c(NA_real_, cf[\"(Intercept)\", 4]),",
+    "  note = c(\"weighted MR-Egger slope before the correction\", \"SIMEX-corrected MR-Egger intercept (directional pleiotropy)\"), stringsAsFactors = FALSE)"),
+    "fixed seed: SIMEX adds simulated measurement error, so the same seed gives the same numbers"),
+  column_requirements = .colreq_basic)
