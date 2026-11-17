@@ -1115,4 +1115,18 @@ expect("Round 42: the radial Methods phrase says Bonferroni unless the correctio
 ui_state_set(h42$con, "outliers", list(rec42)); back42 <- ui_state_get(h42$con, "outliers")[[1]]
 expect("Round 42: the saved outlier record keeps small P values (study state is stored at full precision)", isTRUE(abs(back42$scenarios[[1]]$q_p - rec42$scenarios[[1]]$q_p) <= 1e-12 * max(1, rec42$scenarios[[1]]$q_p)) && rec42$scenarios[[1]]$q_p < 1e-4)
 
+# ---- Round 43: dominant variant and leave-subset-out checks (FR-105), R25 and R26 advice ----
+sf43 <- subset_facts(p39); w43 <- d39$beta_x^2 / d39$se_y^2
+expect("Round 43: the strongest variant's share of the IVW weight is stored with its leave-one-out estimate", !is.null(sf43) && identical(sf43$dom_id, d39$variant_id[which.max(w43)]) && abs(sf43$dom_share - max(w43) / sum(w43)) < 1e-12 && is.finite(sf43$dom_without))
+expect("Round 43: leave-subset-out runs with 10 or more variants and replays identically (fixed seed)", sf43$lso && sf43$lso_n == 200L && sf43$lso_lo <= sf43$lso_med && sf43$lso_med <= sf43$lso_hi && sf43$lso_min <= sf43$lso_lo && identical(p39$replay$status, "identical"))
+sd43 <- as.integer(sub("^set\\.seed\\(([0-9]+)\\)$", "\\1", grep("^set\\.seed\\(", readLines(Sys.glob(file.path(h39$dir, "03_pairs", r39$pair_folder, "02_scripts", "*loo*.R"))[1]), value = TRUE)[1]))
+RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(sd43); dd43 <- .loo_core(d39, "mre_floor")
+expect("Round 43: the stored quantiles equal a recomputation with the seed written in the script", is.finite(sd43) && abs(dd43$value[dd43$name == "lso_median"] - sf43$lso_med) < 1e-12)
+lp43 <- .loo_core(d39[1:6, ], "mre_floor")
+expect("Round 43: fewer than 10 variants give the dominant share but no leave-subset-out", "dominant_share" %in% lp43$name && !any(grepl("^lso_", lp43$name)))
+expect("Round 43: Results text reports the strongest variant and the leave-subset-out spread", any(grepl("The strongest variant, .* carried .*% of the total IVW weight", t39$results)) && any(grepl("Leaving out random subsets", t39$results)))
+fr43 <- feas_rules()
+expect("Round 43: R25 names MR-RAPS, contamination mixture, MR-Lasso and the outlier analysis; R26 leaves out MR-RAPS (balanced pleiotropy only)",
+       all(vapply(c("MR-RAPS", "contamination mixture", "MR-Lasso", "outlier analysis"), function(k) grepl(k, fr43$recommend[fr43$rule_id == "R25"], fixed = TRUE), TRUE)) && !grepl("MR-RAPS", fr43$recommend[fr43$rule_id == "R26"]) && grepl("MR-Lasso", fr43$recommend[fr43$rule_id == "R26"]))
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

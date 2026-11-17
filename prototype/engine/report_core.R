@@ -172,6 +172,17 @@ loo_facts <- function(cx) {
   b <- g("loo_estimate"); if (!nrow(b)) return(NULL); se <- g("loo_se"); w <- g("wald_ratio"); ws <- g("wald_ratio_se")
   data.frame(id = b$id, loo_b = b$v, loo_se = se$v[match(b$id, se$id)], loo_p = b$p, wr = w$v[match(b$id, w$id)], wr_se = ws$v[match(b$id, ws$id)], wr_p = w$p[match(b$id, w$id)], stringsAsFactors = FALSE)
 }
+#' Round 43 (FR-105): the dominant-variant and leave-subset-out rows of the leave-one-out task, or NULL.
+subset_facts <- function(pay) {
+  dg <- Filter(function(d) identical(d$method, "loo"), pay$diagnostics); g <- function(n) { x <- Filter(function(d) identical(d$name, n), dg); if (length(x)) x[[1]] else NULL }
+  dm <- g("dominant_share"); if (is.null(dm)) return(NULL)
+  lb <- Filter(function(d) identical(d$name, "loo_estimate") && identical(as.character(d$note), as.character(dm$note)), dg)
+  r <- g("lso_repeats"); v <- function(n) { x <- g(n); if (is.null(x)) NA_real_ else as.numeric(x$value) }
+  list(dom_id = as.character(dm$note), dom_share = as.numeric(dm$value), dom_without = if (length(lb)) as.numeric(lb[[1]]$value) else NA_real_,
+       lso = !is.null(r), lso_n = if (is.null(r)) NA_integer_ else as.integer(r$value), lso_note = if (is.null(r)) "" else as.character(r$note),
+       lso_lo = v("lso_q025"), lso_med = v("lso_median"), lso_hi = v("lso_q975"), lso_min = v("lso_min"), lso_max = v("lso_max"))
+}
+
 .MCOL <- c(ivw_mre = "#2b3fc7", divw = "#5b6b8c", raps = "#7a5c2e", conmix = "#4f7a3a", lasso = "#7a3a6b", egger_simex = "#d4874f", egger = "#b5541c", wm = "#2f7fd6", smed = "#8c4fd6", mode = "#d6407a", smode = "#2a9d8f", presso = "#b8860b", radial = "#3d9a38", radegger = "#a04a3d")
 .fig_write <- function(base, w_mm, h_mm, draw) {
   w <- w_mm / 25.4; h <- h_mm / 25.4; out <- character()
@@ -409,6 +420,9 @@ report_text <- function(ctxs, study_name) {
       if (length(flip)) sprintf("Leaving out %s reversed the direction of the estimate.", nm(flip)) else "No single variant reversed the direction of the estimate.",
       if (iv$p[1] < 0.05) (if (length(lost)) sprintf(" Leaving out %s raised its P value to 0.05 or above.", nm(lost)) else " Its P value stayed below 0.05 whichever variant was left out.") else "",
       2L * sn - 1L, 2L * sn))
+    sf2 <- subset_facts(cx$pay)   # Round 43 (FR-105)
+    if (!is.null(sf2)) txt$results <- c(txt$results, paste0(sprintf("The strongest variant, %s, carried %s%% of the total IVW weight; without it the estimate was %s.", sf2$dom_id, .fnum(100 * sf2$dom_share, 1), .fnum(sf2$dom_without)),
+      if (sf2$lso) sprintf(" Leaving out random subsets (%s, %d repeats with a fixed seed), 95%% of the IVW estimates lay between %s and %s (median %s; range %s to %s) [Burgess 2023].", sf2$lso_note, sf2$lso_n, .fnum(sf2$lso_lo), .fnum(sf2$lso_hi), .fnum(sf2$lso_med), .fnum(sf2$lso_min), .fnum(sf2$lso_max)) else ""))
     ln <- intersect(c("ivw_mre", "egger"), cx$ce$method)
     txt$supp[[i]] <- c(sprintf("Supplementary Figure S%d. Leave-one-out analysis of %s on %s: the IVW estimate with each variant left out in turn, with %s confidence intervals; the bottom row uses all %d variants.%s", 2L * sn - 1L, cx$p$exName, cx$p$outName, .pct(iv$ci_level[1]), nrow(lf),
                          if (nrow(lf) > LOO_PLOT_MAX) sprintf(" Only the %d variants whose removal changed the estimate most are shown; all %d are in the supplementary table.", LOO_PLOT_SHOWN, nrow(lf)) else ""),

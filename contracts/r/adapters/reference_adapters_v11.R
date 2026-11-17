@@ -781,7 +781,26 @@ ADAPTER_RAPS_V11 <- mrgui_adapter(
 # TwoSampleMR function as the primary analysis (setting ivw_model, shared with the IVW card). Single-variant: the Wald
 # ratio of each variant (TwoSampleMR::mr_wald_ratio, first-order standard error), which the funnel plot shows.
 # Every number is a diagnostics row keyed by the variant in `note`, so the replay check compares all of them.
-.loo_core <- function(d, ivw_model) {
+# Round 43 (FR-105, Burgess et al. guidelines): the share of the total IVW weight carried by the strongest variant (first-order
+# weights beta_x^2 / se_y^2; its leave-one-out estimate is the estimate without it), and, with 10 or more variants, repeated
+# leave-out of random subsets (a fraction at a time, a fixed number of repeats, drawn with the script's seed) summarised by
+# quantiles of the IVW estimate. The 10-variant floor, 30% and 200 repeats are [design] defaults.
+.lso_frac_param_v11 <- list(lso_fraction = list(
+  type = "double", default = 0.3, min = 0.05, max = 0.5,
+  label = "Leave-subset-out: share left out each time",
+  hint = "Share of the variants left out at random in each repeat of the leave-subset-out check (runs with 10 or more variants).",
+  package_arg = NA_character_, kind = "float", conventional = FALSE, advanced = TRUE,
+  evidence = "Burgess et al. guidelines (PMID 32760811) suggest leaving out subsets when there are many variants; 30% is an MR Studio design default.",
+  affects = c("diagnostics")))
+.lso_rep_param_v11 <- list(lso_repeats = list(
+  type = "integer", default = 200L, min = 50L, max = 5000L,
+  label = "Leave-subset-out: repeats",
+  hint = "Number of random subsets left out. More repeats give steadier quantiles and take longer.",
+  package_arg = NA_character_, kind = "integer", conventional = FALSE, advanced = TRUE,
+  evidence = "MR Studio design default (200), drawn with the fixed seed written in the script.",
+  affects = c("diagnostics")))
+
+.loo_core <- function(d, ivw_model, lso_fraction = 0.3, lso_repeats = 200L) {
   fit_fun <- switch(ivw_model %||% "mre_floor", mre_floor = TwoSampleMR::mr_ivw, mre = TwoSampleMR::mr_ivw_mre, fixed = TwoSampleMR::mr_ivw_fe)
   k <- nrow(d); row <- function(n, v, p, id) data.frame(name = n, value = as.double(v), df = NA_real_, p = as.double(p), note = id, stringsAsFactors = FALSE)
   out <- list(row("loo_variants", k, NA_real_, NA_character_))
@@ -791,6 +810,15 @@ ADAPTER_RAPS_V11 <- mrgui_adapter(
     out[[length(out) + 1L]] <- rbind(row("loo_estimate", r$b, r$pval, d$variant_id[i]), row("loo_se", r$se, NA_real_, d$variant_id[i]),
                                      row("wald_ratio", w$b, w$pval, d$variant_id[i]), row("wald_ratio_se", w$se, NA_real_, d$variant_id[i]))
   }
+  wt <- d$beta_x^2 / d$se_y^2; top <- which.max(wt)
+  out[[length(out) + 1L]] <- row("dominant_share", wt[top] / sum(wt), NA_real_, d$variant_id[top])
+  if (k >= 10) {
+    m <- max(1L, floor(lso_fraction * k)); b <- vapply(seq_len(lso_repeats), function(j) { o <- sample.int(k, m); fit_fun(d$beta_x[-o], d$beta_y[-o], d$se_x[-o], d$se_y[-o])$b }, 0)
+    q <- stats::quantile(b, c(0.025, 0.5, 0.975), names = FALSE)
+    out[[length(out) + 1L]] <- rbind(row("lso_repeats", lso_repeats, NA_real_, sprintf("%d of %d variants left out each time", m, k)),
+      row("lso_q025", q[1], NA_real_, NA_character_), row("lso_median", q[2], NA_real_, NA_character_), row("lso_q975", q[3], NA_real_, NA_character_),
+      row("lso_min", min(b), NA_real_, NA_character_), row("lso_max", max(b), NA_real_, NA_character_))
+  }
   do.call(rbind, out)
 }
 
@@ -799,8 +827,8 @@ ADAPTER_LOO_V11 <- mrgui_adapter(
   id = "loo", adapter_version = "1.1.0", label = "Leave-one-out and single-variant analyses", input_kind = "pair_iv", estimands = character(0),
   requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE,
                   needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
-  packages = list(TwoSampleMR = "5e93ee7d8e1f67581acb8134299759389d73efba"), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
-  params = c(.ivw_model_param_v11, .minf_param_v11),
+  packages = list(TwoSampleMR = "5e93ee7d8e1f67581acb8134299759389d73efba"), stochastic = TRUE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ivw_model_param_v11, .lso_frac_param_v11, .lso_rep_param_v11, .minf_param_v11),
   diagnostic_only = TRUE,
   check = function(input, params) {
     d <- .usable(input$data)
@@ -808,7 +836,8 @@ ADAPTER_LOO_V11 <- mrgui_adapter(
     w <- .common_warnings(d)
     verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
   },
-  run = function(input, params, ctx) list(estimates = .steiger_empty_estimates(), diagnostics = .loo_core(.usable(input$data), params$ivw_model)),
+  run = function(input, params, ctx) { RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(as.integer(ctx$seed))
+    list(estimates = .steiger_empty_estimates(), diagnostics = .loo_core(.usable(input$data), params$ivw_model, params$lso_fraction, as.integer(params$lso_repeats))) },
   emit_script = function(spec, params, seed) .detector_emit(ADAPTER_LOO_V11, spec, params, seed, "TwoSampleMR", c(
     "# ---- 5. Analysis: leave-one-out IVW and single-variant Wald ratios (TwoSampleMR) ----",
     "fit_fun <- switch(ivw_model,                # the same IVW model as the primary analysis",
@@ -821,11 +850,21 @@ ADAPTER_LOO_V11 <- mrgui_adapter(
     "  out[[length(out) + 1L]] <- rbind(row(\"loo_estimate\", r$b, r$pval, dat$variant_id[i]), row(\"loo_se\", r$se, NA_real_, dat$variant_id[i]),",
     "                                   row(\"wald_ratio\", w$b, w$pval, dat$variant_id[i]), row(\"wald_ratio_se\", w$se, NA_real_, dat$variant_id[i]))",
     "}",
+    "k <- nrow(dat); wt <- dat$beta_x^2 / dat$se_y^2; top <- which.max(wt)   # first-order IVW weights",
+    "out[[length(out) + 1L]] <- row(\"dominant_share\", wt[top] / sum(wt), NA_real_, dat$variant_id[top])   # strongest variant's share of the weight",
+    "if (k >= 10) {   # leave-subset-out: random subsets left out, drawn with the seed above",
+    "  m <- max(1L, floor(lso_fraction * k))",
+    "  b <- vapply(seq_len(lso_repeats), function(j) { o <- sample.int(k, m); fit_fun(dat$beta_x[-o], dat$beta_y[-o], dat$se_x[-o], dat$se_y[-o])$b }, 0)",
+    "  q <- stats::quantile(b, c(0.025, 0.5, 0.975), names = FALSE)",
+    "  out[[length(out) + 1L]] <- rbind(row(\"lso_repeats\", lso_repeats, NA_real_, sprintf(\"%d of %d variants left out each time\", m, k)),",
+    "    row(\"lso_q025\", q[1], NA_real_, NA_character_), row(\"lso_median\", q[2], NA_real_, NA_character_), row(\"lso_q975\", q[3], NA_real_, NA_character_),",
+    "    row(\"lso_min\", min(b), NA_real_, NA_character_), row(\"lso_max\", max(b), NA_real_, NA_character_))",
+    "}",
     "diagnostics <- do.call(rbind, out)   # one row per variant and quantity; the variant is in 'note'",
     "estimates <- data.frame(estimand = character(0), exposure_id = character(0), outcome_id = character(0), scale = character(0),",
     "  estimate = numeric(0), se = numeric(0), ci_lower = numeric(0), ci_upper = numeric(0), ci_level = numeric(0),",
     "  ci_method = character(0), p = numeric(0), n_ivs_used = integer(0), stringsAsFactors = FALSE)   # diagnostic only"),
-    "fixed seed (this analysis is deterministic; kept for the record)"),
+    "fixed seed: the leave-subset-out check draws its random subsets with this seed"),
   column_requirements = .colreq_basic)
 
 # ---- Round 40: contamination mixture (Burgess et al. 2020, Nat Commun 11:376, PMID 31953392) and MR-Lasso ------------

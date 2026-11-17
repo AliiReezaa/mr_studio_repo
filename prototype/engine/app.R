@@ -36,6 +36,8 @@ run_params <- function(x) {
   if (!is.null(x$psi)) out$psi <- as.numeric(x$psi)   # Round 40
   if (!is.null(x$ci_step)) out$ci_step <- as.numeric(x$ci_step)
   if (!is.null(x$simex_b)) out$simex_b <- as.integer(round(as.numeric(x$simex_b)))   # Round 41
+  if (!is.null(x$lso_fraction)) out$lso_fraction <- as.numeric(x$lso_fraction)   # Round 43
+  if (!is.null(x$lso_repeats)) out$lso_repeats <- as.integer(round(as.numeric(x$lso_repeats)))
   if (!is.null(x$r_xxo)) out$r_xxo <- as.numeric(x$r_xxo)
   if (!is.null(x$r_yyo)) out$r_yyo <- as.numeric(x$r_yyo)
   # Round 38: every enum setting a method's schema declares is passed on, so a new method's choices are never dropped.

@@ -575,6 +575,13 @@ function steigerNotRun() {
   return 'It was not part of this run. Check the direction test in the IVW card on the Methods screen, then run again.';
 }
 // Round 39: leave-one-out summary tile (same rule as the draft Results text: direction and P < 0.05 with each variant left out).
+// Round 43 (FR-105): the strongest variant's share of the weight and the leave-subset-out spread, from the leave-one-out task.
+function subsetText(pay) {
+  const g = (n) => ((pay && pay.diagnostics) || []).find((d) => d.method === 'loo' && d.name === n), dm = g('dominant_share'); if (!dm) return '';
+  const wo = ((pay.diagnostics) || []).find((d) => d.method === 'loo' && d.name === 'loo_estimate' && d.note === dm.note), r = g('lso_repeats');
+  return ' Strongest variant ' + esc(dm.note) + ' carries ' + fx(100 * Number(dm.value), 1) + '% of the weight' + (wo ? ' (without it ' + fx(wo.value, 3) + ')' : '') + '.' +
+    (r ? ' Leaving out ' + esc(String(r.note).replace(' left out each time', '')) + ' at random, ' + r.value + ' times: 95% of estimates ' + fx(g('lso_q025').value, 3) + ' to ' + fx(g('lso_q975').value, 3) + '.' : '');
+}
 function looTile(pay, tile) {
   const dg = ((pay && pay.diagnostics) || []).filter((d) => d.method === 'loo' && d.name === 'loo_estimate');
   const iv = ((pay && pay.estimates) || []).find((e) => e.method === 'ivw_mre' && e.estimand === 'causal_effect');
@@ -583,7 +590,7 @@ function looTile(pay, tile) {
   const flip = v.filter((x) => Math.sign(x) !== Math.sign(full)).length, chg = Math.max.apply(null, v.map((x) => Math.abs(x - full))) / Math.abs(full);
   const lost = Number(iv.p) < 0.05 ? dg.filter((d) => d.p != null && Number(d.p) >= 0.05).length : 0, ok = !flip && !lost;
   return tile('Leave-one-out', '<div style="font-size:20px;font-weight:600;margin:12px 0 2px;color:' + (ok ? 'var(--accent)' : 'var(--warn)') + '">' + (ok ? 'Stable' : 'Depends on single variants') + '</div>',
-    '<div style="font-size:12px;color:var(--mute)">IVW without each of ' + dg.length + ' variants: ' + fx(lo, 3) + ' to ' + fx(hi, 3) + ' (all: ' + fx(full, 3) + '); largest change ' + fx(100 * chg, 1) + '%.' + (flip ? ' ' + flip + ' reverse the direction.' : '') + (lost ? ' ' + lost + ' raise P to 0.05 or above.' : '') + ' Plots are in the publication package.</div>');
+    '<div style="font-size:12px;color:var(--mute)">IVW without each of ' + dg.length + ' variants: ' + fx(lo, 3) + ' to ' + fx(hi, 3) + ' (all: ' + fx(full, 3) + '); largest change ' + fx(100 * chg, 1) + '%.' + (flip ? ' ' + flip + ' reverse the direction.' : '') + (lost ? ' ' + lost + ' raise P to 0.05 or above.' : '') + subsetText(pay) + ' Plots are in the publication package.</div>');
 }
 function steigerTile(pay, tile, big) {
   const si = steigerInfo(pay);
