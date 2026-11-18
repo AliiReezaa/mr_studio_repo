@@ -1216,6 +1216,19 @@ expect("Round 53: the correlation is read back from the script, and an invalid c
   isTRUE(all.equal(st$mv_r_1_2, 0.3)) && st$mv_r_1_3 == 0 && identical(v$status, "block") && identical(v$codes, "FEAS_INVALID_CORRELATION") })
 expect("Round 53: the methods text states the covariance assumption, with the correlation when one is set", grepl("zero covariance", .mv_cov_text(list(), c("A", "B"))) &&
   grepl("A and B r = 0.3", .mv_cov_text(list(mv_r_1_2 = 0.3), c("A", "B")), fixed = TRUE))
+r54 <- studio_run(h50, "MV Q-min", p50$outcome_label, p50$input, "mvqhet", idx = 3L, params = list(ci_level = 0.95, mv_r_1_2 = 0.3)); pl54 <- pair_payload(h50$dir, r54$pair_folder); e54 <- .est_df(pl54)
+expect("Round 54: MVMR Q-minimisation runs as a script, replays identically and gives one direct effect per exposure with a jackknife SE", identical(pl54$replay$status, "identical") &&
+  nrow(e54) == 2L && all(e54$estimand == "direct_effect") && all(is.finite(e54$se) & e54$se > 0) && all(e54$ci_method == "wald"))
+expect("Round 54: the Q-minimisation estimate minimises Q_A (lower than at MVMR-IVW) and Q_A at the estimate is at most its degrees of freedom once tau2 is added", {
+  bx <- as.matrix(dd50[, c("beta_x_1", "beta_x_2")]); sx <- as.matrix(dd50[, c("se_x_1", "se_x_2")]); r <- 0.3
+  qa <- function(b, t2 = 0) sum((dd50$beta_y - bx %*% b)^2 / (dd50$se_y^2 + b[1]^2 * sx[, 1]^2 + b[2]^2 * sx[, 2]^2 + 2 * b[1] * b[2] * r * sx[, 1] * sx[, 2] + t2))
+  dg <- Filter(function(g) g$method == "mvqhet", pl54$diagnostics); t2 <- Filter(function(g) g$name == "mv_qhet_tau2", dg)[[1]]$value; b <- e54$estimate
+  qa(b, t2) <= qa(mi50@Estimate, t2) + 1e-9 && t2 >= 0 && qa(b, t2) <= nrow(bx) - 2 + 1e-6 })
+r54b <- studio_run(h50, "MV Q-min boot", p50$outcome_label, p50$input, "mvqhet", idx = 4L, params = list(ci_level = 0.95, mv_qhet_ci = "bootstrap", mv_qhet_iter = 60L)); e54b <- .est_df(pair_payload(h50$dir, r54b$pair_folder))
+expect("Round 54: the bootstrap option gives BCa intervals around the same estimate, and the methods text names the method and its uncertainty", all(e54b$ci_method == "bootstrap") &&
+  all(e54b$ci_lower < e54b$estimate & e54b$estimate < e54b$ci_upper) && isTRUE(all.equal(e54b$estimate, .est_df(pair_payload(h50$dir, studio_run(h50, "MV Q-min 0", p50$outcome_label, p50$input, "mvqhet", idx = 5L, params = list(ci_level = 0.95))$pair_folder))$estimate)) && {
+  tx <- report_text(list(mv_context(h50, list(folder = r54b$pair_folder, exNames = list("A", "B"), methods = list("mvqhet"), outName = "Y"))), "Q")
+  any(grepl("Q-statistic minimisation", tx$methods)) && any(grepl("bootstrap intervals \\(60 iterations\\)", tx$methods)) })
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })
 expect("Round 50: one exposure, more than six, or mixing simulated and imported traits is refused", grepl("at least two exposures", err_of(mv_pair_input("expA", "outA"))) && grepl("at most six", err_of(mv_pair_input(rep("expA", 7), "outA"))) && grepl("cannot be mixed", err_of(mv_pair_input(c("expA", "lib:X"), "outA"))))

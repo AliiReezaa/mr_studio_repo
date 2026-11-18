@@ -38,6 +38,7 @@ const METHODS = [
   { id: 'mvegger', name: 'MVMR-Egger', family: 'Multivariable, pleiotropy-robust', built: true, min: 4, speed: 'instant', short: 'MVMR-Egger', mv: true },
   { id: 'mvmedian', name: 'MVMR median', family: 'Multivariable, pleiotropy-robust', built: true, min: 4, speed: 'seconds', short: 'MVMR median', mv: true },
   { id: 'mvlasso', name: 'MVMR-Lasso', family: 'Multivariable, pleiotropy-robust', built: true, min: 4, speed: 'instant', short: 'MVMR-Lasso', mv: true },
+  { id: 'mvqhet', name: 'MVMR Q-minimisation', family: 'Multivariable, weak-instrument-robust', built: true, min: 4, speed: 'seconds', short: 'MVMR Q-min', mv: true },
   { id: 'ivw_mre', name: 'Inverse-variance weighted', family: 'Core estimator', built: true, min: 2, speed: 'instant', short: 'IVW' },
   { id: 'divw', name: 'Debiased IVW', family: 'Weak-instrument robust', built: true, min: 2, speed: 'instant', short: 'dIVW' },
   { id: 'raps', name: 'MR-RAPS', family: 'Weak-instrument robust', built: true, min: 3, speed: 'seconds', short: 'MR-RAPS' },

@@ -1053,14 +1053,16 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
   "  estimate = as.numeric(est), se = as.numeric(se), ci_lower = as.numeric(lo), ci_upper = as.numeric(hi), ci_level = ci_level, ci_method = \"wald\",",
   "  p = as.numeric(p), n_ivs_used = as.integer(n), stringsAsFactors = FALSE)",
   "drow <- function(name, value, df = NA_real_, p = NA_real_, note = NA_character_) data.frame(name = name, value = as.numeric(value), df = as.numeric(df), p = as.numeric(p), note = as.character(note), stringsAsFactors = FALSE)")
+# Round 53: the correlation matrix of the exposures, shared by MVMR-IVW (conditional F, Q_A) and the Q-minimisation estimator
+.mv_cov_lines <- c("# Covariance of the variant-exposure associations of each variant: the phenotypic correlation of the exposures (mv_r_i_j) times the",
+  "# product of their standard errors, as MVMR::phenocov_mvmr. All correlations 0 means non-overlapping exposure samples.",
+  "bx <- as.matrix(dat[, bxn]); sx <- as.matrix(dat[, sxn]); J <- nrow(bx)",
+  "R <- diag(K); for (i in seq_len(K - 1)) for (j in (i + 1):K) R[i, j] <- R[j, i] <- get(sprintf(\"mv_r_%d_%d\", i, j))")
 .mv_body <- list(
   mvivw = c("# MVMR-IVW",
     "fit <- MendelianRandomization::mr_mvivw(inp, model = mv_model, alpha = 1 - ci_level)",
     "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
-    "# Covariance of the variant-exposure associations of each variant: the phenotypic correlation of the exposures (mv_r_i_j) times the",
-    "# product of their standard errors, as MVMR::phenocov_mvmr. All correlations 0 means non-overlapping exposure samples.",
-    "bx <- as.matrix(dat[, bxn]); sx <- as.matrix(dat[, sxn]); J <- nrow(bx)",
-    "R <- diag(K); for (i in seq_len(K - 1)) for (j in (i + 1):K) R[i, j] <- R[j, i] <- get(sprintf(\"mv_r_%d_%d\", i, j))",
+    .mv_cov_lines,
     "S <- lapply(seq_len(J), function(l) R * outer(sx[l, ], sx[l, ]))",
     "# Conditional F statistic of Sanderson, Spiller and Bowden 2021 for each exposure (as MVMR::strength_mvmr); values below 10 indicate weak instruments",
     "cond_f <- vapply(seq_len(K), function(k) { d <- stats::lm.fit(bx[, -k, drop = FALSE], bx[, k])$coefficients; w <- numeric(K); w[k] <- -1; w[-k] <- d",
@@ -1077,6 +1079,32 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
     "  data.frame(estimand = \"pleiotropy_intercept\", exposure_id = EXPOSURE_ID, outcome_id = OUTCOME_ID, scale = SCALE, estimate = fit@Intercept, se = fit@StdError.Int,",
     "    ci_lower = fit@CILower.Int, ci_upper = fit@CIUpper.Int, ci_level = ci_level, ci_method = \"wald\", p = fit@Pvalue.Int, n_ivs_used = as.integer(fit@SNPs), stringsAsFactors = FALSE))",
     "diagnostics <- rbind(drow(\"mv_q\", fit@Heter.Stat[1], fit@SNPs - K - 1, fit@Heter.Stat[2], \"residual heterogeneity of the MVMR-Egger fit\"), drow(\"mv_orient\", mv_orient, note = EXPOSURE_IDS[mv_orient]))"),
+  mvqhet = c("# MVMR Q-minimisation (Sanderson, Spiller and Bowden 2021), as MVMR::qhet_mvmr 0.4.9: the direct effects minimise Q_A, which allows",
+    "# for the uncertainty (and correlation) of the variant-exposure associations, so they are robust to weak instruments. If the minimum Q_A",
+    "# exceeds its degrees of freedom (J - K), an additive heterogeneity variance tau2 is added to every weight until it equals them.",
+    .mv_cov_lines,
+    "qfit <- function(bx, sx, by, sy) {",
+    "  vb <- function(b) { u <- sx * rep(b, each = nrow(sx)); rowSums((u %*% R) * u) }   # t(b) %*% S_l %*% b for every variant at once",
+    "  Qs <- function(b, tau2) sum((by - as.vector(bx %*% b))^2 / (sy^2 + vb(b) + tau2))",
+    "  b0 <- stats::lm.wfit(bx, by, 1 / sy^2)$coefficients   # start at MVMR-IVW",
+    "  qm <- function(tau2) stats::optim(b0, Qs, tau2 = tau2, method = \"BFGS\", control = list(reltol = 1e-12))",
+    "  target <- nrow(bx) - ncol(bx); tau2 <- 0",
+    "  if (qm(0)$value > target) { up <- stats::median(sy^2); while (qm(up)$value > target) up <- up * 10",
+    "    tau2 <- stats::uniroot(function(t) qm(t)$value - target, interval = c(0, up), tol = up * 1e-8)$root }",
+    "  f <- qm(tau2); list(b = unname(f$par), tau2 = tau2, q = f$value) }",
+    "est <- qfit(bx, sx, dat$beta_y, dat$se_y); z <- stats::qnorm(1 - (1 - ci_level) / 2)",
+    "if (mv_qhet_ci == \"jackknife\") {   # leave one variant out at a time; deterministic",
+    "  jk <- matrix(vapply(seq_len(J), function(l) qfit(bx[-l, , drop = FALSE], sx[-l, , drop = FALSE], dat$beta_y[-l], dat$se_y[-l])$b, numeric(K)), nrow = K)",
+    "  se <- sqrt((J - 1) / J * rowSums((jk - rowMeans(jk))^2)); lo <- est$b - z * se; hi <- est$b + z * se; cim <- \"wald\"",
+    "} else {   # nonparametric bootstrap over variants with bias-corrected and accelerated (BCa) intervals, as qhet_mvmr(CI = TRUE)",
+    "  bt <- boot::boot(data = data.frame(variant = seq_len(J)), statistic = function(d, ix) qfit(bx[ix, , drop = FALSE], sx[ix, , drop = FALSE], dat$beta_y[ix], dat$se_y[ix])$b, R = mv_qhet_iter)",
+    "  se <- apply(bt$t, 2, stats::sd); ci <- vapply(seq_len(K), function(k) boot::boot.ci(bt, conf = ci_level, type = \"bca\", index = k)$bca[4:5], numeric(2))",
+    "  lo <- ci[1, ]; hi <- ci[2, ]; cim <- \"bootstrap\" }",
+    "estimates <- est_rows(est$b, se, lo, hi, 2 * stats::pnorm(-abs(est$b / se)), J); estimates$ci_method <- cim   # P from the jackknife or bootstrap standard error",
+    "diagnostics <- rbind(drow(\"mv_qhet_tau2\", est$tau2, note = \"additive heterogeneity variance (0 when the minimum Q_A is within its degrees of freedom)\"),",
+    "  drow(\"mv_qhet_q\", est$q, J - K, stats::pchisq(est$q, J - K, lower.tail = FALSE), \"Q_A at the estimate\"),",
+    "  drow(\"mv_qhet_ci\", if (mv_qhet_ci == \"bootstrap\") mv_qhet_iter else J, note = mv_qhet_ci),",
+    "  drow(\"mv_pheno_cor\", as.numeric(any(R[upper.tri(R)] != 0)), note = paste(sprintf(\"%d-%d %s\", row(R)[upper.tri(R)], col(R)[upper.tri(R)], format(R[upper.tri(R)])), collapse = \"; \")))"),
   mvmedian = c("# MVMR median (weighted), bootstrap standard errors with the script's seed",
     "fit <- MendelianRandomization::mr_mvmedian(inp, alpha = 1 - ci_level, iterations = mv_iter, seed = seed)",
     "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
@@ -1102,6 +1130,13 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
   out })
 .mv_cor_ok <- function(params, K) { R <- diag(K); if (K > 1) for (i in seq_len(K - 1)) for (j in (i + 1):K) R[i, j] <- R[j, i] <- as.numeric(params[[sprintf("mv_r_%d_%d", i, j)]] %||% 0)
   min(eigen(R, symmetric = TRUE, only.values = TRUE)$values) > 1e-8 }
+PIN_BOOT <- "1.3.31"   # Round 54: boot, for the bootstrap BCa interval of the Q-minimisation estimate (as MVMR::qhet_mvmr)
+.mv_qhet_params <- list(mv_qhet_ci = list(type = "enum", default = "jackknife", values = c("jackknife", "bootstrap"),
+    value_labels = c(jackknife = "Jackknife standard error (leave one variant out; deterministic)", bootstrap = "Bootstrap BCa interval (slow: one fit per iteration)"),
+    label = "Uncertainty", hint = "How the standard error and interval of the Q-minimisation estimate are obtained. MVMR::qhet_mvmr offers both; its default when an interval is asked for is the bootstrap, which takes many minutes, so MR Studio defaults to the jackknife.",
+    package_arg = "CI_method", kind = "enum", conventional = FALSE, advanced = FALSE, evidence = "MVMR::qhet_mvmr 0.4.9 (CI_method = bootstrap or jackknife).", affects = c("se", "ci", "p")),
+  mv_qhet_iter = list(type = "integer", default = 1000L, min = 50L, max = 10000L, label = "Bootstrap iterations", hint = "Used only with the bootstrap.",
+    package_arg = "iterations", kind = "integer", conventional = TRUE, advanced = TRUE, evidence = "MVMR::qhet_mvmr default (iterations = 1000).", affects = c("se", "ci", "p")))
 .mv_iter_param <- list(mv_iter = list(type = "integer", default = 10000L, min = 500L, max = 100000L, label = "Bootstrap iterations",
   hint = "Iterations for the bootstrap standard error of the MVMR median estimate.", package_arg = "iterations", kind = "integer", conventional = TRUE, advanced = TRUE,
   evidence = "MendelianRandomization::mr_mvmedian default (iterations = 10000).", affects = c("se", "ci", "p")))
@@ -1117,13 +1152,14 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
   a <- NULL
   a <- mrgui_adapter(id = id, adapter_version = "1.1.0", label = label, input_kind = "multi_iv", estimands = c("direct_effect", if (id == "mvegger") "pleiotropy_intercept"),
     requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE, needs_full_sumstats = FALSE, min_exposures = 2, max_exposures = 6),
-    packages = list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
+    packages = c(list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION), if (id == "mvqhet") list(boot = PIN_BOOT)), stochastic = stochastic, supports_checkpoint = FALSE,
+    runtime_class = if (id == "mvqhet") "moderate" else "fast",
     params = c(.ci_param_v11, params),
     check = function(input, params) {
       K <- sum(grepl("^beta_x_[0-9]+$", names(input$data))); n <- nrow(.mv_usable(input$data))
       if (K < 2) return(verdict("block", "FEAS_TOO_FEW_EXPOSURES", sprintf("%s needs at least 2 exposures; %d given.", label, K)))
       if (n < K + extra_k) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("%s needs at least %d variants with all %d exposures (exposures + %d); %d available.", label, K + extra_k, K, extra_k, n)))
-      if (id == "mvivw" && !.mv_cor_ok(params, K)) return(verdict("block", "FEAS_INVALID_CORRELATION", "The phenotypic correlations of the exposures do not form a valid correlation matrix (it must be positive definite). Check the values."))
+      if (id %in% c("mvivw", "mvqhet") && !.mv_cor_ok(params, K)) return(verdict("block", "FEAS_INVALID_CORRELATION", "The phenotypic correlations of the exposures do not form a valid correlation matrix (it must be positive definite). Check the values."))
       verdict("ok", character(), character())
     },
     run = function(input, params, ctx) {
@@ -1151,5 +1187,6 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
 }
 ADAPTER_MVIVW_V11 <- .mv_adapter("mvivw", "MVMR-IVW", 1L, c(.mv_model_param, .mv_cor_params), FALSE, "mvivw")
 ADAPTER_MVEGGER_V11 <- .mv_adapter("mvegger", "MVMR-Egger", 2L, .mv_orient_param, FALSE, "mvegger")
+ADAPTER_MVQHET_V11 <- .mv_adapter("mvqhet", "MVMR Q-minimisation", 2L, c(.mv_qhet_params, .mv_cor_params), TRUE, "mvqhet")
 ADAPTER_MVMEDIAN_V11 <- .mv_adapter("mvmedian", "MVMR median", 2L, .mv_iter_param, TRUE, "mvmedian")
 ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param, FALSE, "mvlasso")

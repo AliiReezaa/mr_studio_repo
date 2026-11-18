@@ -39,12 +39,32 @@ pl2 <- pair_payload(h$dir, r2$pair_folder); dg <- Filter(function(g) g$method ==
 cf2 <- val("mv_cond_f"); qa2 <- Filter(function(g) g$name == "mv_q_a", dg)[[1]]
 res2 <- data.frame(quantity = c(sprintf("conditional F, %s", ex), "Q_A"), mvmr_package = c(as.numeric(ref_f2), ref_q2$Qstat), mr_studio = c(cf2, qa2$value), covariance = "tutorial correlation matrix", stringsAsFactors = FALSE)
 blocked <- ADAPTER_MVIVW_V11$check(inp, list(mv_r_1_2 = 0.95, mv_r_1_3 = -0.95, mv_r_2_3 = 0.95))$status == "block"   # not a valid correlation matrix
-res <- rbind(res, res2)
+# Part 3 (Round 54): Q-statistic minimisation, tutorial step 6: qhet_mvmr(F.data, mvmrcormatrix) for the point estimates, its jackknife
+# standard errors (CI_method = "jackknife") and its bootstrap BCa intervals (seeded, one core, 50 iterations to keep the run short;
+# the package rounds the interval limits to 3 decimals, so they are compared at that precision).
+qargs <- list(ci_level = 0.95, mv_r_1_2 = -0.1, mv_r_1_3 = -0.05, mv_r_2_3 = 0.2)
+t3 <- system.time(r3 <- studio_run(h, "Lipids, Q-min jackknife", "SBP", inp, "mvqhet", idx = 3L, params = c(qargs, list(mv_qhet_ci = "jackknife"))))[["elapsed"]]
+r4 <- studio_run(h, "Lipids, Q-min bootstrap", "SBP", inp, "mvqhet", idx = 4L, params = c(qargs, list(mv_qhet_ci = "bootstrap", mv_qhet_iter = 50L)))
+pl3 <- pair_payload(h$dir, r3$pair_folder); pl4 <- pair_payload(h$dir, r4$pair_folder)
+seed4 <- as.integer(sub("^seed <- ([0-9]+).*", "\\1", grep("^seed <- ", readLines(Sys.glob(file.path(h$dir, "03_pairs", r4$pair_folder, "02_scripts", "*mvqhet*.R"))[1]), value = TRUE)[1]))
+invisible(utils::capture.output(suppressWarnings({ q0 <- MVMR::qhet_mvmr(F, pcor, CI = FALSE)
+  qj <- MVMR::qhet_mvmr(F, pcor, CI = TRUE, CI_method = "jackknife", ncores = 1)
+  RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(seed4); qb <- MVMR::qhet_mvmr(F, pcor, CI = TRUE, iterations = 50, ncores = 1) })))
+e3 <- .est_df(pl3); e4 <- .est_df(pl4); lim <- function(x) as.numeric(do.call(rbind, strsplit(sub("^(-?[0-9.]+)-(-?[0-9.]+)$", "\\1 \\2", x), " ")))
+bl <- matrix(lim(as.character(qb[, 2])), ncol = 2)
+res3 <- data.frame(quantity = c(sprintf("Q-min estimate, %s", ex), sprintf("Q-min jackknife SE, %s", ex), sprintf("Q-min bootstrap BCa lower, %s", ex), sprintf("Q-min bootstrap BCa upper, %s", ex)),
+                   mvmr_package = c(q0[, 1], qj[, 2], bl[, 1], bl[, 2]), mr_studio = c(e3$estimate, e3$se, round(e4$ci_lower, 3), round(e4$ci_upper, 3)),
+                   covariance = "tutorial correlation matrix", stringsAsFactors = FALSE)
+res <- rbind(res, res2, res3)
 res$abs_diff <- abs(res$mr_studio - res$mvmr_package); res$rel_diff <- res$abs_diff / abs(res$mvmr_package)
 # Criterion: the same formulas on the same data, so agreement to numerical precision (relative difference below 1e-8). The MVMR-IVW
 # standard errors are compared with the package's ivw_mvmr, which uses the multiplicative random-effects (residual-scaled) SEs, the
 # same as mr_mvivw's default model for this heterogeneous fit.
-ok <- all(res$rel_diff < 1e-8) && blocked && identical(pl$replay$status, "identical") && identical(pl2$replay$status, "identical") && all(vapply(r$results, function(x) identical(x$status, "ok"), TRUE))
+# Q-minimisation is an optimisation (BFGS, tolerance 1e-12): estimates and SEs are compared at relative 1e-6, the rounded BCa limits exactly.
+qm <- grepl("^Q-min", res$quantity); ok <- all(res$rel_diff[!qm] < 1e-8) && all(res$rel_diff[qm & !grepl("BCa", res$quantity)] < 1e-6) && all(res$abs_diff[grepl("BCa", res$quantity)] < 1e-9) &&
+  identical(pl3$replay$status, "identical") && identical(pl4$replay$status, "identical")
+cat(sprintf("Q-minimisation with jackknife: %.0f s in MR Studio\n", t3))
+ok <- ok && all(res$rel_diff[!qm] < 1e-8) && blocked && identical(pl$replay$status, "identical") && identical(pl2$replay$status, "identical") && all(vapply(r$results, function(x) identical(x$status, "ok"), TRUE))
 utils::write.csv(res, file.path(vdir, "results.csv"), row.names = FALSE)
 print(format(res, digits = 10), row.names = FALSE); cat(sprintf("\ninvalid correlation matrix blocked: %s", blocked)); cat(sprintf("\nreplay: %s\nVALIDATION %s\n", pl$replay$status, if (ok) "PASSED" else "FAILED"))
 if (!ok) quit(status = 1)

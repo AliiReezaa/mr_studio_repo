@@ -14,3 +14,15 @@
 "conditional F, HDL-c",70.5246850634721,70.5246850634721,"tutorial correlation matrix",0,0
 "conditional F, Triglycerides",40.3295301113335,40.3295301113335,"tutorial correlation matrix",0,0
 "Q_A",682.843045156779,682.843045156779,"tutorial correlation matrix",0,0
+"Q-min estimate, LDL-c",-0.0243130706972979,-0.0243130706972979,"tutorial correlation matrix",0,0
+"Q-min estimate, HDL-c",0.00897347964470984,0.00897347964470984,"tutorial correlation matrix",0,0
+"Q-min estimate, Triglycerides",0.00737536883665311,0.00737536883665311,"tutorial correlation matrix",0,0
+"Q-min jackknife SE, LDL-c",0.0140657011431561,0.0140657011435212,"tutorial correlation matrix",3.65077759689747e-13,2.59551767788967e-11
+"Q-min jackknife SE, HDL-c",0.00940791763067122,0.00940791762683293,"tutorial correlation matrix",3.83829600048013e-12,4.07985714922367e-10
+"Q-min jackknife SE, Triglycerides",0.0150597644395451,0.0150597644389755,"tutorial correlation matrix",5.69523594950994e-13,3.78175632983671e-11
+"Q-min bootstrap BCa lower, LDL-c",-0.061,-0.061,"tutorial correlation matrix",0,0
+"Q-min bootstrap BCa lower, HDL-c",-0.017,-0.017,"tutorial correlation matrix",0,0
+"Q-min bootstrap BCa lower, Triglycerides",-0.024,-0.024,"tutorial correlation matrix",0,0
+"Q-min bootstrap BCa upper, LDL-c",0.021,0.021,"tutorial correlation matrix",0,0
+"Q-min bootstrap BCa upper, HDL-c",0.029,0.029,"tutorial correlation matrix",0,0
+"Q-min bootstrap BCa upper, Triglycerides",0.028,0.028,"tutorial correlation matrix",0,0

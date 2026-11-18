@@ -49,8 +49,27 @@ conditional F and Q_A with them. The estimates themselves do not change. With th
 Identical (relative difference 0). A correlation matrix that is not positive definite (for example 0.95, -0.95, 0.95) is blocked
 before the run with the reason.
 
+## Q-statistic minimisation (Round 54)
+
+Tutorial step 6: `qhet_mvmr(F.data, mvmrcormatrix)`. MR Studio's "MVMR Q-minimisation" method minimises the same Q_A (with the
+same correlations), adds an additive heterogeneity variance tau2 when the minimum exceeds its degrees of freedom, as MVMR 0.4.9
+does, and offers both of the package's uncertainty methods. Compared with the package (one core; the bootstrap with MR Studio's
+script seed and 50 iterations to keep the run short):
+
+| Quantity | MVMR package | MR Studio |
+|---|---|---|
+| Estimates, LDL-c / HDL-c / triglycerides | -0.02431 / 0.00897 / 0.00738 | -0.02431 / 0.00897 / 0.00738 |
+| Jackknife SE | 0.01407 / 0.00941 / 0.01506 | 0.01407 / 0.00941 / 0.01506 |
+| Bootstrap BCa interval | (-0.061, 0.021) / (-0.017, 0.029) / (-0.024, 0.028) | identical |
+
+Estimates and SEs agree to a relative 1e-9 (the minimisation is an optimisation, so the criterion is 1e-6); the BCa limits, which
+the package rounds to 3 decimals, are identical at that precision. The jackknife takes 13 s in MR Studio against 94 s in the
+package, because the Q function is computed for all variants at once. MR Studio defaults to the jackknife: the bootstrap needs one
+full minimisation per iteration (several minutes for 1000). The package marks qhet_mvmr as under development; MR Studio follows
+version 0.4.9, the version validated here.
+
 ## Not covered
 
-Q-statistic minimisation (`qhet_mvmr`), the tutorial's weak-instrument-robust estimator, is not in MR Studio. Correlations estimated
+Correlations estimated
 from individual-level data (`snpcov_mvmr`) are not supported; a correlation from the literature or from the GWAS (for example the
 LD score regression intercept between the exposures) has to be entered.
