@@ -88,6 +88,14 @@ mv_pair_facts <- function(exp_ids, out_id, pthr = 5e-8) {
 }
 
 # ---- report (Round 50) -------------------------------------------------------------------------------------------------------
+# Round 53: how the covariance of the variant-exposure associations was set for the conditional F and Q_A.
+.mv_cov_text <- function(st, labels) {
+  K <- length(labels); if (K < 2) return("")
+  pr <- do.call(rbind, lapply(seq_len(K - 1), function(i) do.call(rbind, lapply((i + 1):K, function(j) data.frame(i = i, j = j, r = as.numeric(st[[sprintf("mv_r_%d_%d", i, j)]] %||% 0))))))
+  if (all(pr$r == 0)) return("both assumed zero covariance between the variant-exposure associations, as for exposures from non-overlapping samples")
+  sprintf("both allowed for covariance between the variant-exposure associations, taken as the phenotypic correlation of the exposures times the product of their standard errors (%s)",
+          paste(sprintf("%s and %s r = %s", labels[pr$i], labels[pr$j], format(pr$r)), collapse = "; "))
+}
 MV_INTRO_TEXT <- "We performed a two-sample multivariable Mendelian randomization (MVMR) analysis using summary-level genetic associations, run in MR Studio, an application that writes every analysis step and setting into R scripts that can be re-run [Burgess 2023]."
 #' The context of an MVMR pair for the report: its estimates (one direct effect per exposure and method), settings, ledger and data.
 mv_context <- function(h, p) {
@@ -106,7 +114,7 @@ mv_add_text <- function(txt, mvx) {
     if (lib) sprintf("Instruments were the union of the variants associated with any exposure at P < %s, clumped together (r2 < 0.001 within 10,000 kb, 1000 Genomes reference panel) using the smallest P over the exposures; the effects of every exposure at every instrument were taken from its full summary statistics and aligned to the same effect allele with TwoSampleMR::harmonise_data. ", format(mvx[[1]]$pthr, scientific = TRUE)) else "",
     "Methods (MendelianRandomization ", PIN_MENDELIANRANDOMIZATION, "): ", paste(c(if ("mvivw" %in% used) sprintf("MVMR-IVW (model: %s)", st$mv_model %||% "default"), if ("mvegger" %in% used) sprintf("MVMR-Egger, oriented to exposure %s [Rees 2017]", format(st$mv_orient %||% 1)),
       if ("mvmedian" %in% used) sprintf("the MVMR median with %s bootstrap iterations [Grant 2021]", format(st$mv_iter %||% 10000)), if ("mvlasso" %in% used) "MVMR-Lasso [Grant 2021]"), collapse = "; "),
-    ". Instrument strength was assessed with the conditional F statistic of each exposure, assuming no covariance between the variant-exposure associations (values below 10 indicate weak instruments), and heterogeneity with Cochran's Q of the MVMR-IVW fit and with Q_A, which also allows for the uncertainty of the variant-exposure associations [Sanderson 2021]."))
+    ". Instrument strength was assessed with the conditional F statistic of each exposure (values below 10 indicate weak instruments), and heterogeneity with Cochran's Q of the MVMR-IVW fit and with Q_A, which also allows for the uncertainty of the variant-exposure associations [Sanderson 2021]; ", .mv_cov_text(st, mvx[[1]]$labels), "."))
   for (cx in mvx) {
     ce <- cx$ce; ex <- unique(ce$exposure_label); iv <- ce[ce$method == "mvivw", , drop = FALSE]
     line <- vapply(ex, function(x) { r <- ce[ce$exposure_label == x, , drop = FALSE]

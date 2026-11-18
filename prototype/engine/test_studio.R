@@ -1204,6 +1204,18 @@ expect("Round 52: the conditional F statistics and Q_A follow Sanderson et al. 2
   qa <- sum((dd50$beta_y - bx %*% mi50@Estimate)^2 / (dd50$se_y^2 + sx^2 %*% mi50@Estimate^2))
   dg <- Filter(function(g) g$method == "mvivw", pl50$diagnostics); cf <- vapply(Filter(function(g) g$name == "mv_cond_f", dg), function(g) g$value, 0)
   length(cf) == 2L && abs(cf[1] - f1) < 1e-8 && abs(Filter(function(g) g$name == "mv_q_a", dg)[[1]]$value - qa) < 1e-8 })
+r53 <- studio_run(h50, "MV correlated", p50$outcome_label, p50$input, "mvivw", idx = 2L, params = list(ci_level = 0.95, mv_r_1_2 = 0.3)); pl53 <- pair_payload(h50$dir, r53$pair_folder)
+expect("Round 53: with a phenotypic correlation the conditional F and Q_A use covariance r x se1 x se2, as MVMR::phenocov_mvmr", {
+  bx <- as.matrix(dd50[, c("beta_x_1", "beta_x_2")]); sx <- as.matrix(dd50[, c("se_x_1", "se_x_2")]); J <- nrow(bx); r <- 0.3
+  d <- coef(lm(bx[, 1] ~ 0 + bx[, 2])); f1 <- sum((bx[, 1] - d * bx[, 2])^2 / (sx[, 1]^2 + d^2 * sx[, 2]^2 - 2 * d * r * sx[, 1] * sx[, 2])) / (J - 1)
+  b <- mi50@Estimate; qa <- sum((dd50$beta_y - bx %*% b)^2 / (dd50$se_y^2 + b[1]^2 * sx[, 1]^2 + b[2]^2 * sx[, 2]^2 + 2 * b[1] * b[2] * r * sx[, 1] * sx[, 2]))
+  dg <- Filter(function(g) g$method == "mvivw", pl53$diagnostics)
+  identical(pl53$replay$status, "identical") && abs(Filter(function(g) g$name == "mv_cond_f", dg)[[1]]$value - f1) < 1e-8 && abs(Filter(function(g) g$name == "mv_q_a", dg)[[1]]$value - qa) < 1e-8 })
+expect("Round 53: the correlation is read back from the script, and an invalid correlation matrix is blocked with the reason", {
+  st <- pair_settings(h50$dir, r53$pair_folder); v <- ADAPTER_MVIVW_V11$check(mv_pair_input(c("expA", "expB", "expC"), "outA")$input, list(mv_r_1_2 = 0.9, mv_r_1_3 = 0.9, mv_r_2_3 = -0.9))
+  isTRUE(all.equal(st$mv_r_1_2, 0.3)) && st$mv_r_1_3 == 0 && identical(v$status, "block") && identical(v$codes, "FEAS_INVALID_CORRELATION") })
+expect("Round 53: the methods text states the covariance assumption, with the correlation when one is set", grepl("zero covariance", .mv_cov_text(list(), c("A", "B"))) &&
+  grepl("A and B r = 0.3", .mv_cov_text(list(mv_r_1_2 = 0.3), c("A", "B")), fixed = TRUE))
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })
 expect("Round 50: one exposure, more than six, or mixing simulated and imported traits is refused", grepl("at least two exposures", err_of(mv_pair_input("expA", "outA"))) && grepl("at most six", err_of(mv_pair_input(rep("expA", 7), "outA"))) && grepl("cannot be mixed", err_of(mv_pair_input(c("expA", "lib:X"), "outA"))))

@@ -555,8 +555,11 @@ function steigerPanel() {
 }
 function vCustomise() {
   const m = METHODS.find((x) => x.id === S.custom), sch = (S.schemas[S.custom] || {});
-  const keys = Object.keys(sch);
-  const body = keys.length ? keys.map((k) => paramCtl(k, sch[k])).join('') : '<div style="color:var(--mute)">This method has no adjustable settings. It is run exactly as the package defines it, and the script says so.</div>';
+  // Round 53: only the correlations between the exposures of this analysis, named after them
+  const exn = (S.ex || []).map((e) => (((S.cat && S.cat.exposures) || []).find((x) => x.id === e) || {}).name || e), K = exn.length;
+  const keys = Object.keys(sch).filter((k) => { const m = /^mv_r_(\d)_(\d)$/.exec(k); return !m || Number(m[2]) <= K; });
+  const lab = (k) => { const m = /^mv_r_(\d)_(\d)$/.exec(k); return m ? Object.assign({}, sch[k], { label: 'Phenotypic correlation: ' + exn[m[1] - 1] + ' and ' + exn[m[2] - 1] }) : sch[k]; };
+  const body = keys.length ? keys.map((k) => paramCtl(k, lab(k))).join('') : '<div style="color:var(--mute)">This method has no adjustable settings. It is run exactly as the package defines it, and the script says so.</div>';
   const stz = S.custom === 'ivw_mre' ? steigerPanel() : '';
   return '<div class="modal-bg" data-a="custom_close_bg"><div role="dialog" aria-modal="true" aria-label="Customise ' + esc(m.name) + '" style="width:100%;max-width:520px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:20px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">CUSTOMISE</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">' + esc(m.name) + '</div></div>' + body + cmpParams(keys, sch) + (NOT_ADJUSTABLE[S.custom] ? '<div style="font-size:12px;color:var(--mute)">' + esc(NOT_ADJUSTABLE[S.custom]) + '</div>' : '') + stz + '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Every value you set is written into the script, and results from changed settings are marked as customised.</div><div style="display:flex;gap:12px;justify-content:flex-end">' + cta('Done', 'custom_close', '', 'height:44px') + '</div></div></div>';
 }

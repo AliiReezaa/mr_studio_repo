@@ -38,6 +38,7 @@ run_params <- function(x) {
   if (!is.null(x$simex_b)) out$simex_b <- as.integer(round(as.numeric(x$simex_b)))   # Round 41
   if (!is.null(x$mv_orient)) out$mv_orient <- as.integer(round(as.numeric(x$mv_orient)))   # Round 50
   if (!is.null(x$mv_iter)) out$mv_iter <- as.integer(round(as.numeric(x$mv_iter)))
+  for (k in grep("^mv_r_[1-5]_[2-6]$", names(x), value = TRUE)) out[[k]] <- as.numeric(x[[k]])   # Round 53: phenotypic correlations of the exposures
   if (!is.null(x$lso_fraction)) out$lso_fraction <- as.numeric(x$lso_fraction)   # Round 43
   if (!is.null(x$lso_repeats)) out$lso_repeats <- as.integer(round(as.numeric(x$lso_repeats)))
   if (!is.null(x$r_xxo)) out$r_xxo <- as.numeric(x$r_xxo)

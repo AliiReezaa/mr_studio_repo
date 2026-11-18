@@ -1057,16 +1057,20 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
   mvivw = c("# MVMR-IVW",
     "fit <- MendelianRandomization::mr_mvivw(inp, model = mv_model, alpha = 1 - ci_level)",
     "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
-    "# Conditional F statistic of Sanderson, Spiller and Bowden 2021 for each exposure (as MVMR::strength_mvmr), assuming zero covariance",
-    "# between the variant-exposure associations (non-overlapping exposure samples); values below 10 indicate weak instruments",
+    "# Covariance of the variant-exposure associations of each variant: the phenotypic correlation of the exposures (mv_r_i_j) times the",
+    "# product of their standard errors, as MVMR::phenocov_mvmr. All correlations 0 means non-overlapping exposure samples.",
     "bx <- as.matrix(dat[, bxn]); sx <- as.matrix(dat[, sxn]); J <- nrow(bx)",
-    "cond_f <- vapply(seq_len(K), function(k) { d <- stats::lm.fit(bx[, -k, drop = FALSE], bx[, k])$coefficients",
-    "  s2 <- sx[, k]^2 + as.vector(sx[, -k, drop = FALSE]^2 %*% d^2); sum((bx[, k] - as.vector(bx[, -k, drop = FALSE] %*% d))^2 / s2) / (J - K + 1) }, 0)",
+    "R <- diag(K); for (i in seq_len(K - 1)) for (j in (i + 1):K) R[i, j] <- R[j, i] <- get(sprintf(\"mv_r_%d_%d\", i, j))",
+    "S <- lapply(seq_len(J), function(l) R * outer(sx[l, ], sx[l, ]))",
+    "# Conditional F statistic of Sanderson, Spiller and Bowden 2021 for each exposure (as MVMR::strength_mvmr); values below 10 indicate weak instruments",
+    "cond_f <- vapply(seq_len(K), function(k) { d <- stats::lm.fit(bx[, -k, drop = FALSE], bx[, k])$coefficients; w <- numeric(K); w[k] <- -1; w[-k] <- d",
+    "  s2 <- vapply(S, function(Sl) drop(t(w) %*% Sl %*% w), 0); sum((bx[, k] - as.vector(bx[, -k, drop = FALSE] %*% d))^2 / s2) / (J - K + 1) }, 0)",
     "# Q_A of the same paper: heterogeneity at the MVMR-IVW estimate allowing for the uncertainty of the exposure associations (as MVMR::pleiotropy_mvmr)",
-    "q_a <- sum((dat$beta_y - as.vector(bx %*% fit@Estimate))^2 / (dat$se_y^2 + as.vector(sx^2 %*% fit@Estimate^2)))",
+    "b <- as.vector(fit@Estimate); q_a <- sum((dat$beta_y - as.vector(bx %*% b))^2 / (dat$se_y^2 + vapply(S, function(Sl) drop(t(b) %*% Sl %*% b), 0)))",
     "diagnostics <- rbind(drow(\"mv_cond_f\", cond_f, note = EXPOSURE_IDS),",
     "  drow(\"mv_q\", fit@Heter.Stat[1], fit@SNPs - K, fit@Heter.Stat[2], \"Cochran's Q of the MVMR-IVW fit\"),",
-    "  drow(\"mv_q_a\", q_a, J - K, stats::pchisq(q_a, J - K, lower.tail = FALSE), \"Q_A (Sanderson et al. 2021), allowing for exposure uncertainty\"), drow(\"mv_model\", NA, note = fit@Model))"),
+    "  drow(\"mv_q_a\", q_a, J - K, stats::pchisq(q_a, J - K, lower.tail = FALSE), \"Q_A (Sanderson et al. 2021), allowing for exposure uncertainty\"), drow(\"mv_model\", NA, note = fit@Model),",
+    "  drow(\"mv_pheno_cor\", as.numeric(any(R[upper.tri(R)] != 0)), note = paste(sprintf(\"%d-%d %s\", row(R)[upper.tri(R)], col(R)[upper.tri(R)], format(R[upper.tri(R)])), collapse = \"; \")))"),
   mvegger = c("# MVMR-Egger, variants oriented to a positive effect on the exposure given by mv_orient",
     "fit <- MendelianRandomization::mr_mvegger(inp, orientate = mv_orient, alpha = 1 - ci_level)",
     "estimates <- rbind(est_rows(fit@Estimate, fit@StdError.Est, fit@CILower.Est, fit@CIUpper.Est, fit@Pvalue.Est, fit@SNPs),",
@@ -1089,6 +1093,15 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
 .mv_orient_param <- list(mv_orient = list(type = "integer", default = 1L, min = 1L, max = 6L, label = "Orient variants to exposure",
   hint = "MVMR-Egger and MVMR-Lasso orient the variants so that their effect on this exposure (1 = the first listed) is positive; the intercept depends on this choice.",
   package_arg = "orientate", kind = "integer", conventional = TRUE, advanced = TRUE, evidence = "MendelianRandomization default (orientate = 1); Rees et al. 2017.", affects = c("estimate", "se", "ci", "p")))
+# Round 53: phenotypic correlation of each pair of exposures (up to 6 exposures, so 15 pairs), for the conditional F and Q_A
+.mv_cor_params <- local({ out <- list(); for (i in 1:5) for (j in (i + 1):6) out[[sprintf("mv_r_%d_%d", i, j)]] <- list(type = "double", default = 0, min = -0.99, max = 0.99,
+  label = sprintf("Phenotypic correlation, exposures %d and %d", i, j),
+  hint = sprintf("Correlation between exposures %d and %d when their GWAS share participants (for example lipids from one GWAS); 0 for non-overlapping samples. Used only for the conditional F and Q_A, not the estimates.", i, j),
+  package_arg = "pcor (MVMR::phenocov_mvmr)", kind = "double", conventional = TRUE, advanced = TRUE,
+  evidence = "Sanderson, Spiller and Bowden 2021; MVMR package (phenocov_mvmr). Default 0 (zero covariance), as strength_mvmr(gencov = 0).", affects = c("diagnostics"))
+  out })
+.mv_cor_ok <- function(params, K) { R <- diag(K); if (K > 1) for (i in seq_len(K - 1)) for (j in (i + 1):K) R[i, j] <- R[j, i] <- as.numeric(params[[sprintf("mv_r_%d_%d", i, j)]] %||% 0)
+  min(eigen(R, symmetric = TRUE, only.values = TRUE)$values) > 1e-8 }
 .mv_iter_param <- list(mv_iter = list(type = "integer", default = 10000L, min = 500L, max = 100000L, label = "Bootstrap iterations",
   hint = "Iterations for the bootstrap standard error of the MVMR median estimate.", package_arg = "iterations", kind = "integer", conventional = TRUE, advanced = TRUE,
   evidence = "MendelianRandomization::mr_mvmedian default (iterations = 10000).", affects = c("se", "ci", "p")))
@@ -1097,7 +1110,7 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
   list(column = "se_x_<k>", level = "required", why = "Standard error of each exposure effect.", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
   list(column = "beta_y", level = "required", why = "Effect of each variant on the outcome.", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
   list(column = "se_y", level = "required", why = "Standard error of the outcome effect.", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
-  list(column = "n_x_<k>", level = "optional", why = "Sample size of each exposure, for the conditional F statistic.", if_missing = list(action = "ignore", code = NA_character_)))
+  list(column = "n_x_<k>", level = "optional", why = "Sample size of each exposure, for the record.", if_missing = list(action = "ignore", code = NA_character_)))
 .mv_usable <- function(d) { K <- sum(grepl("^beta_x_[0-9]+$", names(d))); bxn <- sprintf("beta_x_%d", seq_len(K)); sxn <- sprintf("se_x_%d", seq_len(K))
   d[d$mr_keep & is.finite(d$beta_y) & is.finite(d$se_y) & d$se_y > 0 & stats::complete.cases(d[, c(bxn, sxn)]), , drop = FALSE] }
 .mv_adapter <- function(id, label, extra_k, params, stochastic, body_id) {
@@ -1110,6 +1123,7 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
       K <- sum(grepl("^beta_x_[0-9]+$", names(input$data))); n <- nrow(.mv_usable(input$data))
       if (K < 2) return(verdict("block", "FEAS_TOO_FEW_EXPOSURES", sprintf("%s needs at least 2 exposures; %d given.", label, K)))
       if (n < K + extra_k) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("%s needs at least %d variants with all %d exposures (exposures + %d); %d available.", label, K + extra_k, K, extra_k, n)))
+      if (id == "mvivw" && !.mv_cor_ok(params, K)) return(verdict("block", "FEAS_INVALID_CORRELATION", "The phenotypic correlations of the exposures do not form a valid correlation matrix (it must be positive definite). Check the values."))
       verdict("ok", character(), character())
     },
     run = function(input, params, ctx) {
@@ -1135,7 +1149,7 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
     column_requirements = .mv_colreq)
   a
 }
-ADAPTER_MVIVW_V11 <- .mv_adapter("mvivw", "MVMR-IVW", 1L, .mv_model_param, FALSE, "mvivw")
+ADAPTER_MVIVW_V11 <- .mv_adapter("mvivw", "MVMR-IVW", 1L, c(.mv_model_param, .mv_cor_params), FALSE, "mvivw")
 ADAPTER_MVEGGER_V11 <- .mv_adapter("mvegger", "MVMR-Egger", 2L, .mv_orient_param, FALSE, "mvegger")
 ADAPTER_MVMEDIAN_V11 <- .mv_adapter("mvmedian", "MVMR median", 2L, .mv_iter_param, TRUE, "mvmedian")
 ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param, FALSE, "mvlasso")

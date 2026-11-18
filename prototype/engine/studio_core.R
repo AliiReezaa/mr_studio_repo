@@ -396,7 +396,7 @@ IVW_MODEL_NAMES <- c(mre_floor = "IVW (multiplicative random effects)", mre = "I
 
 #' The settings a pair was run with, read back from the settings lines of its scripts (the scripts are the record).
 pair_settings <- function(study, pair_folder) {
-  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, alpha_correction = "bonferroni", lso_fraction = 0.3, lso_repeats = 200, mv_model = "default", mv_orient = 1, mv_iter = 10000, weights = "1", tol = 1e-4, r_xxo = 1, r_yyo = 1, dispersion = "balanced", raps_dispersion = "balanced", loss = "huber", psi = 0, ci_step = 0.01, lasso_dist = "normal", simex_b = 100)
+  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, alpha_correction = "bonferroni", lso_fraction = 0.3, lso_repeats = 200, mv_model = "default", mv_orient = 1, mv_iter = 10000, mv_r_1_2 = 0, mv_r_1_3 = 0, mv_r_1_4 = 0, mv_r_1_5 = 0, mv_r_1_6 = 0, mv_r_2_3 = 0, mv_r_2_4 = 0, mv_r_2_5 = 0, mv_r_2_6 = 0, mv_r_3_4 = 0, mv_r_3_5 = 0, mv_r_3_6 = 0, mv_r_4_5 = 0, mv_r_4_6 = 0, mv_r_5_6 = 0, weights = "1", tol = 1e-4, r_xxo = 1, r_yyo = 1, dispersion = "balanced", raps_dispersion = "balanced", loss = "huber", psi = 0, ci_step = 0.01, lasso_dist = "normal", simex_b = 100)
   for (f in Sys.glob(file.path(study, "03_pairs", pair_folder, "02_scripts", "[0-9]*_*.R"))) {
     for (k in names(out)) {
       ln <- grep(paste0("^", k, " <- "), readLines(f, warn = FALSE), value = TRUE)

@@ -33,8 +33,24 @@ methods text cited Sanderson et al. MR Studio now computes the Sanderson et al. 
 also reports their Q_A, which allows for the uncertainty of the variant-exposure associations. Cochran's Q of the MVMR-IVW fit
 (685.46 here, first-order weights) is still reported beside it; the two differ by design.
 
-## Limitation
+## Correlated exposures (Round 53)
 
-Both statistics assume zero covariance between the variant-exposure associations, which holds when the exposures come from
-non-overlapping samples. The tutorial's lipids come from one GLGC sample; with the tutorial's illustrative phenotypic correlation
-matrix the package gives other values (its `phenocov_mvmr` option). MR Studio states the zero-covariance assumption in the methods text.
+When the exposures come from one GWAS (as the GLGC lipids here), the variant-exposure associations of a variant are correlated.
+The MVMR package handles this with `phenocov_mvmr(pcor, se)`: covariance = phenotypic correlation x the product of the standard
+errors. MR Studio takes the same correlations as MVMR-IVW settings (one per pair of exposures, default 0) and computes the
+conditional F and Q_A with them. The estimates themselves do not change. With the tutorial's illustrative matrix
+(LDL-HDL -0.1, LDL-TG -0.05, HDL-TG 0.2), compared with `strength_mvmr` and `pleiotropy_mvmr` given `gencov = phenocov_mvmr(...)`:
+
+| Quantity | MVMR package | MR Studio |
+|---|---|---|
+| Conditional F, LDL-c / HDL-c / triglycerides | 48.88 / 70.52 / 40.33 | 48.88 / 70.52 / 40.33 |
+| Q_A | 682.84 | 682.84 |
+
+Identical (relative difference 0). A correlation matrix that is not positive definite (for example 0.95, -0.95, 0.95) is blocked
+before the run with the reason.
+
+## Not covered
+
+Q-statistic minimisation (`qhet_mvmr`), the tutorial's weak-instrument-robust estimator, is not in MR Studio. Correlations estimated
+from individual-level data (`snpcov_mvmr`) are not supported; a correlation from the literature or from the GWAS (for example the
+LD score regression intercept between the exposures) has to be entered.
