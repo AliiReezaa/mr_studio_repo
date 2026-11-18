@@ -1224,6 +1224,9 @@ expect("Round 54: the Q-minimisation estimate minimises Q_A (lower than at MVMR-
   qa <- function(b, t2 = 0) sum((dd50$beta_y - bx %*% b)^2 / (dd50$se_y^2 + b[1]^2 * sx[, 1]^2 + b[2]^2 * sx[, 2]^2 + 2 * b[1] * b[2] * r * sx[, 1] * sx[, 2] + t2))
   dg <- Filter(function(g) g$method == "mvqhet", pl54$diagnostics); t2 <- Filter(function(g) g$name == "mv_qhet_tau2", dg)[[1]]$value; b <- e54$estimate
   qa(b, t2) <= qa(mi50@Estimate, t2) + 1e-9 && t2 >= 0 && qa(b, t2) <= nrow(bx) - 2 + 1e-6 })
+expect("Round 55: the Q-minimisation script pins boot by its CRAN version (1.3-32, the conda-forge build for R 4.5), so the re-run helper can install it", {
+  h <- readLines(Sys.glob(file.path(h50$dir, "03_pairs", r54$pair_folder, "02_scripts", "*mvqhet*.R"))[1], n = 12)
+  any(grepl("^# Package  : MendelianRandomization version 0\\.10\\.0; boot version 1\\.3-32$", h)) })
 r54b <- studio_run(h50, "MV Q-min boot", p50$outcome_label, p50$input, "mvqhet", idx = 4L, params = list(ci_level = 0.95, mv_qhet_ci = "bootstrap", mv_qhet_iter = 60L)); e54b <- .est_df(pair_payload(h50$dir, r54b$pair_folder))
 expect("Round 54: the bootstrap option gives BCa intervals around the same estimate, and the methods text names the method and its uncertainty", all(e54b$ci_method == "bootstrap") &&
   all(e54b$ci_lower < e54b$estimate & e54b$estimate < e54b$ci_upper) && isTRUE(all.equal(e54b$estimate, .est_df(pair_payload(h50$dir, studio_run(h50, "MV Q-min 0", p50$outcome_label, p50$input, "mvqhet", idx = 5L, params = list(ci_level = 0.95))$pair_folder))$estimate)) && {

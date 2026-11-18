@@ -293,7 +293,7 @@ PIN_RADIALMR <- "7ca35c052489001890347871e38998ca53a02b03"
 
 .script_lines_head_pk <- function(a, spec) {
   h <- .script_lines_head(a, spec)
-  pins <- unlist(a$packages); kind <- ifelse(grepl("^[0-9]+(\\.[0-9]+)+$", pins), "version", "commit")   # Round 37: CRAN packages are pinned by version
+  pins <- unlist(a$packages); kind <- ifelse(grepl("^[0-9]+([.-][0-9]+)+$", pins), "version", "commit")   # CRAN versions may contain a hyphen (boot 1.3-32)   # Round 37: CRAN packages are pinned by version
   h[grepl("^# Package  :", h)] <- sprintf("# Package  : %s", paste(sprintf("%s %s %s", names(a$packages), kind, pins), collapse = "; "))
   h
 }
@@ -1135,7 +1135,7 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
   out })
 .mv_cor_ok <- function(params, K) { R <- diag(K); if (K > 1) for (i in seq_len(K - 1)) for (j in (i + 1):K) R[i, j] <- R[j, i] <- as.numeric(params[[sprintf("mv_r_%d_%d", i, j)]] %||% 0)
   min(eigen(R, symmetric = TRUE, only.values = TRUE)$values) > 1e-8 }
-PIN_BOOT <- "1.3.31"   # Round 54: boot, for the bootstrap BCa interval of the Q-minimisation estimate (as MVMR::qhet_mvmr)
+PIN_BOOT <- "1.3-32"   # Round 54: boot, for the bootstrap BCa interval of the Q-minimisation estimate (as MVMR::qhet_mvmr); the conda-forge build for R 4.5 (noarch), written as on CRAN
 .mv_qhet_params <- list(mv_qhet_ci = list(type = "enum", default = "jackknife", values = c("jackknife", "bootstrap"),
     value_labels = c(jackknife = "Jackknife standard error (leave one variant out; deterministic)", bootstrap = "Bootstrap BCa interval (slow: one fit per iteration)"),
     label = "Uncertainty", hint = "How the standard error and interval of the Q-minimisation estimate are obtained. MVMR::qhet_mvmr offers both; its default when an interval is asked for is the bootstrap, which takes many minutes, so MR Studio defaults to the jackknife.",

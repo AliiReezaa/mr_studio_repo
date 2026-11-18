@@ -21,7 +21,7 @@ dependencies:
   # Debiased IVW (Round 37): MendelianRandomization::mr_divw.
   - r-mendelianrandomization
   # MVMR Q-minimisation (Round 54): bootstrap BCa intervals with boot, as MVMR::qhet_mvmr.
-  - r-boot
+  - r-boot=1.3_32
   # Imports of mr.raps (Round 38; mr.raps itself is installed from a pinned commit, see prototype.yml).
   # Its rsnps import is removed before installing (prototype/ci/patch_mrraps.py): rsnps has no osx-arm64 build.
   - r-nortest
