@@ -1,0 +1,8 @@
+"check","value","pass"
+"diagonal vs lm() SE^2 (max relative difference of the SE)",1.76303416310475e-13,TRUE
+"vs snpcov_mvmr on centred genotypes x n/(n-2) (max relative)",3.82360809680904e-13,TRUE
+"conditional F 1 vs strength_mvmr (relative)",0,TRUE
+"conditional F 2 vs strength_mvmr (relative)",0,TRUE
+"conditional F 3 vs strength_mvmr (relative)",0,TRUE
+"Q_A vs pleiotropy_mvmr (relative)",0,TRUE
+"minimum Q vs pleiotropy_mvmr(qmin), outcome SE x 2 (relative; tau2 = 0)",0,TRUE

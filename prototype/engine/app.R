@@ -13,7 +13,7 @@ mr_ui_for <- function(engine_dir) {
       tags$style(HTML(css))),
     tags$body(
       div(id = "root"),
-      div(style = "position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden", fileInput("impfile", "Choose a GWAS file", accept = NULL)),
+      div(style = "position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden", fileInput("impfile", "Choose a GWAS file", accept = NULL), fileInput("mvcovfile", "Choose an individual-level file", accept = NULL)),
       div(style = "position:fixed;right:10px;bottom:6px;font-size:10px;color:#8a97a6;opacity:.7;pointer-events:none", "MR GUI engine prototype. Engine: ", textOutput("hello", inline = TRUE)),
       tags$script(HTML(js))))
 }
@@ -78,8 +78,18 @@ mr_server <- function(engine_dir) {
       pairs <- Filter(function(p) !is.null(p$folder), pairs)
       sens <- ui_state_get(h$con, "sens") %||% list()
       for (sn in sens) if (!is.null(sn$folder) && dir.exists(file.path(h$dir, "03_pairs", sn$folder)) && !is.null(pair_results(h$dir, sn$folder))) payloads[[sn$folder]] <- pair_payload(h$dir, sn$folder)
-      ev(t, name = name, dir = h$dir, root = root, plan = plan, pairs = pairs, sens = sens, outliers = ui_state_get(h$con, "outliers") %||% list(), payloads = payloads, overlap = overlap_get(h), to = to, studies = studies_overview(root))
+      ev(t, name = name, dir = h$dir, root = root, plan = plan, pairs = pairs, sens = sens, mvcov = ui_state_get(h$con, "mv_cov") %||% list(), outliers = ui_state_get(h$con, "outliers") %||% list(), payloads = payloads, overlap = overlap_get(h), to = to, studies = studies_overview(root))
     }
+
+    # Round 55: individual-level file for the MVMR covariances. Only its header is read here; the covariances are computed on request.
+    observeEvent(input$mvcovfile, {
+      f <- input$mvcovfile
+      tryCatch({
+        hd <- data.table::fread(f$datapath, nrows = 50L, data.table = FALSE, showProgress = FALSE)
+        rv$mvcov <- list(path = f$datapath, name = f$name)
+        ev("mvcov_head", name = f$name, columns = as.list(names(hd)[vapply(hd, is.numeric, TRUE)]))
+      }, error = function(e) { rv$mvcov <- NULL; ev("mvcov_error", msg = conditionMessage(e)) })
+    })
 
     observeEvent(input$impfile, {
       f <- input$impfile
@@ -150,11 +160,19 @@ mr_server <- function(engine_dir) {
           rv$facts <- Filter(function(x) is.null(x$error), f)
           ev("facts", facts = f, feas = feasibility(Filter(function(x) !isTRUE(x$mv), rv$facts), run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list()))
         },
+        mvcov_compute = {   # Round 55: covariances from the chosen individual-level file, for these exposures in model order
+          req(rv$h); if (is.null(rv$mvcov)) stop("Choose the individual-level file first.", call. = FALSE)
+          cov <- mv_cov_from_file(rv$mvcov$path, unlist(a$cols))
+          st <- mv_cov_save(rv$h, a$ex, cov, rv$mvcov$name); rv$mvcov <- NULL
+          ev("mvcov_saved", mvcov = st)
+        },
+        mvcov_clear = { req(rv$h); ev("mvcov_saved", mvcov = mv_cov_clear(rv$h, a$ex)) },
         run_pair = {
           req(rv$h)
           pt <- as.numeric(a$pthr %||% 5e-8)
           mvp <- length(unlist(a$ex)) > 1   # Round 50: several exposures in one model
           inp <- tryCatch(if (mvp) mv_pair_input(a$ex, a$out, pt) else pair_input(a$ex, a$out, pt), error = function(e) e)
+          if (mvp && !inherits(inp, "error")) inp <- tryCatch({ inp$input <- mv_with_cov(rv$h, a$ex, inp$input); inp }, error = function(e) e)   # Round 55
           if (inherits(inp, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
           meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
           # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.

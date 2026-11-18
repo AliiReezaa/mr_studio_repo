@@ -1229,6 +1229,27 @@ expect("Round 54: the bootstrap option gives BCa intervals around the same estim
   all(e54b$ci_lower < e54b$estimate & e54b$estimate < e54b$ci_upper) && isTRUE(all.equal(e54b$estimate, .est_df(pair_payload(h50$dir, studio_run(h50, "MV Q-min 0", p50$outcome_label, p50$input, "mvqhet", idx = 5L, params = list(ci_level = 0.95))$pair_folder))$estimate)) && {
   tx <- report_text(list(mv_context(h50, list(folder = r54b$pair_folder, exNames = list("A", "B"), methods = list("mvqhet"), outName = "Y"))), "Q")
   any(grepl("Q-statistic minimisation", tx$methods)) && any(grepl("bootstrap intervals \\(60 iterations\\)", tx$methods)) })
+expect("Round 55: mv_snpcov gives the covariance of single-variant slopes whose diagonal is exactly lm()'s squared SE, and the file reader skips non-dosage columns and reads PLINK --recode A files", {
+  set.seed(5); n <- 400; G <- sapply(1:3, function(j) rbinom(n, 2, 0.3)); colnames(G) <- c("rs1", "rs2", "rs3"); X <- cbind(G %*% c(.2, .1, 0) + rnorm(n), G %*% c(0, .1, .2) + rnorm(n))
+  cv <- mv_snpcov(G, X); se <- summary(lm(X[, 2] ~ G[, 3]))$coefficients[2, 2]
+  e2 <- resid(lm(X[, 1] ~ G[, 2])); f2 <- resid(lm(X[, 2] ~ G[, 2])); c12 <- sum(e2 * f2) / ((n - 2) * sum((G[, 2] - mean(G[, 2]))^2))
+  f <- tempfile(fileext = ".csv"); utils::write.csv(data.frame(pid = 1001:1400, x1 = X[, 1], x2 = X[, 2], G), f, row.names = FALSE); fc <- mv_cov_from_file(f, c("x1", "x2"))
+  fr <- tempfile(fileext = ".raw"); utils::write.table(data.frame(FID = 1:n, IID = 1:n, PAT = 0, MAT = 0, SEX = 1, PHENOTYPE = -9, x1 = X[, 1], x2 = X[, 2], rs1_A = G[, 1], rs2_G = G[, 2], rs3_T = G[, 3]), fr, sep = " ", row.names = FALSE, quote = FALSE)
+  fp <- mv_cov_from_file(fr, c("x1", "x2"))
+  identical(fp$variant_id, c("rs1", "rs2", "rs3")) && isTRUE(all.equal(fp$cov_x_1_2, cv$cov_x_1_2)) && setequal(attr(fp, "meta")$ignored, c("FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE")) &&
+  abs(cv$cov_x_2_2[3] - se^2) < 1e-15 && abs(cv$cov_x_1_2[2] - c12) < 1e-15 && identical(fc$variant_id, c("rs1", "rs2", "rs3")) && identical(attr(fc, "meta")$ignored, "pid") && attr(fc, "meta")$people == 400L })
+d55 <- p50$input$data; cv55 <- data.frame(variant_id = d55$variant_id, cov_x_1_1 = d55$se_x_1^2, cov_x_1_2 = 0.3 * d55$se_x_1 * d55$se_x_2, cov_x_2_2 = d55$se_x_2^2)
+mv_cov_save(h50, c("expA", "expB"), cv55, "cohort.csv"); i55 <- mv_with_cov(h50, c("expA", "expB"), p50$input)
+r55 <- studio_run(h50, "MV indiv", p50$outcome_label, i55, c("mvivw", "mvqhet"), idx = 6L, params = list(ci_level = 0.95)); pl55 <- pair_payload(h50$dir, r55$pair_folder)
+expect("Round 55: a covariance table equal to 0.3 x se1 x se2 gives the same conditional F, Q_A and Q-minimisation as the phenotypic correlation 0.3, and is recorded as individual-level data", {
+  v <- function(pl, m, n) vapply(Filter(function(g) g$method == m && g$name == n, pl$diagnostics), function(g) as.numeric(g$value), 0)
+  identical(pl55$replay$status, "identical") && max(abs(v(pl55, "mvivw", "mv_cond_f") - v(pl53, "mvivw", "mv_cond_f"))) < 1e-10 && abs(v(pl55, "mvivw", "mv_q_a") - v(pl53, "mvivw", "mv_q_a")) < 1e-10 &&
+    max(abs(.est_df(pl55)$estimate[.est_df(pl55)$method == "mvqhet"] - e54$estimate)) < 1e-8 && identical(Filter(function(g) g$name == "mv_pheno_cor" && g$method == "mvivw", pl55$diagnostics)[[1]]$note, "individual-level data") })
+expect("Round 55: the covariance table is saved in 02_datasets and registered, a model with uncovered instruments is refused with the count, and clearing it returns to the correlations", {
+  e <- mv_cov_get(h50, c("expA", "expB")); ok1 <- length(e) == 1L && file.exists(file.path(h50$dir, e[[1]]$file)) && startsWith(e[[1]]$file, "02_datasets/") && any(manifest_read(h50$dir)$relative_path == e[[1]]$file)
+  bad <- tryCatch({ mv_attach_cov(p50$input, cv55[-(1:2), ]); "" }, error = function(x) conditionMessage(x))
+  ok1 && grepl("^2 of the [0-9]+ instruments have no covariance", bad) && length(mv_cov_clear(h50, c("expA", "expB"))) == 0L && identical(mv_with_cov(h50, c("expA", "expB"), p50$input), p50$input) })
+expect("Round 55: the methods text says the covariances came from individual-level data", grepl("computed from individual-level data", .mv_cov_text(list(), c("A", "B"), "individual-level data")))
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })
 expect("Round 50: one exposure, more than six, or mixing simulated and imported traits is refused", grepl("at least two exposures", err_of(mv_pair_input("expA", "outA"))) && grepl("at most six", err_of(mv_pair_input(rep("expA", 7), "outA"))) && grepl("cannot be mixed", err_of(mv_pair_input(c("expA", "lib:X"), "outA"))))

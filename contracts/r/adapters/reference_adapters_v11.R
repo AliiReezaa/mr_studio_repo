@@ -1054,25 +1054,30 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
   "  p = as.numeric(p), n_ivs_used = as.integer(n), stringsAsFactors = FALSE)",
   "drow <- function(name, value, df = NA_real_, p = NA_real_, note = NA_character_) data.frame(name = name, value = as.numeric(value), df = as.numeric(df), p = as.numeric(p), note = as.character(note), stringsAsFactors = FALSE)")
 # Round 53: the correlation matrix of the exposures, shared by MVMR-IVW (conditional F, Q_A) and the Q-minimisation estimator
-.mv_cov_lines <- c("# Covariance of the variant-exposure associations of each variant: the phenotypic correlation of the exposures (mv_r_i_j) times the",
-  "# product of their standard errors, as MVMR::phenocov_mvmr. All correlations 0 means non-overlapping exposure samples.",
+.mv_cov_lines <- c("# Covariance of the variant-exposure associations of each variant (C[l, i, j]). Either computed from individual-level data",
+  "# (columns cov_x_i_j, Round 55, as MVMR::snpcov_mvmr) or the phenotypic correlation of the exposures (mv_r_i_j) times the product of",
+  "# their standard errors (as MVMR::phenocov_mvmr). All correlations 0 means non-overlapping exposure samples.",
   "bx <- as.matrix(dat[, bxn]); sx <- as.matrix(dat[, sxn]); J <- nrow(bx)",
-  "R <- diag(K); for (i in seq_len(K - 1)) for (j in (i + 1):K) R[i, j] <- R[j, i] <- get(sprintf(\"mv_r_%d_%d\", i, j))")
+  "cvn <- outer(seq_len(K), seq_len(K), function(i, j) sprintf(\"cov_x_%d_%d\", pmin(i, j), pmax(i, j)))",
+  "R <- diag(K); for (i in seq_len(K - 1)) for (j in (i + 1):K) R[i, j] <- R[j, i] <- get(sprintf(\"mv_r_%d_%d\", i, j))",
+  "if (all(cvn %in% names(dat))) { C <- array(as.numeric(as.matrix(dat[, as.vector(cvn)])), c(J, K, K)); COV_SOURCE <- \"individual-level data\"",
+  "} else { C <- array(0, c(J, K, K)); for (i in seq_len(K)) for (j in seq_len(K)) C[, i, j] <- R[i, j] * sx[, i] * sx[, j]; COV_SOURCE <- \"phenotypic correlation\" }",
+  "vq <- function(w, rows = seq_len(J)) as.vector(matrix(C[rows, , , drop = FALSE], length(rows)) %*% as.vector(outer(w, w)))   # t(w) %*% C[l, , ] %*% w for every variant",
+  "cov_note <- if (COV_SOURCE == \"phenotypic correlation\") paste(sprintf(\"%d-%d %s\", row(R)[upper.tri(R)], col(R)[upper.tri(R)], format(R[upper.tri(R)])), collapse = \"; \") else COV_SOURCE")
 .mv_body <- list(
   mvivw = c("# MVMR-IVW",
     "fit <- MendelianRandomization::mr_mvivw(inp, model = mv_model, alpha = 1 - ci_level)",
     "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
     .mv_cov_lines,
-    "S <- lapply(seq_len(J), function(l) R * outer(sx[l, ], sx[l, ]))",
     "# Conditional F statistic of Sanderson, Spiller and Bowden 2021 for each exposure (as MVMR::strength_mvmr); values below 10 indicate weak instruments",
     "cond_f <- vapply(seq_len(K), function(k) { d <- stats::lm.fit(bx[, -k, drop = FALSE], bx[, k])$coefficients; w <- numeric(K); w[k] <- -1; w[-k] <- d",
-    "  s2 <- vapply(S, function(Sl) drop(t(w) %*% Sl %*% w), 0); sum((bx[, k] - as.vector(bx[, -k, drop = FALSE] %*% d))^2 / s2) / (J - K + 1) }, 0)",
+    "  sum((bx[, k] - as.vector(bx[, -k, drop = FALSE] %*% d))^2 / vq(w)) / (J - K + 1) }, 0)",
     "# Q_A of the same paper: heterogeneity at the MVMR-IVW estimate allowing for the uncertainty of the exposure associations (as MVMR::pleiotropy_mvmr)",
-    "b <- as.vector(fit@Estimate); q_a <- sum((dat$beta_y - as.vector(bx %*% b))^2 / (dat$se_y^2 + vapply(S, function(Sl) drop(t(b) %*% Sl %*% b), 0)))",
+    "b <- as.vector(fit@Estimate); q_a <- sum((dat$beta_y - as.vector(bx %*% b))^2 / (dat$se_y^2 + vq(b)))",
     "diagnostics <- rbind(drow(\"mv_cond_f\", cond_f, note = EXPOSURE_IDS),",
     "  drow(\"mv_q\", fit@Heter.Stat[1], fit@SNPs - K, fit@Heter.Stat[2], \"Cochran's Q of the MVMR-IVW fit\"),",
     "  drow(\"mv_q_a\", q_a, J - K, stats::pchisq(q_a, J - K, lower.tail = FALSE), \"Q_A (Sanderson et al. 2021), allowing for exposure uncertainty\"), drow(\"mv_model\", NA, note = fit@Model),",
-    "  drow(\"mv_pheno_cor\", as.numeric(any(R[upper.tri(R)] != 0)), note = paste(sprintf(\"%d-%d %s\", row(R)[upper.tri(R)], col(R)[upper.tri(R)], format(R[upper.tri(R)])), collapse = \"; \")))"),
+    "  drow(\"mv_pheno_cor\", as.numeric(COV_SOURCE == \"individual-level data\" || any(R[upper.tri(R)] != 0)), note = cov_note))"),
   mvegger = c("# MVMR-Egger, variants oriented to a positive effect on the exposure given by mv_orient",
     "fit <- MendelianRandomization::mr_mvegger(inp, orientate = mv_orient, alpha = 1 - ci_level)",
     "estimates <- rbind(est_rows(fit@Estimate, fit@StdError.Est, fit@CILower.Est, fit@CIUpper.Est, fit@Pvalue.Est, fit@SNPs),",
@@ -1083,28 +1088,28 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
     "# for the uncertainty (and correlation) of the variant-exposure associations, so they are robust to weak instruments. If the minimum Q_A",
     "# exceeds its degrees of freedom (J - K), an additive heterogeneity variance tau2 is added to every weight until it equals them.",
     .mv_cov_lines,
-    "qfit <- function(bx, sx, by, sy) {",
-    "  vb <- function(b) { u <- sx * rep(b, each = nrow(sx)); rowSums((u %*% R) * u) }   # t(b) %*% S_l %*% b for every variant at once",
-    "  Qs <- function(b, tau2) sum((by - as.vector(bx %*% b))^2 / (sy^2 + vb(b) + tau2))",
+    "qfit <- function(rows) {",
+    "  bx <- bx[rows, , drop = FALSE]; by <- dat$beta_y[rows]; sy <- dat$se_y[rows]",
+    "  Qs <- function(b, tau2) sum((by - as.vector(bx %*% b))^2 / (sy^2 + vq(b, rows) + tau2))",
     "  b0 <- stats::lm.wfit(bx, by, 1 / sy^2)$coefficients   # start at MVMR-IVW",
     "  qm <- function(tau2) stats::optim(b0, Qs, tau2 = tau2, method = \"BFGS\", control = list(reltol = 1e-12))",
     "  target <- nrow(bx) - ncol(bx); tau2 <- 0",
     "  if (qm(0)$value > target) { up <- stats::median(sy^2); while (qm(up)$value > target) up <- up * 10",
     "    tau2 <- stats::uniroot(function(t) qm(t)$value - target, interval = c(0, up), tol = up * 1e-8)$root }",
     "  f <- qm(tau2); list(b = unname(f$par), tau2 = tau2, q = f$value) }",
-    "est <- qfit(bx, sx, dat$beta_y, dat$se_y); z <- stats::qnorm(1 - (1 - ci_level) / 2)",
+    "est <- qfit(seq_len(J)); z <- stats::qnorm(1 - (1 - ci_level) / 2)",
     "if (mv_qhet_ci == \"jackknife\") {   # leave one variant out at a time; deterministic",
-    "  jk <- matrix(vapply(seq_len(J), function(l) qfit(bx[-l, , drop = FALSE], sx[-l, , drop = FALSE], dat$beta_y[-l], dat$se_y[-l])$b, numeric(K)), nrow = K)",
+    "  jk <- matrix(vapply(seq_len(J), function(l) qfit(seq_len(J)[-l])$b, numeric(K)), nrow = K)",
     "  se <- sqrt((J - 1) / J * rowSums((jk - rowMeans(jk))^2)); lo <- est$b - z * se; hi <- est$b + z * se; cim <- \"wald\"",
     "} else {   # nonparametric bootstrap over variants with bias-corrected and accelerated (BCa) intervals, as qhet_mvmr(CI = TRUE)",
-    "  bt <- boot::boot(data = data.frame(variant = seq_len(J)), statistic = function(d, ix) qfit(bx[ix, , drop = FALSE], sx[ix, , drop = FALSE], dat$beta_y[ix], dat$se_y[ix])$b, R = mv_qhet_iter)",
+    "  bt <- boot::boot(data = data.frame(variant = seq_len(J)), statistic = function(d, ix) qfit(ix)$b, R = mv_qhet_iter)",
     "  se <- apply(bt$t, 2, stats::sd); ci <- vapply(seq_len(K), function(k) boot::boot.ci(bt, conf = ci_level, type = \"bca\", index = k)$bca[4:5], numeric(2))",
     "  lo <- ci[1, ]; hi <- ci[2, ]; cim <- \"bootstrap\" }",
     "estimates <- est_rows(est$b, se, lo, hi, 2 * stats::pnorm(-abs(est$b / se)), J); estimates$ci_method <- cim   # P from the jackknife or bootstrap standard error",
     "diagnostics <- rbind(drow(\"mv_qhet_tau2\", est$tau2, note = \"additive heterogeneity variance (0 when the minimum Q_A is within its degrees of freedom)\"),",
     "  drow(\"mv_qhet_q\", est$q, J - K, stats::pchisq(est$q, J - K, lower.tail = FALSE), \"Q_A at the estimate\"),",
     "  drow(\"mv_qhet_ci\", if (mv_qhet_ci == \"bootstrap\") mv_qhet_iter else J, note = mv_qhet_ci),",
-    "  drow(\"mv_pheno_cor\", as.numeric(any(R[upper.tri(R)] != 0)), note = paste(sprintf(\"%d-%d %s\", row(R)[upper.tri(R)], col(R)[upper.tri(R)], format(R[upper.tri(R)])), collapse = \"; \")))"),
+    "  drow(\"mv_pheno_cor\", as.numeric(COV_SOURCE == \"individual-level data\" || any(R[upper.tri(R)] != 0)), note = cov_note))"),
   mvmedian = c("# MVMR median (weighted), bootstrap standard errors with the script's seed",
     "fit <- MendelianRandomization::mr_mvmedian(inp, alpha = 1 - ci_level, iterations = mv_iter, seed = seed)",
     "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
@@ -1145,6 +1150,7 @@ PIN_BOOT <- "1.3.31"   # Round 54: boot, for the bootstrap BCa interval of the Q
   list(column = "se_x_<k>", level = "required", why = "Standard error of each exposure effect.", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
   list(column = "beta_y", level = "required", why = "Effect of each variant on the outcome.", if_missing = list(action = "block", code = "IMPORT_NO_BETA")),
   list(column = "se_y", level = "required", why = "Standard error of the outcome effect.", if_missing = list(action = "block", code = "IMPORT_NO_SE")),
+  list(column = "cov_x_<i>_<j>", level = "optional", why = "Covariance of the effects of each variant on exposures i and j (i <= j), from individual-level data; replaces the phenotypic correlations for the conditional F, Q_A and Q-minimisation.", if_missing = list(action = "ignore", code = NA_character_)),
   list(column = "n_x_<k>", level = "optional", why = "Sample size of each exposure, for the record.", if_missing = list(action = "ignore", code = NA_character_)))
 .mv_usable <- function(d) { K <- sum(grepl("^beta_x_[0-9]+$", names(d))); bxn <- sprintf("beta_x_%d", seq_len(K)); sxn <- sprintf("se_x_%d", seq_len(K))
   d[d$mr_keep & is.finite(d$beta_y) & is.finite(d$se_y) & d$se_y > 0 & stats::complete.cases(d[, c(bxn, sxn)]), , drop = FALSE] }
@@ -1159,7 +1165,7 @@ PIN_BOOT <- "1.3.31"   # Round 54: boot, for the bootstrap BCa interval of the Q
       K <- sum(grepl("^beta_x_[0-9]+$", names(input$data))); n <- nrow(.mv_usable(input$data))
       if (K < 2) return(verdict("block", "FEAS_TOO_FEW_EXPOSURES", sprintf("%s needs at least 2 exposures; %d given.", label, K)))
       if (n < K + extra_k) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("%s needs at least %d variants with all %d exposures (exposures + %d); %d available.", label, K + extra_k, K, extra_k, n)))
-      if (id %in% c("mvivw", "mvqhet") && !.mv_cor_ok(params, K)) return(verdict("block", "FEAS_INVALID_CORRELATION", "The phenotypic correlations of the exposures do not form a valid correlation matrix (it must be positive definite). Check the values."))
+      if (id %in% c("mvivw", "mvqhet") && !any(grepl("^cov_x_", names(input$data))) && !.mv_cor_ok(params, K)) return(verdict("block", "FEAS_INVALID_CORRELATION", "The phenotypic correlations of the exposures do not form a valid correlation matrix (it must be positive definite). Check the values."))
       verdict("ok", character(), character())
     },
     run = function(input, params, ctx) {

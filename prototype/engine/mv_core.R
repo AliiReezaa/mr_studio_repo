@@ -89,8 +89,9 @@ mv_pair_facts <- function(exp_ids, out_id, pthr = 5e-8) {
 
 # ---- report (Round 50) -------------------------------------------------------------------------------------------------------
 # Round 53: how the covariance of the variant-exposure associations was set for the conditional F and Q_A.
-.mv_cov_text <- function(st, labels) {
+.mv_cov_text <- function(st, labels, src = NULL) {
   K <- length(labels); if (K < 2) return("")
+  if (identical(src, "individual-level data")) return("both allowed for covariance between the variant-exposure associations, computed from individual-level data in which the exposures were measured in the same participants (the covariance of each pair of single-variant regression slopes, from their residuals)")
   pr <- do.call(rbind, lapply(seq_len(K - 1), function(i) do.call(rbind, lapply((i + 1):K, function(j) data.frame(i = i, j = j, r = as.numeric(st[[sprintf("mv_r_%d_%d", i, j)]] %||% 0))))))
   if (all(pr$r == 0)) return("both assumed zero covariance between the variant-exposure associations, as for exposures from non-overlapping samples")
   sprintf("both allowed for covariance between the variant-exposure associations, taken as the phenotypic correlation of the exposures times the product of their standard errors (%s)",
@@ -105,7 +106,7 @@ mv_context <- function(h, p) {
   ce$exposure_label <- labs[match(as.character(ce$exposure_id), ids)]
   g <- function(m, n) Filter(function(d) identical(d$method, m) && identical(d$name, n), pay$diagnostics)
   list(mv = TRUE, p = p, pay = pay, est = est, ce = ce, methods = unlist(p$methods), simulated = isTRUE(p$simulated), settings = pay$settings %||% list(), ledger = p$ledger,
-       cond_f = vapply(g("mvivw", "mv_cond_f"), function(d) as.numeric(d$value), 0), q = g("mvivw", "mv_q"), qa = g("mvivw", "mv_q_a"), labels = labs, vars = data.frame(), pthr = p$pthr %||% 5e-8)
+       cond_f = vapply(g("mvivw", "mv_cond_f"), function(d) as.numeric(d$value), 0), q = g("mvivw", "mv_q"), qa = g("mvivw", "mv_q_a"), labels = labs, cov_source = { n <- g("mvivw", "mv_pheno_cor"); if (!length(n)) n <- g("mvqhet", "mv_pheno_cor"); if (length(n)) n[[1]]$note else NULL }, vars = data.frame(), pthr = p$pthr %||% 5e-8)
 }
 mv_add_text <- function(txt, mvx) {
   st <- mvx[[1]]$settings; used <- unique(unlist(lapply(mvx, `[[`, "methods")))
@@ -116,7 +117,7 @@ mv_add_text <- function(txt, mvx) {
       if ("mvmedian" %in% used) sprintf("the MVMR median with %s bootstrap iterations [Grant 2021]", format(st$mv_iter %||% 10000)), if ("mvlasso" %in% used) "MVMR-Lasso [Grant 2021]",
       if ("mvqhet" %in% used) sprintf("Q-statistic minimisation, which estimates the direct effects by minimising Q_A and so is robust to weak instruments, with an additive heterogeneity variance when the minimum exceeds its degrees of freedom and %s [Sanderson 2021]",
         if (identical(st$mv_qhet_ci, "bootstrap")) sprintf("bias-corrected and accelerated bootstrap intervals (%s iterations)", format(st$mv_qhet_iter %||% 1000)) else "jackknife standard errors (leaving out one variant at a time)")), collapse = "; "),
-    ". Instrument strength was assessed with the conditional F statistic of each exposure (values below 10 indicate weak instruments), and heterogeneity with Cochran's Q of the MVMR-IVW fit and with Q_A, which also allows for the uncertainty of the variant-exposure associations [Sanderson 2021]; ", .mv_cov_text(st, mvx[[1]]$labels), "."))
+    ". Instrument strength was assessed with the conditional F statistic of each exposure (values below 10 indicate weak instruments), and heterogeneity with Cochran's Q of the MVMR-IVW fit and with Q_A, which also allows for the uncertainty of the variant-exposure associations [Sanderson 2021]; ", .mv_cov_text(st, mvx[[1]]$labels, mvx[[1]]$cov_source), "."))
   for (cx in mvx) {
     ce <- cx$ce; ex <- unique(ce$exposure_label); iv <- ce[ce$method == "mvivw", , drop = FALSE]
     line <- vapply(ex, function(x) { r <- ce[ce$exposure_label == x, , drop = FALSE]
@@ -138,3 +139,65 @@ mv_add_text <- function(txt, mvx) {
   txt
 }
 .short_mv <- function(m) unname(c(mvivw = "MVMR-IVW", mvegger = "MVMR-Egger", mvmedian = "MVMR median", mvlasso = "MVMR-Lasso", mvqhet = "MVMR Q-min")[m])
+
+# ---- Round 55: covariances of the variant-exposure associations from individual-level data (as MVMR::snpcov_mvmr, corrected) ----
+#' For every variant j and pair of exposures (i, k), the covariance of the two single-variant regression slopes estimated in the same
+#' people: cov(b_ij, b_kj) = sum(e_ij * e_kj) / ((n - 2) * sum((g_j - mean g_j)^2)), with e the residuals of exposure i (or k) on g_j and an
+#' intercept. Its diagonal is exactly the squared standard error lm() reports. MVMR::snpcov_mvmr 0.4.9 uses the uncentred sum(g^2) * n
+#' instead of (n - 2) * sum((g - mean)^2), which equals this only for centred genotypes; for 0/1/2 dosages it makes the variances too small.
+#' Rows with a missing genotype or exposure are left out for that variant. Returns one row per variant with n and cov_x_i_j (i <= j).
+mv_snpcov <- function(G, X) {
+  G <- as.matrix(G); X <- as.matrix(X); K <- ncol(X); pr <- which(upper.tri(diag(K), diag = TRUE), arr.ind = TRUE); pr <- pr[order(pr[, 1], pr[, 2]), , drop = FALSE]
+  rows <- lapply(seq_len(ncol(G)), function(j) {
+    ok <- is.finite(G[, j]) & stats::complete.cases(X); g <- G[ok, j]; x <- X[ok, , drop = FALSE]; n <- length(g); gc <- g - mean(g); ssg <- sum(gc^2)
+    if (n < 3 || ssg <= 0) return(c(n, rep(NA_real_, nrow(pr))))
+    xc <- sweep(x, 2, colMeans(x)); e <- xc - outer(gc, as.vector(crossprod(gc, xc)) / ssg); V <- crossprod(e) / ((n - 2) * ssg)
+    c(n, V[pr]) })
+  out <- as.data.frame(do.call(rbind, rows)); names(out) <- c("n_cov", sprintf("cov_x_%d_%d", pr[, 1], pr[, 2]))
+  cbind(data.frame(variant_id = colnames(G), stringsAsFactors = FALSE), out)
+}
+
+#' Read an individual-level file (one row per person): genotype dosage columns named by variant and one column per exposure. The
+#' exposure columns are given in the order of the model; every other numeric column with values from 0 to 2 is taken as a genotype. Only the covariance
+#' table is kept; the individual-level file is not copied into the study. A PLINK --recode A file (.raw) can be used as it is, with
+#' the exposures added as columns.
+mv_cov_from_file <- function(path, exposure_cols) {
+  d <- data.table::fread(path, data.table = FALSE, showProgress = FALSE)
+  miss <- setdiff(exposure_cols, names(d)); if (length(miss)) stop(sprintf("Exposure column%s not in the file: %s.", if (length(miss) > 1) "s" else "", paste(miss, collapse = ", ")), call. = FALSE)
+  num <- setdiff(names(d)[vapply(d, is.numeric, TRUE)], c(exposure_cols, "FID", "IID", "PAT", "MAT", "SEX", "PHENOTYPE"))   # PLINK --recode A header columns are not genotypes
+  dose <- vapply(num, function(k) { v <- d[[k]][is.finite(d[[k]])]; length(v) > 0 && min(v) >= 0 && max(v) <= 2 }, TRUE)
+  gcols <- num[dose]   # genotype dosages lie in 0 to 2; other numeric columns (an ID, age) are ignored and reported
+  if (!length(gcols)) stop("No genotype columns found: besides the exposures, the file needs one numeric column per variant (dosage 0 to 2), named by the variant ID.", call. = FALSE)
+  out <- mv_snpcov(d[, gcols, drop = FALSE], d[, exposure_cols, drop = FALSE])
+  # PLINK --recode A names a dosage column <variant>_<counted allele> (rs123_A); the variant ID is the part before it. The covariances
+  # do not depend on which allele is counted (both slopes change sign together), so the allele is not needed.
+  id <- sub("_[ACGTacgt]+$", "", out$variant_id); if (!anyDuplicated(id)) out$variant_id <- id
+  attr(out, "meta") <- list(people = nrow(d), variants = length(gcols), exposures = exposure_cols, ignored = c(num[!dose], setdiff(names(d), c(num, exposure_cols)))); out
+}
+
+#' Add the covariance columns to an MVMR input by variant ID. Every variant of the model must have them; otherwise stop with the count.
+mv_attach_cov <- function(input, cov) {
+  d <- input$data; K <- sum(grepl("^beta_x_[0-9]+$", names(d))); need <- sprintf("cov_x_%d_%d", row(diag(K))[upper.tri(diag(K), diag = TRUE)], col(diag(K))[upper.tri(diag(K), diag = TRUE)])
+  if (!all(need %in% names(cov))) stop(sprintf("The covariance table is for %s exposures but the model has %d.", format(round((sqrt(8 * sum(grepl("^cov_x_", names(cov))) + 1) - 1) / 2)), K), call. = FALSE)
+  m <- match(d$variant_id, cov$variant_id); bad <- is.na(m) | !stats::complete.cases(cov[m, need, drop = FALSE])
+  if (any(bad & d$mr_keep)) stop(sprintf("%d of the %d instruments have no covariance in the individual-level data (for example %s). Add them to the file or use the phenotypic correlations instead.",
+                                         sum(bad & d$mr_keep), sum(d$mr_keep), paste(utils::head(d$variant_id[bad & d$mr_keep], 3), collapse = ", ")), call. = FALSE)
+  for (k in need) d[[k]] <- cov[[k]][m]
+  input$data <- d; input
+}
+
+#' Save a covariance table for a set of exposures in the study (02_datasets; summary-level only) and remember it in the study state.
+mv_cov_save <- function(h, ex, cov, source_name) {
+  key <- paste(unlist(ex), collapse = "|"); rel <- file.path("02_datasets", sprintf("mv_covariance_%s.csv", slugify(gsub("\\|", "_", key), 60L)))
+  utils::write.csv(cov, file.path(h$dir, rel), row.names = FALSE); manifest_register(h$dir, rel, role = "mv_covariance")
+  mt <- attr(cov, "meta") %||% list(); st <- Filter(function(x) !identical(x$key, key), ui_state_get(h$con, "mv_cov") %||% list())
+  st[[length(st) + 1L]] <- list(key = key, ex = as.list(unlist(ex)), file = rel, source = source_name, people = mt$people, variants = mt$variants, exposure_cols = as.list(mt$exposures), ignored = as.list(mt$ignored))
+  ui_state_set(h$con, "mv_cov", st); st
+}
+mv_cov_get <- function(h, ex) { key <- paste(unlist(ex), collapse = "|"); Filter(function(x) identical(x$key, key), ui_state_get(h$con, "mv_cov") %||% list()) }
+mv_cov_clear <- function(h, ex) { key <- paste(unlist(ex), collapse = "|"); st <- Filter(function(x) !identical(x$key, key), ui_state_get(h$con, "mv_cov") %||% list()); ui_state_set(h$con, "mv_cov", st); st }
+#' The MVMR input with the study's covariance table for these exposures merged in, if there is one.
+mv_with_cov <- function(h, ex, input) {
+  e <- mv_cov_get(h, ex); if (!length(e)) return(input)
+  mv_attach_cov(input, utils::read.csv(file.path(h$dir, e[[1]]$file), stringsAsFactors = FALSE))
+}

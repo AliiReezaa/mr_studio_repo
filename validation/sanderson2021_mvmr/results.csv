@@ -1,6 +1,6 @@
 "quantity","mvmr_package","mr_studio","covariance","abs_diff","rel_diff"
 "conditional F, LDL-c",46.9847766578218,46.9847766578218,"zero",0,0
-"conditional F, HDL-c",68.7529452111867,68.7529452111867,"zero",0,0
+"conditional F, HDL-c",68.7529452111867,68.7529452111867,"zero",1.4210854715202e-14,2.06694486636912e-16
 "conditional F, Triglycerides",39.3445242059058,39.3445242059058,"zero",0,0
 "Q_A",683.08069740576,683.08069740576,"zero",0,0
 "Q_A df",142,142,"zero",0,0
@@ -17,9 +17,9 @@
 "Q-min estimate, LDL-c",-0.0243130706972979,-0.0243130706972979,"tutorial correlation matrix",0,0
 "Q-min estimate, HDL-c",0.00897347964470984,0.00897347964470984,"tutorial correlation matrix",0,0
 "Q-min estimate, Triglycerides",0.00737536883665311,0.00737536883665311,"tutorial correlation matrix",0,0
-"Q-min jackknife SE, LDL-c",0.0140657011431561,0.0140657011435212,"tutorial correlation matrix",3.65077759689747e-13,2.59551767788967e-11
-"Q-min jackknife SE, HDL-c",0.00940791763067122,0.00940791762683293,"tutorial correlation matrix",3.83829600048013e-12,4.07985714922367e-10
-"Q-min jackknife SE, Triglycerides",0.0150597644395451,0.0150597644389755,"tutorial correlation matrix",5.69523594950994e-13,3.78175632983671e-11
+"Q-min jackknife SE, LDL-c",0.0140657011431561,0.0140657011435211,"tutorial correlation matrix",3.64982349898568e-13,2.59483936267305e-11
+"Q-min jackknife SE, HDL-c",0.00940791763067122,0.00940791762683305,"tutorial correlation matrix",3.83816936566639e-12,4.07972254471423e-10
+"Q-min jackknife SE, Triglycerides",0.0150597644395451,0.0150597644389756,"tutorial correlation matrix",5.69502778269282e-13,3.78161810269647e-11
 "Q-min bootstrap BCa lower, LDL-c",-0.061,-0.061,"tutorial correlation matrix",0,0
 "Q-min bootstrap BCa lower, HDL-c",-0.017,-0.017,"tutorial correlation matrix",0,0
 "Q-min bootstrap BCa lower, Triglycerides",-0.024,-0.024,"tutorial correlation matrix",0,0

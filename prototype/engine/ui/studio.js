@@ -462,6 +462,28 @@ function checkSummary() {
 }
 // The rules behind a method's state (feasibility engine), with their sources.
 const STUDY_RULES = ['R05b', 'R13', 'R28', 'R29', 'R30'];   // rules about the data or the study, shown once in the side panel
+// ---- Round 55: covariance of the exposure associations for MVMR (phenotypic correlations or individual-level data) ----
+function mvCovPanel() {
+  if (S.kind !== 'multi' || (S.ex || []).length < 2) return '';
+  const key = S.ex.join('|'), cur = (S.mvcov || []).find((x) => x.key === key), nm = (e) => ((((S.cat && S.cat.exposures) || []).find((x) => x.id === e) || {}).name || e), M = S.mvc;
+  const btn = (a, t, primary) => '<button type="button" data-a="' + a + '" style="padding:8px 14px;border-radius:10px;font-size:13px;font-weight:550;border:1px solid ' + (primary ? 'var(--accent)' : 'var(--line)') + ';background:' + (primary ? 'var(--accent)' : 'transparent') + ';color:' + (primary ? 'var(--accentInk)' : 'var(--text)') + '">' + t + '</button>';
+  let body;
+  if (M) {
+    const opts = (k) => '<select data-mvc="' + k + '" aria-label="Column for ' + esc(nm(S.ex[k])) + '" style="padding:6px 8px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--text)">' + '<option value="">Choose a column</option>' + M.columns.map((c) => '<option' + (M.cols[k] === c ? ' selected' : '') + '>' + esc(c) + '</option>').join('') + '</select>';
+    const ready = S.ex.every((e, k) => M.cols[k]) && new Set(M.cols).size === S.ex.length;
+    body = '<div style="font-size:13px">File: <span class="mono">' + esc(M.name) + '</span>. Choose the column of each exposure; every other column with values from 0 to 2 is read as the genotype dosage of the variant it is named after (a PLINK --recode A .raw file with the exposures added works as it is).</div>' +
+      S.ex.map((e, k) => '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:13px"><span>' + esc(nm(e)) + '</span>' + opts(k) + '</div>').join('') +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' + (M.busy ? '<span style="font-size:13px;color:var(--mute)">Computing the covariances…</span>' : btn(ready ? 'mvc_compute' : 'mvc_none', 'Compute covariances', ready) + btn('mvc_cancel', 'Cancel')) + '</div>';
+  } else if (cur) {
+    body = '<div style="font-size:13px">From individual-level data: <span class="mono">' + esc(cur.source) + '</span>, ' + cur.people + ' people, ' + cur.variants + ' variants (exposure columns ' + esc((cur.exposure_cols || []).join(', ')) + '). The phenotypic correlation settings are not used.</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap">' + btn('mvc_choose', 'Replace file') + btn('mvc_clear', 'Use phenotypic correlations instead') + '</div>';
+  } else {
+    body = '<div style="font-size:13px">Phenotypic correlations: set them in Customise for MVMR-IVW or MVMR Q-minimisation (0 means the exposure GWAS do not share participants). If the exposures were measured in the same people and you have their genotypes, the covariances can be computed from that individual-level data instead.</div>' +
+      '<div>' + btn('mvc_choose', 'Use individual-level data…') + '</div>';
+  }
+  return '<div style="display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:16px"><div style="font-size:12px;color:var(--mute)">Covariance of the exposure associations (conditional F, Q_A, Q-minimisation)</div>' + body +
+    '<div style="font-size:12px;color:var(--mute)">Only the covariance table, which is summary-level, is saved in the study. The individual-level file is read once and not copied.</div></div>';
+}
 function studyNotes() {
   const seen = {}, out = []; Object.values((S.feas && S.feas.methods) || {}).forEach((fe) => (fe.reasons || []).forEach((r) => { if (STUDY_RULES.indexOf(r.rule) >= 0 && !seen[r.rule + r.msg]) { seen[r.rule + r.msg] = 1; out.push(r); } }));
   if (!out.length) return '';
@@ -494,7 +516,7 @@ function vMethods() {
     '<button type="button" data-a="preset" style="height:44px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-weight:550;font-size:14px">Use the standard publication set</button>' +
     '<div style="border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:12px"><div style="font-size:12px;color:var(--mute)">What the engine found for ' + head + '</div><div style="display:flex;justify-content:space-between"><span>Instruments</span><span class="mono">' + rng('instruments') + '</span></div><div style="display:flex;justify-content:space-between"><span>Mean F-statistic</span><span class="mono">' + rng('mean_f', 1) + '</span></div><div style="display:flex;justify-content:space-between"><span>Ancestry match</span><span class="mono">' + (fc.length ? esc(Array.from(new Set(fc.map((x) => x.anc_x + ' · ' + x.anc_y))).join(', ')) : '…') + '</span></div><div style="display:flex;justify-content:space-between"><span>Sample overlap</span><span class="mono">' + (fc.some((x) => !x.simulated) ? 'Not tested' : 'None (simulated)') + '</span></div></div>' +
     '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Estimated run time for your selection: <span class="mono" style="color:var(--text)">about ' + (secs >= 90 ? Math.round(secs / 60) + ' min' : secs + ' sec') + '</span>. Each pair is saved as soon as it finishes, so a closed laptop never loses finished work.</div>' +
-    studyNotes() + checkSummary() +
+    mvCovPanel() + studyNotes() + checkSummary() +
     '<button type="button" class="cta" data-a="m_next" ' + (sel.length ? '' : 'disabled') + ' style="display:flex;align-items:center;justify-content:center;gap:8px;height:48px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;font-size:14px;opacity:' + (sel.length ? 1 : .5) + '">Run analysis' + svg(IC.run, 16, 2.2) + '</button></aside></div>' + DEMO_NOTE;
   return frame('study', 'methods', main) + (S.custom ? vCustomise() : '') + (S.why ? vWhy() : '');
 }
@@ -558,9 +580,10 @@ function vCustomise() {
   const m = METHODS.find((x) => x.id === S.custom), sch = (S.schemas[S.custom] || {});
   // Round 53: only the correlations between the exposures of this analysis, named after them
   const exn = (S.ex || []).map((e) => (((S.cat && S.cat.exposures) || []).find((x) => x.id === e) || {}).name || e), K = exn.length;
-  const keys = Object.keys(sch).filter((k) => { const m = /^mv_r_(\d)_(\d)$/.exec(k); return !m || Number(m[2]) <= K; });
+  const indiv = (S.mvcov || []).some((x) => x.key === (S.ex || []).join('|'));   // Round 55: individual-level covariances replace the correlations
+  const keys = Object.keys(sch).filter((k) => { const m = /^mv_r_(\d)_(\d)$/.exec(k); return !m || (Number(m[2]) <= K && !indiv); });
   const lab = (k) => { const m = /^mv_r_(\d)_(\d)$/.exec(k); return m ? Object.assign({}, sch[k], { label: 'Phenotypic correlation: ' + exn[m[1] - 1] + ' and ' + exn[m[2] - 1] }) : sch[k]; };
-  const body = keys.length ? keys.map((k) => paramCtl(k, lab(k))).join('') : '<div style="color:var(--mute)">This method has no adjustable settings. It is run exactly as the package defines it, and the script says so.</div>';
+  const body = (indiv && /^mv(ivw|qhet)$/.test(S.custom) ? '<div style="font-size:13px;color:var(--mute)">The covariances of the exposure associations come from individual-level data (Methods page), so the phenotypic correlations are not shown.</div>' : '') + (keys.length ? keys.map((k) => paramCtl(k, lab(k))).join('') : '<div style="color:var(--mute)">This method has no adjustable settings. It is run exactly as the package defines it, and the script says so.</div>');
   const stz = S.custom === 'ivw_mre' ? steigerPanel() : '';
   return '<div class="modal-bg" data-a="custom_close_bg"><div role="dialog" aria-modal="true" aria-label="Customise ' + esc(m.name) + '" style="width:100%;max-width:520px;max-height:90vh;overflow:auto;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line);color:var(--text);display:flex;flex-direction:column;gap:20px"><div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">CUSTOMISE</div><div style="font-size:22px;font-weight:600;letter-spacing:-0.02em">' + esc(m.name) + '</div></div>' + body + cmpParams(keys, sch) + (NOT_ADJUSTABLE[S.custom] ? '<div style="font-size:12px;color:var(--mute)">' + esc(NOT_ADJUSTABLE[S.custom]) + '</div>' : '') + stz + '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Every value you set is written into the script, and results from changed settings are marked as customised.</div><div style="display:flex;gap:12px;justify-content:flex-end">' + cta('Done', 'custom_close', '', 'height:44px') + '</div></div></div>';
 }
@@ -1202,6 +1225,11 @@ function onClick(e) {
     case 'rpair': S.rp = Number(v); render(); break;
     case 'to_export': go('export'); break;
     case 'imp_new': S.imp = impNew(); go('import'); break;
+    case 'mvc_choose': { const f = document.getElementById('mvcovfile'); if (f) { f.value = ''; f.click(); } break; }
+    case 'mvc_cancel': S.mvc = null; render(); break;
+    case 'mvc_none': S.notice = { kind: 'err', msg: 'Choose a different column for each exposure first.' }; render(); break;
+    case 'mvc_compute': S.mvc.busy = true; S.notice = null; render(); send('mvcov_compute', { ex: S.ex, cols: S.mvc.cols }); break;
+    case 'mvc_clear': send('mvcov_clear', { ex: S.ex }); break;
     case 'imp_choose': { const f = document.getElementById('impfile'); if (f) { f.value = ''; f.click(); } break; }
     case 'imp_done': S.imp = null; go('library'); send('library'); break;
     case 'imp_back': S.imp.step = Math.max(1, S.imp.step - 1); S.imp.report = null; render(); break;
@@ -1275,7 +1303,7 @@ function onInput(e) {
   else if (t.getAttribute && t.getAttribute('data-prev')) { const id = t.getAttribute('data-prev'), v = parseFloat(String(t.value).replace(',', '.')) / 100; if (prevOk(v)) S.prev[id] = v; else delete S.prev[id]; }
 }
 function paramVal(t) { const v = parseFloat(t.value); return t.getAttribute('data-pct') ? Math.round(v * 10) / 1000 : v; }
-function onChange(e) { const t = e.target; if (t.getAttribute && t.getAttribute('data-prev')) { if (String(t.value).trim() && !prevOk(S.prev[t.getAttribute('data-prev')])) S.notice = { kind: 'err', msg: 'The prevalence must be a percentage above 0 and below 100, for example 6.2.' }; render(); return; } if (t.id === 'og_where' || t.id === 'og_pop' || t.id === 'og_p' || t.id === 'og_r2' || t.id === 'og_kb') { ogwPanelSync(); return; } if (t.id === 'ogw_pop' || t.id === 'ogw_kind') { if (t.id === 'ogw_pop') S.ogw.pop = t.value; else S.ogw.kind = t.value; ogwSearch(); return; } if (t.getAttribute && t.getAttribute('data-map')) { const r = t.getAttribute('data-map'); S.imp.mapping[r] = t.value; S.imp.conf[r] = undefined; render(); return; } if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = schOf(k), val = paramVal(t); if (sch && !(isFinite(val) && val >= sch.min && val <= sch.max)) { const pc = t.getAttribute('data-pct'); S.notice = { kind: 'err', msg: sch.label + ' must be between ' + (pc ? sch.min * 100 + '%' : sch.min) + ' and ' + (pc ? sch.max * 100 + '%' : sch.max) + '. The previous value was kept.' }; } render(); } }
+function onChange(e) { const t = e.target; if (t.getAttribute && t.getAttribute('data-mvc') != null && S.mvc) { S.mvc.cols[Number(t.getAttribute('data-mvc'))] = t.value; render(); return; } if (t.getAttribute && t.getAttribute('data-prev')) { if (String(t.value).trim() && !prevOk(S.prev[t.getAttribute('data-prev')])) S.notice = { kind: 'err', msg: 'The prevalence must be a percentage above 0 and below 100, for example 6.2.' }; render(); return; } if (t.id === 'og_where' || t.id === 'og_pop' || t.id === 'og_p' || t.id === 'og_r2' || t.id === 'og_kb') { ogwPanelSync(); return; } if (t.id === 'ogw_pop' || t.id === 'ogw_kind') { if (t.id === 'ogw_pop') S.ogw.pop = t.value; else S.ogw.kind = t.value; ogwSearch(); return; } if (t.getAttribute && t.getAttribute('data-map')) { const r = t.getAttribute('data-map'); S.imp.mapping[r] = t.value; S.imp.conf[r] = undefined; render(); return; } if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = schOf(k), val = paramVal(t); if (sch && !(isFinite(val) && val >= sch.min && val <= sch.max)) { const pc = t.getAttribute('data-pct'); S.notice = { kind: 'err', msg: sch.label + ' must be between ' + (pc ? sch.min * 100 + '%' : sch.min) + ' and ' + (pc ? sch.max * 100 + '%' : sch.max) + '. The previous value was kept.' }; } render(); } }
 function applyStudy(m) {
   S.study = { name: m.name, dir: m.dir }; S.root = m.root || S.root; S.overlap = Array.isArray(m.overlap) ? {} : (m.overlap || {}); S.ovl = null;
   const plan = m.plan || {}; S.name = m.name; S.aim = plan.aim || ''; S.prereg = !!plan.prereg; S.kind = plan.kind || 'basic';
@@ -1283,7 +1311,7 @@ function applyStudy(m) {
   S.ex = Array.from(new Set([].concat.apply([], S.pairs.filter((p) => !p.rev).map((p) => [].concat(p.ex))))); S.out = Array.from(new Set(S.pairs.filter((p) => !p.rev).map((p) => p.out)));
   if (pairs.length && pairs[0].methods) { S.steiger = pairs[0].methods.indexOf('steiger') >= 0; S.loo = pairs[0].methods.indexOf('loo') >= 0; S.methods = pairs[0].methods.filter((x) => x !== 'steiger' && x !== 'loo'); }
   S.prev = {}; pairs.forEach((p) => { const pv = p.prev || {}; if (prevOk(pv.x)) S.prev[p.ex] = pv.x; if (prevOk(pv.y)) S.prev[p.out] = pv.y; }); if (pairs.length && pairs[0].params) S.params = Object.assign({ ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, pairs[0].params); else if (pairs.length && pairs[0].ci) S.params.ci_level = pairs[0].ci;
-  S.payloads = m.payloads || {}; S.sens = m.sens || []; S.outl = {}; (m.outliers || []).forEach((o) => { S.outl[o.parent] = o; }); S.outBusy = false; S.inst = null; S.sel = []; S.facts = null; S.factsBusy = false; S.run = null; S.pkg = null; S.pkgBusy = false;
+  S.mvcov = m.mvcov || []; S.mvc = null; S.payloads = m.payloads || {}; S.sens = m.sens || []; S.outl = {}; (m.outliers || []).forEach((o) => { S.outl[o.parent] = o; }); S.outBusy = false; S.inst = null; S.sel = []; S.facts = null; S.factsBusy = false; S.run = null; S.pkg = null; S.pkgBusy = false;
   S.maxStep = pairs.length ? (Object.keys(S.payloads).length ? 6 : 1) : 0;
 }
 function handle(m) {
@@ -1319,7 +1347,11 @@ function handle(m) {
     case 'import_report': if (S.imp) { S.imp.report = { ok: m.ok, errors: [].concat(m.errors || []), warnings: [].concat(m.warnings || []), stats: m.stats || {} }; render(); } break;
     case 'import_saved': if (S.imp) { S.imp.saving = false; S.imp.saved = { rec: m.rec, template: m.template }; } S.lib = m.items || []; S.tmpls = m.templates || []; if (m.catalogue) S.cat = m.catalogue; render(); break;
     case 'study_open_failed': S.dialog = { title: 'This study could not be opened', body: m.msg + '\n\nNothing was changed. You can look at the folder yourself, or start a new study.', mono: S.root + '/' + m.name, danger: true, buttons: [{ label: 'Close', a: 'dialog_close' }, { label: 'Show folder', a: 'study_folder', v: m.name, primary: true }] }; render(); break;
-    case 'error': S.sensBusy = false; S.outBusy = false; S.lkBusy = false; if (S.imp) S.imp.saving = false; err(m.msg); break;
+    case 'mvcov_head': { const cols = m.columns || [], lc = (x) => String(x).toLowerCase(); S.mvc = { name: m.name, columns: cols, busy: false,
+      cols: S.ex.map((e) => { const n = lc((((S.cat && S.cat.exposures) || []).find((x) => x.id === e) || {}).name || e); return cols.find((c) => lc(c) === n || lc(c) === lc(e)) || ''; }) }; S.notice = null; render(); break; }
+    case 'mvcov_error': S.mvc = null; err(m.msg); break;
+    case 'mvcov_saved': S.mvcov = m.mvcov || []; S.mvc = null; render(); break;
+    case 'error': if (S.mvc) S.mvc.busy = false; S.sensBusy = false; S.outBusy = false; S.lkBusy = false; if (S.imp) S.imp.saving = false; err(m.msg); break;
     case 'ogw_state': S.ogw.token = m.token || { set: false }; S.ogw.cat = m.catalogue || { have: false }; S.ogw.offline = !!m.offline; if (S.screen === 'library' || S.screen === 'settings' || S.screen === 'setup') render(); break;
     case 'ogw_token': S.ogw.tokBusy = false; if (m.ok) S.ogw.token = m.token || { set: false }; S.ogw.tokMsg = { ok: !!m.ok, text: m.msg }; render(); break;
     case 'ogw_token_tested': S.ogw.tokBusy = false; S.ogw.tokMsg = { ok: !!m.ok, text: m.msg }; render(); break;

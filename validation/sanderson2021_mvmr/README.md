@@ -68,8 +68,29 @@ package, because the Q function is computed for all variants at once. MR Studio 
 full minimisation per iteration (several minutes for 1000). The package marks qhet_mvmr as under development; MR Studio follows
 version 0.4.9, the version validated here.
 
+## Covariances from individual-level data (Round 55)
+
+`run_validation_snpcov.R` (about 15 s). The MVMR package has no individual-level example data, so a cohort is simulated with a fixed
+seed (20,000 people, 30 variants, three exposures sharing a confounder) and written to a CSV, which MR Studio reads as the app does.
+
+| Check | Result |
+|---|---|
+| Variances against lm() standard errors | equal (relative 2e-13) |
+| Covariances against `snpcov_mvmr` on centred genotypes (x n/(n-2)) | equal (relative 4e-13) |
+| Conditional F and Q_A against `strength_mvmr` / `pleiotropy_mvmr` with the same covariance list | identical |
+| Minimum Q against `pleiotropy_mvmr(estimator = "qmin")`, outcome SE doubled so that tau2 = 0 | identical |
+
+**Package defect, not reproduced.** `snpcov_mvmr` 0.4.9 divides by the uncentred sum of squared genotypes times n instead of
+(n - 2) times the centred sum. The two agree only for centred genotypes. For 0/1/2 dosages, which is how genotypes are stored,
+its standard errors come out about 0.75 times the lm() standard errors on this cohort, so its variances are about 40% too small.
+MR Studio uses the OLS covariance of the two single-variant slopes, whose diagonal is exactly the squared lm() standard error.
+That is why the comparison with the package uses centred genotypes. The minimum-Q check uses doubled outcome standard errors because
+`pleiotropy_mvmr`'s qmin has no tau2 term, while qhet_mvmr and MR Studio add one when the minimum exceeds its degrees of freedom.
+
+In the app, the Methods page of a multivariable study takes the individual-level file (a PLINK --recode A .raw file with the
+exposures added works as it is). Only the covariance table is saved, in 02_datasets; the individual-level file is not copied.
+Every instrument of the model must be in the file, otherwise the run is refused with the count.
+
 ## Not covered
 
-Correlations estimated
-from individual-level data (`snpcov_mvmr`) are not supported; a correlation from the literature or from the GWAS (for example the
-LD score regression intercept between the exposures) has to be entered.
+Nothing from the tutorial is left out.
