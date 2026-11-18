@@ -1197,7 +1197,13 @@ pl50 <- pair_payload(h50$dir, r50$pair_folder); e50 <- .est_df(pl50); d50 <- e50
 expect("Round 50: the four MVMR methods run as scripts and replay identically", all(vapply(r50$results, function(x) identical(x$status, "ok"), TRUE)) && identical(pl50$replay$status, "identical"))
 expect("Round 50: one direct effect per exposure and method, plus the MVMR-Egger intercept", nrow(d50) == 8L && setequal(d50$exposure_id, c("demo:expA", "demo:expB")) && sum(e50$estimand == "pleiotropy_intercept") == 1L)
 dd50 <- p50$input$data; mi50 <- MendelianRandomization::mr_mvivw(MendelianRandomization::mr_mvinput(bx = as.matrix(dd50[, c("beta_x_1", "beta_x_2")]), bxse = as.matrix(dd50[, c("se_x_1", "se_x_2")]), by = dd50$beta_y, byse = dd50$se_y), nx = c(DEMO_EXPOSURES$n[1], DEMO_EXPOSURES$n[2]))
-expect("Round 50: MVMR-IVW equals MendelianRandomization::mr_mvivw called directly, including the conditional F", max(abs(d50$estimate[d50$method == "mvivw"] - mi50@Estimate)) < 1e-12 && max(abs(vapply(Filter(function(g) g$method == "mvivw" && g$name == "mv_cond_f", pl50$diagnostics), function(g) g$value, 0) - mi50@CondFstat)) < 1e-9)
+expect("Round 50: MVMR-IVW equals MendelianRandomization::mr_mvivw called directly", max(abs(d50$estimate[d50$method == "mvivw"] - mi50@Estimate)) < 1e-12)
+expect("Round 52: the conditional F statistics and Q_A follow Sanderson et al. 2021 (zero covariance), without needing sample sizes", {
+  bx <- as.matrix(dd50[, c("beta_x_1", "beta_x_2")]); sx <- as.matrix(dd50[, c("se_x_1", "se_x_2")]); J <- nrow(bx)
+  f1 <- { d <- coef(lm(bx[, 1] ~ 0 + bx[, 2])); sum((bx[, 1] - d * bx[, 2])^2 / (sx[, 1]^2 + d^2 * sx[, 2]^2)) / (J - 1) }
+  qa <- sum((dd50$beta_y - bx %*% mi50@Estimate)^2 / (dd50$se_y^2 + sx^2 %*% mi50@Estimate^2))
+  dg <- Filter(function(g) g$method == "mvivw", pl50$diagnostics); cf <- vapply(Filter(function(g) g$name == "mv_cond_f", dg), function(g) g$value, 0)
+  length(cf) == 2L && abs(cf[1] - f1) < 1e-8 && abs(Filter(function(g) g$name == "mv_q_a", dg)[[1]]$value - qa) < 1e-8 })
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })
 expect("Round 50: one exposure, more than six, or mixing simulated and imported traits is refused", grepl("at least two exposures", err_of(mv_pair_input("expA", "outA"))) && grepl("at most six", err_of(mv_pair_input(rep("expA", 7), "outA"))) && grepl("cannot be mixed", err_of(mv_pair_input(c("expA", "lib:X"), "outA"))))

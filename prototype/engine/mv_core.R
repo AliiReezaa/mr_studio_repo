@@ -97,7 +97,7 @@ mv_context <- function(h, p) {
   ce$exposure_label <- labs[match(as.character(ce$exposure_id), ids)]
   g <- function(m, n) Filter(function(d) identical(d$method, m) && identical(d$name, n), pay$diagnostics)
   list(mv = TRUE, p = p, pay = pay, est = est, ce = ce, methods = unlist(p$methods), simulated = isTRUE(p$simulated), settings = pay$settings %||% list(), ledger = p$ledger,
-       cond_f = vapply(g("mvivw", "mv_cond_f"), function(d) as.numeric(d$value), 0), q = g("mvivw", "mv_q"), labels = labs, vars = data.frame(), pthr = p$pthr %||% 5e-8)
+       cond_f = vapply(g("mvivw", "mv_cond_f"), function(d) as.numeric(d$value), 0), q = g("mvivw", "mv_q"), qa = g("mvivw", "mv_q_a"), labels = labs, vars = data.frame(), pthr = p$pthr %||% 5e-8)
 }
 mv_add_text <- function(txt, mvx) {
   st <- mvx[[1]]$settings; used <- unique(unlist(lapply(mvx, `[[`, "methods")))
@@ -106,17 +106,18 @@ mv_add_text <- function(txt, mvx) {
     if (lib) sprintf("Instruments were the union of the variants associated with any exposure at P < %s, clumped together (r2 < 0.001 within 10,000 kb, 1000 Genomes reference panel) using the smallest P over the exposures; the effects of every exposure at every instrument were taken from its full summary statistics and aligned to the same effect allele with TwoSampleMR::harmonise_data. ", format(mvx[[1]]$pthr, scientific = TRUE)) else "",
     "Methods (MendelianRandomization ", PIN_MENDELIANRANDOMIZATION, "): ", paste(c(if ("mvivw" %in% used) sprintf("MVMR-IVW (model: %s)", st$mv_model %||% "default"), if ("mvegger" %in% used) sprintf("MVMR-Egger, oriented to exposure %s [Rees 2017]", format(st$mv_orient %||% 1)),
       if ("mvmedian" %in% used) sprintf("the MVMR median with %s bootstrap iterations [Grant 2021]", format(st$mv_iter %||% 10000)), if ("mvlasso" %in% used) "MVMR-Lasso [Grant 2021]"), collapse = "; "),
-    ". Instrument strength was assessed with the conditional F statistic for each exposure (computed by mr_mvivw from the median sample size of each exposure, assuming the exposure samples do not overlap; values below 10 indicate weak instruments) and heterogeneity with Cochran's Q of the MVMR-IVW fit [Sanderson 2021]."))
+    ". Instrument strength was assessed with the conditional F statistic of each exposure, assuming no covariance between the variant-exposure associations (values below 10 indicate weak instruments), and heterogeneity with Cochran's Q of the MVMR-IVW fit and with Q_A, which also allows for the uncertainty of the variant-exposure associations [Sanderson 2021]."))
   for (cx in mvx) {
     ce <- cx$ce; ex <- unique(ce$exposure_label); iv <- ce[ce$method == "mvivw", , drop = FALSE]
     line <- vapply(ex, function(x) { r <- ce[ce$exposure_label == x, , drop = FALSE]
       sprintf("%s: %s", x, paste(sprintf("%s %s", .short_mv(r$method), vapply(seq_len(nrow(r)), function(i) .ci_phrase(r[i, ], r$scale[i]), "")), collapse = "; ")) }, "")
     cf <- if (length(cx$cond_f)) paste(sprintf("%s %s", cx$labels[seq_along(cx$cond_f)], format(round(cx$cond_f, 1), nsmall = 1)), collapse = ", ") else ""
-    q <- if (length(cx$q)) sprintf(" Cochran's Q of the MVMR-IVW fit was %.1f (P = %s).", as.numeric(cx$q[[1]]$value), .fp(as.numeric(cx$q[[1]]$p))) else ""
+    q <- if (length(cx$q)) sprintf(" Cochran's Q of the MVMR-IVW fit was %.1f (P = %s)%s.", as.numeric(cx$q[[1]]$value), .fp(as.numeric(cx$q[[1]]$p)),
+      if (length(cx$qa)) sprintf(" and Q_A was %.1f (P = %s)", as.numeric(cx$qa[[1]]$value), .fp(as.numeric(cx$qa[[1]]$p))) else "") else ""
     ic <- cx$est[cx$est$method == "mvegger" & cx$est$estimand == "pleiotropy_intercept", , drop = FALSE]
     led <- cx$ledger$mv
     txt$results <- c(txt$results, paste0(sprintf("MVMR of %s on %s (%s instruments). Direct effects: %s.", paste(ex, collapse = ", "), cx$p$outName, if (nrow(iv)) as.integer(iv$n_ivs[1]) else as.integer(led$final %||% NA), paste(line, collapse = ". ")),
-      if (nzchar(cf)) sprintf(" Conditional F statistics: %s%s.", cf, if (any(cx$cond_f < 10, na.rm = TRUE)) "; at least one is below 10, so the estimates may be biased by weak instruments" else "") else " The conditional F statistics could not be computed because the exposure sample sizes are unknown.",
+      if (nzchar(cf)) sprintf(" Conditional F statistics: %s%s.", cf, if (any(cx$cond_f < 10, na.rm = TRUE)) "; at least one is below 10, so the estimates may be biased by weak instruments" else "") else "",
       q, if (nrow(ic)) sprintf(" The MVMR-Egger intercept was %s (P = %s).", .fnum(ic$estimate[1], 4), .fp(ic$p[1])) else "",
       if (!is.null(led$union) && !isTRUE(cx$simulated)) sprintf(" Of %d candidate instruments (%s), %d remained after joint clumping and %d had every exposure and the outcome.", as.integer(led$union), paste(sprintf("%s %d", led$exposures, as.integer(led$own)), collapse = ", "), as.integer(led$clumped), as.integer(led$final)) else ""))
     txt$legends <- c(txt$legends, sprintf("Figure. Direct effects of %s on %s from multivariable MR: for each exposure, the estimate and %s confidence interval of each method, conditional on the other exposures.", paste(ex, collapse = ", "), cx$p$outName, "95%"), "")
