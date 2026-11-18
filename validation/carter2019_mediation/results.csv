@@ -1,0 +1,4 @@
+"quantity","paper","paper_lo","paper_hi","mr_studio","lo","hi","within_paper_ci"
+"total effect OR",0.63,0.6,0.67,0.629737558717919,0.575393709949366,0.689213986880221,TRUE
+"education on BMI (SD)",-0.22,-0.24,-0.2,-0.242533618293628,-0.25976799565522,-0.225299240932036,FALSE
+"proportion mediated by BMI (product)",0.18,0.14,0.23,0.204064482379232,0.145767088471383,0.26236187628708,TRUE

@@ -156,9 +156,14 @@ mr_server <- function(engine_dir) {
           study_msg("study_opened", h, to = a$to %||% "auto")
         },
         facts = {
-          pt <- as.numeric(a$pthr %||% 5e-8); f <- lapply(a$pairs, function(p) tryCatch(if (length(unlist(p[[1]])) > 1) mv_pair_facts(p[[1]], p[[2]], pt) else pair_facts(p[[1]], p[[2]], pt), error = function(e) list(error = conditionMessage(e))))   # Round 50: MVMR pairs
+          pt <- as.numeric(a$pthr %||% 5e-8); f <- lapply(a$pairs, function(p) tryCatch({ mi <- if (length(p) > 2 && !is.null(p[[3]])) mediation_pair_input(p[[3]], pt) else NULL   # Round 57: mediation steps
+            if (length(unlist(p[[1]])) > 1) mv_pair_facts(p[[1]], p[[2]], pt, mi) else pair_facts(p[[1]], p[[2]], pt, mi) }, error = function(e) list(error = conditionMessage(e))))   # Round 50: MVMR pairs
           rv$facts <- Filter(function(x) is.null(x$error), f)
           ev("facts", facts = f, feas = feasibility(Filter(function(x) !isTRUE(x$mv), rv$facts), run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list()))
+        },
+        mediation = {   # Round 57: write and run the mediation script over the study's mediation pairs
+          req(rv$h); res <- mediation_run(rv$h, ui_state_get(rv$h$con, "pairs") %||% list(), as.numeric(a$ci %||% 0.95))
+          ev("mediation", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), spec = attr(res, "spec"))   # Shiny sends a data frame by columns
         },
         mvcov_compute = {   # Round 55: covariances from the chosen individual-level file, for these exposures in model order
           req(rv$h); if (is.null(rv$mvcov)) stop("Choose the individual-level file first.", call. = FALSE)
@@ -171,7 +176,7 @@ mr_server <- function(engine_dir) {
           req(rv$h)
           pt <- as.numeric(a$pthr %||% 5e-8)
           mvp <- length(unlist(a$ex)) > 1   # Round 50: several exposures in one model
-          inp <- tryCatch(if (mvp) mv_pair_input(a$ex, a$out, pt) else pair_input(a$ex, a$out, pt), error = function(e) e)
+          inp <- tryCatch(if (!is.null(a$med)) mediation_pair_input(a$med, pt) else if (mvp) mv_pair_input(a$ex, a$out, pt) else pair_input(a$ex, a$out, pt), error = function(e) e)   # Round 57: mediation steps
           if (mvp && !inherits(inp, "error")) inp <- tryCatch({ inp$input <- mv_with_cov(rv$h, a$ex, inp$input); inp }, error = function(e) e)   # Round 55
           if (inherits(inp, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
           meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
@@ -187,7 +192,7 @@ mr_server <- function(engine_dir) {
           tryCatch(save_eaf_check(rv$h$dir, r$pair_folder, inp$eaf_rows), error = function(e) NULL)   # Round 33
           pl <- ui_state_get(rv$h$con, "pairs") %||% list()
           pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
-          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), mv = mvp, exNames = if (mvp) as.list(inp$exposure_labels) else NULL, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
+          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), mv = mvp, med = a$med, exNames = if (mvp) as.list(inp$exposure_labels) else NULL, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
           ui_state_set(rv$h$con, "pairs", pl)
           ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder))
         },

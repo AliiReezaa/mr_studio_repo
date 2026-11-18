@@ -79,8 +79,8 @@ mv_pair_input <- function(exp_ids, out_id, pthr = 5e-8) {
 }
 
 #' What the Check and Methods screens need before an MVMR run (the same fields as pair_facts where they apply).
-mv_pair_facts <- function(exp_ids, out_id, pthr = 5e-8) {
-  p <- mv_pair_input(exp_ids, out_id, pthr); d <- p$input$data; d <- d[d$mr_keep, , drop = FALSE]; K <- length(p$exposure_labels)
+mv_pair_facts <- function(exp_ids, out_id, pthr = 5e-8, p = NULL) {
+  if (is.null(p)) p <- mv_pair_input(exp_ids, out_id, pthr); d <- p$input$data; d <- d[d$mr_keep, , drop = FALSE]; K <- length(p$exposure_labels)
   fk <- vapply(seq_len(K), function(k) mean((d[[sprintf("beta_x_%d", k)]] / d[[sprintf("se_x_%d", k)]])^2), 0)
   list(ex_id = paste(unlist(exp_ids), collapse = "|"), out_id = out_id, exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(d), mean_f = round(min(fk), 1), min_f = round(min(fk), 1),
        n_weak = 0L, palindromic = 0L, scale = p$input$outcome_scale, has_n = FALSE, simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger,

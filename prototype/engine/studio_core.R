@@ -359,8 +359,8 @@ pair_input <- function(exp_id, out_id, pthr = 5e-8, ties = "server") {
 }
 
 #' What the engine can say about a pair before running it (Methods and Check screens). Real numbers from the data table.
-pair_facts <- function(exp_id, out_id, pthr = 5e-8) {
-  p <- pair_input(exp_id, out_id, pthr); d <- p$input$data; kept <- d[d$mr_keep, ]
+pair_facts <- function(exp_id, out_id, pthr = 5e-8, p = NULL) {   # p: an input already built (Round 57, mediation steps)
+  if (is.null(p)) p <- pair_input(exp_id, out_id, pthr); d <- p$input$data; kept <- d[d$mr_keep, ]
   Fs <- (kept$beta_x / kept$se_x)^2
   pal <- sum((kept$ea == "A" & kept$oa == "T") | (kept$ea == "T" & kept$oa == "A") | (kept$ea == "C" & kept$oa == "G") | (kept$ea == "G" & kept$oa == "C"))
   list(ex_id = exp_id, out_id = out_id, exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(kept), mean_f = round(mean(Fs), 1), min_f = round(min(Fs), 1),

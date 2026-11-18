@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -1253,6 +1253,34 @@ expect("Round 55: the covariance table is saved in 02_datasets and registered, a
   bad <- tryCatch({ mv_attach_cov(p50$input, cv55[-(1:2), ]); "" }, error = function(x) conditionMessage(x))
   ok1 && grepl("^2 of the [0-9]+ instruments have no covariance", bad) && length(mv_cov_clear(h50, c("expA", "expB"))) == 0L && identical(mv_with_cov(h50, c("expA", "expB"), p50$input), p50$input) })
 expect("Round 55: the methods text says the covariances came from individual-level data", grepl("computed from individual-level data", .mv_cov_text(list(), c("A", "B"), "individual-level data")))
+# ---- Round 57: mediation ----
+h57 <- studio_new("Mediation"); ms57 <- c("expC", "expD"); st57 <- c(list(list(role = "total")), lapply(ms57, function(m) list(role = "xm", m = m)), lapply(ms57, function(m) list(role = "direct", m = m)), list(list(role = "joint")))
+pr57 <- lapply(seq_along(st57), function(k) { med <- c(st57[[k]], list(x = "expA", ms = ms57, y = "outA")); p <- mediation_pair_input(med); mv <- p$input$kind == "multi_iv"
+  r <- studio_run(h57, p$exposure_label, p$outcome_label, p$input, if (mv) "mvivw" else c("ivw_mre", "egger"), idx = k, params = list(ci_level = 0.95))
+  ex <- switch(med$role, total = "expA", xm = "expA", direct = c("expA", med$m), joint = c("expA", ms57)); out <- if (med$role == "xm") med$m else "outA"
+  list(ex = ex, out = out, med = med, folder = r$pair_folder, exName = p$exposure_label, outName = p$outcome_label, exNames = as.list(p$exposure_labels), mv = mv, methods = as.list(if (mv) "mvivw" else c("ivw_mre", "egger")), replay = pair_payload(h57$dir, r$pair_folder)$replay$status) })
+res57 <- mediation_run(h57, pr57); w57 <- demo_mediation_world("expA", ms57, "outA"); g57 <- function(m, me, q) res57[res57$mediator == m & res57$method == me & res57$quantity == q, ]
+expect("Round 57: every mediation step runs as an ordinary pair and replays identically", all(vapply(pr57, function(p) identical(p$replay, "identical"), TRUE)) && length(pr57) == 6L)
+expect("Round 57: the simulated mediation is recovered: indirect effect through C covers 0.4 x 0.2, through D covers 0, and the total is within 3 SE of 0.38 (one simulated draw)", {
+  ic <- g57("Simulated exposure C", "product", "indirect"); id <- g57("Simulated exposure D", "product", "indirect"); tt <- res57[res57$quantity == "total", ]
+  ic$ci_lower <= 0.08 && 0.08 <= ic$ci_upper && id$ci_lower <= 0 && 0 <= id$ci_upper && abs(tt$estimate - w57$truth$total) < 3 * tt$se })
+expect("Round 57: the product, difference and proportion follow their formulas from the pair tables (delta method)", {
+  e <- function(f, m) .est_df(pair_payload(h57$dir, f))[.est_df(pair_payload(h57$dir, f))$method == m, ]; tt <- e(pr57[[1]]$folder, "ivw_mre"); a <- e(pr57[[2]]$folder, "ivw_mre"); mv <- e(pr57[[4]]$folder, "mvivw")
+  b <- mv[mv$exposure_id == "demo:expC", ]; d <- mv[mv$exposure_id == "demo:expA", ]; ip <- g57("Simulated exposure C", "product", "indirect"); pp <- g57("Simulated exposure C", "product", "proportion mediated"); pd <- g57("Simulated exposure C", "difference", "proportion mediated")
+  abs(ip$estimate - a$estimate * b$estimate) < 1e-12 && abs(ip$se - sqrt(a$estimate^2 * b$se^2 + b$estimate^2 * a$se^2)) < 1e-12 && abs(pp$estimate - a$estimate * b$estimate / tt$estimate) < 1e-12 &&
+    abs(pd$estimate - (1 - d$estimate / tt$estimate)) < 1e-12 && any(res57$mediator == "(all together)") })
+expect("Round 57: the mediation script is written to 04_across_pairs, registered, and re-running it from the study folder gives the same table", {
+  f <- file.path(h57$dir, "04_across_pairs", "mediation", "mediation.R"); old <- setwd(h57$dir); again <- sys.source(f, envir = new.env()); setwd(old)
+  again <- utils::read.csv(file.path(h57$dir, "04_across_pairs", "mediation", "mediation_results.csv"), stringsAsFactors = FALSE)
+  file.exists(f) && isTRUE(all.equal(again, res57, check.attributes = FALSE)) && all(c("04_across_pairs/mediation/mediation.R", "04_across_pairs/mediation/mediation_results.csv") %in% manifest_read(h57$dir)$relative_path) })
+expect("Round 57: the check screen can describe every step, a mediator equal to the exposure is refused, and the results text reports the proportions", {
+  f1 <- pair_facts("expA", "expC", 5e-8, mediation_pair_input(pr57[[2]]$med)); f2 <- mv_pair_facts(c("expA", "expC"), "outA", 5e-8, mediation_pair_input(pr57[[4]]$med))
+  bad <- tryCatch({ mediation_pair_input(list(role = "total", x = "expA", ms = "expA", y = "outA")); "" }, error = function(e) conditionMessage(e)); tx <- mediation_results_text(res57, attr(res57, "spec"))
+  f1$instruments == 50L && f2$instruments == 100L && grepl("must differ", bad) && any(grepl("^Through Simulated exposure C: .*proportion mediated [0-9]+%", tx)) && any(grepl("^All mediators together", tx)) })
+expect("Round 57: the publication package text has the mediation methods, results, limitations and the Carter references", {
+  ui_state_set(h57$con, "pairs", lapply(pr57, function(p) p[setdiff(names(p), "replay")])); pk57 <- build_package(h57, c("report", "text", "refs"), 140)
+  hs <- paste(readLines(file.path(pk57$dir, "report.html"), warn = FALSE), collapse = "\n")
+  grepl("Mediation was assessed with Mendelian randomization", hs) && grepl("Through Simulated exposure C", hs) && grepl("assume no interaction between the exposure and the mediator", hs) && grepl("Understanding the consequences of education inequality", hs) && grepl("Mendelian randomisation for mediation analysis", hs) })
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })
 expect("Round 50: one exposure, more than six, or mixing simulated and imported traits is refused", grepl("at least two exposures", err_of(mv_pair_input("expA", "outA"))) && grepl("at most six", err_of(mv_pair_input(rep("expA", 7), "outA"))) && grepl("cannot be mixed", err_of(mv_pair_input(c("expA", "lib:X"), "outA"))))

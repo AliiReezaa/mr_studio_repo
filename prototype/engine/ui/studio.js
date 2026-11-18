@@ -29,7 +29,7 @@ const IC = {
 const STEPS = [['Question', 'question'], ['Data', 'data'], ['Check', 'check'], ['Methods', 'methods'], ['Run', 'run'], ['Results', 'results'], ['Publish', 'export']];
 const KINDS = [['basic', 'Does one thing cause another?', 'Classic two-sample analysis of one or more exposures on one or more outcomes.', 'EXPOSURE → OUTCOME', true],
   ['multi', 'Which of several factors really matters?', 'Multivariable analysis that separates the direct effects of two to six related exposures on each outcome.', 'MULTIVARIABLE', true],
-  ['mediation', 'Does the effect act through something else?', 'Splits a total effect into direct and indirect parts through a mediator.', 'MEDIATION', false],
+  ['mediation', 'Does the effect act through something else?', 'Splits the total effect of one exposure on one outcome into a direct part and parts through one or more mediators (two-step MR and multivariable MR).', 'MEDIATION', true],
   ['drug', 'Is this gene or protein a drug target?', 'Gene-region analysis with colocalisation, using expression or protein levels.', 'DRUG TARGET', false],
   ['bidir', 'Which way does the effect go?', 'Runs every pair in both directions: each exposure on each outcome and each outcome on each exposure. Genetic correlation is not built yet.', 'BIDIRECTIONAL', true]];
 // Methods the engine can run today (contracts D4: a method is enabled only with a parameter schema, a script emitter and a replay test).
@@ -75,7 +75,7 @@ const EXPORT_ITEMS = [['scripts', 'Scripts and data tables', 'The R scripts, the
   ['strobe', 'STROBE-MR checklist', 'All 20 items and their sub-items, each marked filled from your study, partly filled, or for you to write', 'DOCX', true], ['refs', 'Citations', 'Every method and tool named in the text, checked against PubMed', 'BibTeX · RIS', true],
   ['capsule', 'Reproducibility capsule', 'Every pair folder with scripts, data, results and the replay check, plus the R version', 'ZIP', true]];
 
-const S = { screen: 'boot', overlap: {}, ovl: null, theme: 'aurora', settings: {}, studies: [], cat: { exposures: [], outcomes: [] }, schemas: {}, study: null, maxStep: 0,
+const S = { med: [], medRes: null, screen: 'boot', overlap: {}, ovl: null, theme: 'aurora', settings: {}, studies: [], cat: { exposures: [], outcomes: [] }, schemas: {}, study: null, maxStep: 0,
   kind: 'basic', name: '', aim: '', prereg: false, err: null, notice: null, q: '', pthr: '5e-8', factErr: [], ex: [], out: [], pop: 'EUR', methods: ['ivw_mre', 'egger'], steiger: true, loo: true, prev: {}, mfilter: 'all',
   params: { ci_level: 0.95, min_f: 0, ivw_model: 'mre_floor' }, outl: {}, outBusy: false, custom: null, facts: null, pairs: [], run: null, payloads: {}, rp: 0, size: 'Double column', pub: null, xsel: ['scripts', 'report', 'figs', 'tables', 'text', 'strobe', 'refs', 'capsule'], pkg: null,
   info: null, diag: null, editFolder: false, folderErr: null, root: '', dialog: null, lost: false, cmp: null, inst: null, sel: [], sens: [], sensBusy: false, lib: [], tmpls: [], imp: null, sq: '', sf: 'all',
@@ -374,14 +374,14 @@ function rowItem(r, key) {
 }
 function vData() {
   const q = S.q.trim().toLowerCase(), flt = (l) => l.filter((r) => !q || r.name.toLowerCase().indexOf(q) >= 0);
-  const ex = flt(S.cat.exposures), out = flt(S.cat.outcomes), kinds = selKinds(), mixed = !!(kinds.imp && kinds.sim), anyImp = !!kinds.imp, pOk = pthrNum() !== null, pairs = (mixed || (anyImp && !pOk)) ? 0 : S.ex.length * S.out.length, allRows = S.cat.exposures.concat(S.cat.outcomes), selOg = (id) => (allRows.find((r) => r.id === id) || {}).src === 'OpenGWAS', impIds = S.ex.concat(S.out).filter(isLib), ogAny = impIds.some(selOg), fileAny = impIds.some((id) => !selOg(id)), exOg = S.ex.length > 0 && S.ex.every(selOg);
+  const ex = flt(S.cat.exposures), out = flt(S.cat.outcomes), kinds = selKinds(), mixed = !!(kinds.imp && kinds.sim), anyImp = !!kinds.imp, pOk = pthrNum() !== null, mediation = S.kind === 'mediation', nmed = (S.med || []).length, pairs = (mixed || (anyImp && !pOk)) ? 0 : mediation ? (S.ex.length === 1 && S.out.length === 1 && nmed ? 1 + 2 * nmed + (nmed > 1 ? 1 : 0) : 0) : S.ex.length * S.out.length, allRows = S.cat.exposures.concat(S.cat.outcomes), selOg = (id) => (allRows.find((r) => r.id === id) || {}).src === 'OpenGWAS', impIds = S.ex.concat(S.out).filter(isLib), ogAny = impIds.some(selOg), fileAny = impIds.some((id) => !selOg(id)), exOg = S.ex.length > 0 && S.ex.every(selOg);
   const sect = (t, list, key, cnt) => '<section style="flex:1 1 260px;min-width:0;display:flex;flex-direction:column;gap:10px"><div style="display:flex;justify-content:space-between;align-items:baseline;padding:0 4px">' + H2(t) + '<span class="mono" style="font-size:12px;color:var(--accent)">' + cnt + ' selected</span></div>' + (list.length ? list.map((r) => rowItem(r, key)).join('') : '<div style="color:var(--mute);padding:8px 4px">No trait matches "' + esc(S.q) + '".</div>') + '</section>';
   const dot = (c) => '<span style="width:8px;height:8px;border-radius:50%;background:' + c + '"></span>';
   const rd = (a, b) => '<div style="display:flex;gap:10px;align-items:center">' + dot('var(--accent)') + '<span style="flex-grow:1">' + a + '</span><span class="mono" style="font-size:12px;color:var(--mute)">' + b + '</span></div>';
   const pops = ['EUR', 'EAS', 'AFR'].map((p) => { const on = S.pop === p, avail = p === 'EUR'; return '<button type="button" ' + (avail ? 'data-a="pop" data-v="' + p + '"' : 'disabled title="The simulated traits are European only"') + ' style="padding:6px 14px;border-radius:999px;font-size:13px;font-weight:500;opacity:' + (avail ? 1 : .5) + ';color:' + (on ? 'var(--accentInk)' : 'var(--text)') + ';background:' + (on ? 'var(--accent)' : 'transparent') + ';border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + '">' + p + '</button>'; }).join('');
-  const main = '<header style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between"><div style="max-width:620px">' + eyebrow('STEP 2 OF 7 · DATA') + h1('Choose exposures and outcomes') + sub('Pick one or more of each. Every exposure is paired with every outcome, and the app checks each pair before you spend time on it.') + '</div>' +
+  const main = '<header style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between"><div style="max-width:620px">' + eyebrow('STEP 2 OF 7 · DATA') + (mediation ? h1('Choose the exposure, mediators and outcome') + sub('One exposure, one outcome and one to five mediators. A mediator needs its own instruments and full summary statistics (an imported dataset usable both ways, or a simulated exposure). The app runs the total effect, the effect on each mediator and a multivariable model for each, and checks every step first.') : h1('Choose exposures and outcomes') + sub('Pick one or more of each. Every exposure is paired with every outcome, and the app checks each pair before you spend time on it.')) + '</div>' +
     '<label style="display:flex;align-items:center;gap:10px;padding:0 14px;height:44px;min-width:260px;border-radius:12px;background:var(--panel);border:1px solid var(--line);color:var(--mute)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="' + IC.search + '"></path></svg><input id="q" aria-label="Search traits" placeholder="Search ' + (S.cat.exposures.length + S.cat.outcomes.length) + ' traits" value="' + esc(S.q) + '" style="flex-grow:1;border:0;outline:0;background:transparent;color:var(--text);font:inherit"></label></header>' +
-    '<div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start"><div style="flex:999 1 560px;min-width:0;display:flex;flex-wrap:wrap;gap:20px">' + sect('Exposures', ex, 'ex', S.ex.length) + sect('Outcomes', out, 'out', S.out.length) + '</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:24px;align-items:flex-start"><div style="flex:999 1 560px;min-width:0;display:flex;flex-wrap:wrap;gap:20px">' + (mediation ? sect('Exposure', ex, 'ex', S.ex.length) + sect('Mediators', ex.filter((r) => S.ex.indexOf(r.id) < 0 && (!isLib(r.id) || S.cat.outcomes.some((o) => o.id === r.id))), 'med', nmed) + sect('Outcome', out, 'out', S.out.length) : sect('Exposures', ex, 'ex', S.ex.length) + sect('Outcomes', out, 'out', S.out.length)) + '</div>' +
     '<aside style="flex:1 1 300px;max-width:380px;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;gap:20px"><div><div style="font-size:12px;color:var(--mute);margin-bottom:6px">Your study</div><div style="display:flex;align-items:baseline;gap:8px"><span class="mono" style="font-size:40px;font-weight:500;letter-spacing:-0.04em">' + pairs + '</span><span style="color:var(--mute)">exposure–outcome pairs</span></div></div>' +
     '<div><div style="font-size:12px;color:var(--mute);margin-bottom:10px">Population</div><div style="display:flex;flex-wrap:wrap;gap:8px">' + pops + '</div><div style="font-size:12px;color:var(--mute);margin-top:10px">' + (anyImp ? (ogAny && !fileAny ? 'Ancestry is the one OpenGWAS lists for each dataset. This app does not verify it.' : ogAny ? 'Ancestry is what OpenGWAS lists for downloaded datasets, or what you declared when you imported a file. This app does not verify it.' : 'Ancestry is what you declared when you imported the file. It is not verified.') : 'Ancestry is declared, not verified, for simulated traits: <span class="mono" style="color:var(--text)">EUR</span>') + '</div></div>' +
     (anyImp ? '<div><label for="f_pthr" style="display:block;font-size:12px;color:var(--mute);margin-bottom:6px">Instrument P-value threshold</label><input id="f_pthr" class="mono" inputmode="decimal" value="' + esc(S.pthr) + '" aria-describedby="pthr_h" style="box-sizing:border-box;width:100%;height:40px;padding:0 12px;border-radius:10px;background:var(--panel2);color:var(--text);border:1px solid ' + (pOk ? 'var(--line)' : 'var(--warn)') + '"><div id="pthr_h" style="font-size:12px;color:' + (pOk ? 'var(--mute)' : 'var(--warn)') + ';margin-top:6px">' + (pOk ? (exOg ? 'An exposure from OpenGWAS was already filtered when you downloaded it (its own P-value threshold and clumping). A stricter value here keeps fewer variants. A looser one cannot add variants back.' : 'Variants of the exposure file below this P-value are the candidate instruments. The usual choice is 5e-8 (genome-wide). A file you set to be clumped on this computer is clumped after this filter; a file you marked as already independent is used as it is.') : 'Enter a number between 0 and 1, for example 5e-8.') + '</div></div>' : '') +
@@ -392,7 +392,7 @@ function vData() {
 }
 const isLib = (id) => String(id).indexOf('lib:') === 0;
 function pthrNum() { const v = Number(String(S.pthr).trim().replace(',', '.')); return (isFinite(v) && v > 0 && v <= 1) ? v : null; }
-function selKinds() { const k = {}; S.ex.concat(S.out).forEach((id) => { k[isLib(id) ? 'imp' : 'sim'] = true; }); return k; }
+function selKinds() { const k = {}; S.ex.concat(S.out, S.kind === 'mediation' ? (S.med || []) : []).forEach((id) => { k[isLib(id) ? 'imp' : 'sim'] = true; }); return k; }
 function minInst() { return S.facts ? Math.min.apply(null, S.facts.map((f) => f.instruments)) : null; }
 function methodState(m) {
   if (m.built) {
@@ -497,7 +497,7 @@ function vWhy() {
     '<div style="font-size:12px;color:var(--mute)">' + (S.feas ? S.feas.rules_active + ' of ' + S.feas.rules_total + ' rules are active in this version; the others belong to methods that are not built yet.' : '') + ' Warnings never stop a run; they are reported so you can address them. Thresholds marked as rules of thumb are not fixed by the guidelines.</div><div style="display:flex;justify-content:flex-end">' + cta('Close', 'why_close', '', 'height:44px') + '</div></div></div>';
 }
 // Round 50: a multivariable study offers only the MVMR methods, and the others only the univariable ones.
-function kindMethods() { return METHODS.filter((m) => !!m.mv === (S.kind === 'multi')); }
+function kindMethods() { return S.kind === 'mediation' ? METHODS.slice() : METHODS.filter((m) => !!m.mv === (S.kind === 'multi')); }   // Round 57: mediation runs univariable and MVMR pairs
 function vMethods() {
   const all = kindMethods().map((m) => Object.assign({}, m, methodState(m))), avail = all.filter((m) => m.st !== 'locked');
   const f = S.mfilter, list = all.filter((m) => f === 'all' || (f === 'ok' && m.st !== 'locked') || (f === 'locked' && m.st === 'locked'));
@@ -832,7 +832,23 @@ function vResultsMV(pair, pay) {
     '<div style="display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between"><div style="max-width:660px">' + sub('Direct effect of each exposure on ' + esc(pair.outName) + ', holding the other exposures constant' + (lor ? ' (log odds ratio per unit)' : ' (per unit of each exposure)') + '. Effects in dark text have P below 0.05.') + '</div><div style="display:flex;flex-wrap:wrap;gap:10px">' + ghost('Open in RStudio', 'open_rstudio', pair.folder) + cta('Export publication package', 'to_export', '', 'height:44px;padding:0 20px') + '</div></div></header>' + nav + tiles +
     '<section style="box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><h2 style="margin:0 0 12px;font-size:16px;font-weight:600">Direct effects by method</h2><div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;width:100%">' + head + rows + '</table></div>' +
     '<div style="font-size:12px;color:var(--mute);margin-top:12px">MVMR-IVW is the main estimate. MVMR-Egger, the MVMR median and MVMR-Lasso allow for pleiotropy not explained by the exposures in the model. Direct effects change if exposures are added or removed. Conditional F assumes that the exposure samples do not overlap.</div></section>';
-  return frame('study', 'results', main);
+  return frame('study', 'results', medSection() + main);
+}
+// ---- Round 57: mediation summary, read from the mediation script's results table ----
+function medSection() {
+  if (S.kind !== 'mediation') return '';
+  if (!S.medRes) return '<section style="padding:20px;border-radius:20px;background:var(--panel);border:1px solid var(--line);font-size:13px;color:var(--mute)">Mediation: the summary appears when every step has run.</section>';
+  const R = S.medRes.rows, sp = S.medRes.spec || {}, lor = sp.scale === 'log_or', g = (m, me, q) => R.find((r) => r.mediator === m && r.method === me && r.quantity === q);
+  const f3 = (v, d) => Number(v).toFixed(d);   // fixed decimals: a near-zero indirect effect reads as 0.001, not 1e-3
+  const ef = (r) => !r ? '–' : lor ? 'OR ' + f3(Math.exp(r.estimate), 2) + ' (' + f3(Math.exp(r.ci_lower), 2) + ' to ' + f3(Math.exp(r.ci_upper), 2) + ')' : f3(r.estimate, 3) + ' (' + f3(r.ci_lower, 3) + ' to ' + f3(r.ci_upper, 3) + ')';
+  const pc = (r) => !r ? '–' : Math.round(100 * r.estimate) + '% (' + Math.round(100 * r.ci_lower) + '% to ' + Math.round(100 * r.ci_upper) + '%)';
+  const tot = R.find((r) => r.quantity === 'total'), meds = Array.from(new Set(R.map((r) => r.mediator))).filter((m) => m !== '(none)'), weak = tot && tot.ci_lower <= 0 && tot.ci_upper >= 0;
+  const td = 'padding:8px 12px 8px 0;border-top:1px solid var(--line)', th = 'padding:8px 12px 8px 0;font-weight:500;text-align:left';
+  const rows = meds.map((m) => '<tr><td style="' + td + '">' + esc(m === '(all together)' ? 'All mediators together' : m) + '</td><td class="mono" style="' + td + '">' + ef(g(m, 'MVMR', 'direct')) + '</td><td class="mono" style="' + td + '">' + ef(g(m, 'product', 'indirect')) + '</td><td class="mono" style="' + td + '">' + pc(g(m, 'product', 'proportion mediated')) + '</td><td class="mono" style="' + td + '">' + pc(g(m, 'difference', 'proportion mediated')) + '</td></tr>').join('');
+  return '<section style="box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid ' + (weak ? 'var(--warn)' : 'var(--line)') + ';display:flex;flex-direction:column;gap:12px"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px"><h2 style="margin:0;font-size:16px;font-weight:600">Mediation: ' + esc(sp.x_label || '') + ' → ' + esc(sp.y_label || '') + '</h2><span class="mono" style="font-size:11px;color:var(--mute)">04_across_pairs/mediation/mediation.R</span></div>' +
+    '<div style="font-size:13px">Total effect ' + ef(tot) + '.' + (weak ? ' <span style="color:var(--warn)">Its confidence interval includes no effect, so the proportions mediated should not be interpreted.</span>' : '') + '</div>' +
+    '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="color:var(--mute)"><th style="' + th + '">Mediator</th><th style="' + th + '">Direct effect (MVMR)</th><th style="' + th + '">Indirect (product)</th><th style="' + th + '">Mediated (product)</th><th style="' + th + '">Mediated (difference)</th></tr>' + rows + '</table></div>' +
+    '<div style="font-size:12px;color:var(--mute)">Product of coefficients: effect of the exposure on the mediator times the effect of the mediator on the outcome given the exposure (two-step MR). Difference: total minus direct effect. 95% intervals by the delta method, treating the estimates as independent (Carter et al. 2021).</div></section>';
 }
 function vResults() {
   const pair = curPair(), pay = curPay();
@@ -857,7 +873,7 @@ function vResults() {
     '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start"><section style="flex:1 1 440px;min-width:0;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Forest plot across methods</h2><span class="mono" style="font-size:11px;color:var(--mute)">' + ((causal(pay)[0] || {}).scale === 'log_or' ? 'log odds ratio per unit (OR = exp), linear scale' : 'beta per unit, linear scale') + '</span></div>' + forest(pay) + '</section>' +
     '<section style="flex:1 1 440px;min-width:0;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Scatter plot with fitted lines</h2><span class="mono" style="font-size:11px;color:var(--mute)">one line per method</span></div>' + scatter(pay) + '<div style="display:flex;flex-wrap:wrap;gap:16px;margin-top:14px;font-size:12px;color:var(--mute)">' + ce.filter((e) => e.method !== 'radegger').map((e) => e.method === 'ivw_mre' ? '<span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:3px;background:var(--accent)"></span>IVW</span>' : '<span style="display:flex;align-items:center;gap:6px"><span style="width:16px;height:0;border-top:3px ' + (e.method === 'egger' ? 'dashed' : 'dotted') + ' ' + MCOL[e.method] + '"></span>' + esc(MSHORT(e.method)) + '</span>').join('') + '<span>x: SNP effect on exposure · y: SNP effect on outcome, oriented to a positive exposure effect</span></div></section></div>' +
     '<section style="box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:16px"><h2 style="margin:0;font-size:16px;font-weight:600">Publication readiness</h2><span class="mono" style="font-size:12px;color:var(--mute)">STROBE-MR checklist: built with the package (Publish)</span></div><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">' + ready + '</div></section>' + DEMO_NOTE;
-  return frame('study', 'results', main);
+  return frame('study', 'results', medSection() + main);
 }
 // ---- outlier review (FR-102, FR-105, FR-106): descriptive table, manual choice, sensitivity branch by the packaged methods ------------
 const DETECTORS = [['presso', 'MR-PRESSO', 'presso_outliers'], ['radial', 'Radial IVW', 'radial_outliers'], ['radegger', 'Radial MR-Egger', 'radial_outliers'], ['lasso', 'MR-Lasso', 'lasso_excluded']];
@@ -1106,12 +1122,19 @@ function render() {
 }
 function go(screen) {
   S.screen = screen; S.notice = null; const i = STEPS.findIndex((s) => s[1] === screen); if (i > S.maxStep) S.maxStep = i;
-  if ((screen === 'methods' || screen === 'check') && !S.facts && !S.factsBusy && S.pairs && S.pairs.length) { S.factsBusy = true; send('facts', { pairs: S.pairs.map((p) => [p.ex, p.out]), pthr: S.pairs[0].pthr || pthrNum() || 5e-8, params: S.params }); }
+  if ((screen === 'methods' || screen === 'check') && !S.facts && !S.factsBusy && S.pairs && S.pairs.length) { S.factsBusy = true; send('facts', { pairs: S.pairs.map((p) => [p.ex, p.out, p.med || null]), pthr: S.pairs[0].pthr || pthrNum() || 5e-8, params: S.params }); }
   if (screen === 'settings') send('settings_info'); if (screen === 'home' || screen === 'studies') send('studies'); if (screen === 'library') send('library');
   window.scrollTo(0, 0); render();
 }
 const err = (m) => { S.notice = { kind: 'err', msg: m }; render(); };
 function buildPairs() { S.pairs = [];
+  if (S.kind === 'mediation') {   // Round 57: total, exposure on each mediator, MVMR of exposure and each mediator, and all together
+    const nmx = (id) => ((S.cat.exposures.concat(S.cat.outcomes)).find((r) => r.id === id) || {}).name || id, x = S.ex[0], y = S.out[0], ms = S.med.slice(), pt = isLib(x) ? pthrNum() : null, base = { x: x, ms: ms, y: y };
+    S.pairs.push({ ex: x, out: y, exName: nmx(x), outName: nmx(y), folder: null, pthr: pt, med: Object.assign({ role: 'total' }, base) });
+    ms.forEach((m) => S.pairs.push({ ex: x, out: m, exName: nmx(x), outName: nmx(m), folder: null, pthr: pt, med: Object.assign({ role: 'xm', m: m }, base) }));
+    ms.forEach((m) => S.pairs.push({ ex: [x, m], out: y, exName: nmx(x) + ' + ' + nmx(m), exNames: [nmx(x), nmx(m)], outName: nmx(y), folder: null, pthr: pt, mv: true, med: Object.assign({ role: 'direct', m: m }, base) }));
+    if (ms.length > 1) S.pairs.push({ ex: [x].concat(ms), out: y, exName: [x].concat(ms).map(nmx).join(' + '), exNames: [x].concat(ms).map(nmx), outName: nmx(y), folder: null, pthr: pt, mv: true, med: Object.assign({ role: 'joint' }, base) });
+    return; }
   if (S.kind === 'multi') { const names = S.ex.map((e) => (S.cat.exposures.find((x) => x.id === e) || {}).name || e);   // Round 50: one joint model per outcome
     S.out.forEach((o) => { const b = S.cat.outcomes.find((x) => x.id === o); S.pairs.push({ ex: S.ex.slice(), out: o, exName: names.join(' + '), exNames: names, outName: b.name, folder: null, pthr: (isLib(o) ? pthrNum() : null), mv: true }); }); return; } S.ex.forEach((e) => S.out.forEach((o) => { const a = S.cat.exposures.find((x) => x.id === e), b = S.cat.outcomes.find((x) => x.id === o); S.pairs.push({ ex: e, out: o, exName: a.name, outName: b.name, folder: null, pthr: (isLib(e) ? pthrNum() : null) });
   if (S.kind === 'bidir') S.pairs.push({ ex: o, out: e, exName: b.name, outName: a.name, folder: null, pthr: (isLib(o) ? pthrNum() : null), rev: true }); })); }   // Round 45: the reverse direction of every pair
@@ -1121,11 +1144,11 @@ function startRun() {
 }
 function runNext() {
   const r = S.run; if (!r || r.state === 'done') return;
-  if (r.i >= r.total) { r.state = 'done'; render(); return; }
+  if (r.i >= r.total) { r.state = 'done'; if (S.kind === 'mediation') send('mediation', { ci: S.params.ci_level || 0.95 }); render(); return; }
   if (r.paused) { render(); return; }
   const p = S.pairs[r.i]; r.t0 = Date.now(); r.log.push('Pair ' + (r.i + 1) + ': starting ' + p.exName + ' → ' + p.outName); render();
   const f = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out), withSt = !p.mv && S.steiger && S.methods.indexOf('ivw_mre') >= 0 && steigerPair(f).ok, withLoo = !p.mv && S.loo && S.methods.indexOf('ivw_mre') >= 0 && !(f && f.instruments < 3);
-  send('run_pair', { i: r.i, ex: p.ex, out: p.out, rev: !!p.rev, pthr: p.pthr || 5e-8, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built)).concat(withSt ? ['steiger'] : []).concat(withLoo ? ['loo'] : []), params: S.params,
+  send('run_pair', { i: r.i, ex: p.ex, out: p.out, rev: !!p.rev, pthr: p.pthr || 5e-8, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && (S.kind !== 'mediation' || !!x.mv === !!p.mv))).concat(withSt ? ['steiger'] : []).concat(withLoo ? ['loo'] : []), params: S.params, med: p.med || null,
     prev: { x: prevOk(S.prev[p.ex]) ? S.prev[p.ex] : null, y: prevOk(S.prev[p.out]) ? S.prev[p.out] : null } });
 }
 function impNext() {
@@ -1176,20 +1199,20 @@ function onClick(e) {
     case 'theme_menu': S.themeMenu = !S.themeMenu; render(); if (S.themeMenu) { const f = $root().querySelector('#theme_menu [aria-checked="true"]'); if (f) f.focus(); } break;
     case 'theme_more': S.themeMenu = false; go('settings'); break;
     case 'nav': if (v === 'home' || v === 'studies' || v === 'library' || v === 'settings') go(v); else if (STEPS.findIndex((s) => s[1] === v) <= S.maxStep) { if (v === 'run' && (!S.run)) break; go(v); } break;
-    case 'new': S.factsBusy = false; S.study = null; S.name = ''; S.aim = ''; S.ex = []; S.out = []; S.pairs = []; S.run = null; S.payloads = {}; S.sens = []; S.outl = {}; S.maxStep = 0; S.facts = null; S.pkg = null; S.pkgBusy = false; S.err = null; go('question'); break;
+    case 'new': S.med = []; S.medRes = null; S.factsBusy = false; S.study = null; S.name = ''; S.aim = ''; S.ex = []; S.out = []; S.pairs = []; S.run = null; S.payloads = {}; S.sens = []; S.outl = {}; S.maxStep = 0; S.facts = null; S.pkg = null; S.pkgBusy = false; S.err = null; go('question'); break;
     case 'open': send('study_open', { name: v, to: 'auto' }); break;
     case 'open_results': send('study_open', { name: v, to: 'results' }); break;
     case 'sfilter': S.sf = v; render(); break;
     case 'study_folder': send('study_folder', { name: v }); break;
     case 'dismiss': S.notice = null; render(); break;
     case 'setup_done': send('set', { key: 'setup_done', value: true }); go('home'); break;
-    case 'kind': S.kind = v; { const mv = v === 'multi', has = S.methods.some((id) => (METHODS.find((m) => m.id === id) || {}).mv); if (mv && !has) S.methods = ['mvivw', 'mvegger', 'mvmedian']; if (!mv && has) S.methods = ['ivw_mre', 'egger']; } render(); break;
+    case 'kind': S.kind = v; if (v === 'mediation') { S.methods = ['ivw_mre', 'egger', 'wm', 'mvivw']; S.med = S.med || []; render(); break; } { const mv = v === 'multi', has = S.methods.some((id) => (METHODS.find((m) => m.id === id) || {}).mv); if (mv && !has) S.methods = ['mvivw', 'mvegger', 'mvmedian']; if (!mv && has) S.methods = ['ivw_mre', 'egger']; } render(); break;
     case 'prereg': S.prereg = !S.prereg; render(); break;
     case 'q_next': S.name = (document.getElementById('nm') || { value: S.name }).value; S.aim = (document.getElementById('aim') || { value: S.aim }).value; S.err = null;
       if (S.study) { send('plan_update', { aim: S.aim, prereg: S.prereg, kind: S.kind }); go('data'); } else { if (!S.name.trim()) { S.err = 'Give the study a name.'; render(); break; } send('study_create', { name: S.name, aim: S.aim, prereg: S.prereg, kind: S.kind }); } break;
-    case 'pick_ex': case 'pick_out': { const k = a.slice(5), cur = S[k]; S[k] = cur.indexOf(v) >= 0 ? cur.filter((x) => x !== v) : cur.concat([v]); render(); break; }
+    case 'pick_ex': case 'pick_out': case 'pick_med': { if (!S.med) S.med = []; const k = a.slice(5), cur = S[k]; S[k] = cur.indexOf(v) >= 0 ? cur.filter((x) => x !== v) : cur.concat([v]); render(); break; }
     case 'pop': S.pop = v; render(); break;
-    case 'd_next': if (S.kind === 'multi' && (S.ex.length < 2 || S.ex.length > 6)) { S.notice = { kind: 'err', msg: 'Multivariable MR needs two to six exposures. Choose ' + (S.ex.length < 2 ? 'at least one more.' : 'no more than six.') }; render(); break; } buildPairs(); S.facts = null; S.factsBusy = false; go('check'); break;
+    case 'd_next': if (S.kind === 'mediation') { const bad = S.ex.length !== 1 ? 'Choose exactly one exposure.' : S.out.length !== 1 ? 'Choose exactly one outcome.' : !(S.med || []).length ? 'Choose at least one mediator.' : S.med.length > 5 ? 'Choose no more than five mediators.' : S.med.indexOf(S.ex[0]) >= 0 ? 'The exposure cannot also be a mediator.' : null; if (bad) { S.notice = { kind: 'err', msg: bad }; render(); break; } } if (S.kind === 'multi' && (S.ex.length < 2 || S.ex.length > 6)) { S.notice = { kind: 'err', msg: 'Multivariable MR needs two to six exposures. Choose ' + (S.ex.length < 2 ? 'at least one more.' : 'no more than six.') }; render(); break; } buildPairs(); S.facts = null; S.factsBusy = false; go('check'); break;
     case 'mfilter': S.mfilter = v; render(); break;
     case 'pick_method': S.methods = S.methods.indexOf(v) >= 0 ? S.methods.filter((x) => x !== v) : S.methods.concat([v]); render(); break;
     case 'preset': S.methods = ['ivw_mre', 'egger']; render(); break;
@@ -1204,7 +1227,7 @@ function onClick(e) {
     case 'steiger_toggle': e.stopPropagation(); S.steiger = !S.steiger; render(); break;
     case 'loo_toggle': e.stopPropagation(); S.loo = !S.loo; render(); break;
     case 'c_next': S.maxStep = Math.max(S.maxStep, 3); go('methods'); break;
-    case 'm_next': startRun(); break;
+    case 'm_next': if (S.kind === 'mediation' && (S.methods.indexOf('ivw_mre') < 0 || S.methods.indexOf('mvivw') < 0)) { S.notice = { kind: 'err', msg: 'Mediation needs IVW (for the total effect and the effect on each mediator) and MVMR-IVW (for the direct effects). Select both.' }; render(); break; } startRun(); break;
     case 'to_check': go('check'); break;
     case 'ovl_open': S.ovl = { items: (S.facts || []).map((x) => { const o = S.overlap[ovKey(x)] || {}; return { ex: x.ex_id, out: x.out_id, name: x.exposure + ' and ' + x.outcome, answer: o.answer || '', pct: o.pct != null ? String(o.pct) : '', note: o.note || '' }; }) }; render(); break;
     case 'ovl_ans': { const kv = v.split('|'), it = S.ovl && S.ovl.items[Number(kv[0])]; if (it) { it.answer = kv[1]; render(); } break; }
@@ -1307,9 +1330,11 @@ function onChange(e) { const t = e.target; if (t.getAttribute && t.getAttribute(
 function applyStudy(m) {
   S.study = { name: m.name, dir: m.dir }; S.root = m.root || S.root; S.overlap = Array.isArray(m.overlap) ? {} : (m.overlap || {}); S.ovl = null;
   const plan = m.plan || {}; S.name = m.name; S.aim = plan.aim || ''; S.prereg = !!plan.prereg; S.kind = plan.kind || 'basic';
-  const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder, pthr: p.pthr || null, rev: !!p.rev, mv: !!p.mv, exNames: p.exNames || null }));
+  const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder, pthr: p.pthr || null, rev: !!p.rev, mv: !!p.mv, exNames: p.exNames || null, med: p.med || null }));
   S.ex = Array.from(new Set([].concat.apply([], S.pairs.filter((p) => !p.rev).map((p) => [].concat(p.ex))))); S.out = Array.from(new Set(S.pairs.filter((p) => !p.rev).map((p) => p.out)));
-  if (pairs.length && pairs[0].methods) { S.steiger = pairs[0].methods.indexOf('steiger') >= 0; S.loo = pairs[0].methods.indexOf('loo') >= 0; S.methods = pairs[0].methods.filter((x) => x !== 'steiger' && x !== 'loo'); }
+  const md = S.pairs.find((p) => p.med); S.medRes = null; S.med = [];   // Round 57: a mediation study is rebuilt from its steps
+  if (md) { S.ex = [md.med.x]; S.out = [md.med.y]; S.med = [].concat(md.med.ms || []); if (S.pairs.some((p) => p.folder)) send('mediation', { ci: 0.95 }); }
+  if (pairs.length && pairs[0].methods) { S.steiger = pairs[0].methods.indexOf('steiger') >= 0; S.loo = pairs[0].methods.indexOf('loo') >= 0; S.methods = Array.from(new Set([].concat.apply([], pairs.map((p) => p.methods || [])))).filter((x) => x !== 'steiger' && x !== 'loo'); }
   S.prev = {}; pairs.forEach((p) => { const pv = p.prev || {}; if (prevOk(pv.x)) S.prev[p.ex] = pv.x; if (prevOk(pv.y)) S.prev[p.out] = pv.y; }); if (pairs.length && pairs[0].params) S.params = Object.assign({ ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, pairs[0].params); else if (pairs.length && pairs[0].ci) S.params.ci_level = pairs[0].ci;
   S.mvcov = m.mvcov || []; S.mvc = null; S.payloads = m.payloads || {}; S.sens = m.sens || []; S.outl = {}; (m.outliers || []).forEach((o) => { S.outl[o.parent] = o; }); S.outBusy = false; S.inst = null; S.sel = []; S.facts = null; S.factsBusy = false; S.run = null; S.pkg = null; S.pkgBusy = false;
   S.maxStep = pairs.length ? (Object.keys(S.payloads).length ? 6 : 1) : 0;
@@ -1347,6 +1372,7 @@ function handle(m) {
     case 'import_report': if (S.imp) { S.imp.report = { ok: m.ok, errors: [].concat(m.errors || []), warnings: [].concat(m.warnings || []), stats: m.stats || {} }; render(); } break;
     case 'import_saved': if (S.imp) { S.imp.saving = false; S.imp.saved = { rec: m.rec, template: m.template }; } S.lib = m.items || []; S.tmpls = m.templates || []; if (m.catalogue) S.cat = m.catalogue; render(); break;
     case 'study_open_failed': S.dialog = { title: 'This study could not be opened', body: m.msg + '\n\nNothing was changed. You can look at the folder yourself, or start a new study.', mono: S.root + '/' + m.name, danger: true, buttons: [{ label: 'Close', a: 'dialog_close' }, { label: 'Show folder', a: 'study_folder', v: m.name, primary: true }] }; render(); break;
+    case 'mediation': S.medRes = (m.rows && m.rows.length) ? { rows: m.rows, spec: m.spec } : null; render(); break;
     case 'mvcov_head': { const cols = m.columns || [], lc = (x) => String(x).toLowerCase(); S.mvc = { name: m.name, columns: cols, busy: false,
       cols: S.ex.map((e) => { const n = lc((((S.cat && S.cat.exposures) || []).find((x) => x.id === e) || {}).name || e); return cols.find((c) => lc(c) === n || lc(c) === lc(e)) || ''; }) }; S.notice = null; render(); break; }
     case 'mvcov_error': S.mvc = null; err(m.msg); break;
