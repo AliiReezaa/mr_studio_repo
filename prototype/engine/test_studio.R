@@ -1221,4 +1221,14 @@ expect("Round 50: library MVMR data recover the direct effects (0.3 and 0)", { d
 m50x <- err_of(library_mv_input(c("lib:MV X1", "lib:Trait X"), "lib:MV Y", 1e-6, clump = function(snp, p, pop) data.frame(variant_id = snp, status = "index")))
 expect("Round 50: an exposure that holds only its own instruments is refused for MVMR", grepl("holds only its own instruments|full summary statistics", m50x))
 
+# ---- Round 51: MVMR keeps palindromic variants when every exposure is declared forward strand (found in the Rees 2017 validation) ----
+w51 <- function(b, nm, role, ind, strand) { f <- tempfile(fileext = ".csv"); al <- ifelse(seq_len(n5) %% 4 == 0, "T", "G")
+  utils::write.csv(data.frame(snp = s5, ea = "A", oa = al, beta = b, se = se5, p = 2 * pnorm(-abs(b / se5)), n = 100000), f, row.names = FALSE)
+  invisible(import_save(f, paste0(nm, ".csv"), ",", c("snp", "ea", "oa", "beta", "se", "p", "n"), mpl[setdiff(names(mpl), "eaf")], utils::modifyList(fct(nm, role, ind), list(frq = "none", strand = strand)))) }
+for (st in c("forward", "unknown")) { w51(b1, paste("P1", st), "either", "yes", st); w51(b2, paste("P2", st), "either", "yes", st); w51(y5, paste("PY", st), "outcome", "no", st) }
+cl51 <- function(snp, p, pop) data.frame(variant_id = snp, status = "index", stringsAsFactors = FALSE)
+f51 <- library_mv_input(c("lib:P1 forward", "lib:P2 forward"), "lib:PY forward", 1e-6, clump = cl51); u51 <- library_mv_input(c("lib:P1 unknown", "lib:P2 unknown"), "lib:PY unknown", 1e-6, clump = cl51)
+expect("Round 51: declared forward strand keeps the palindromic (A/T) instruments in MVMR; undeclared, they are dropped without allele frequencies",
+       f51$ledger$mv$final == 80L && isTRUE(f51$ledger$mv$palindromic_kept) && u51$ledger$mv$final == 60L && !isTRUE(u51$ledger$mv$palindromic_kept))
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

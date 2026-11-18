@@ -50,9 +50,12 @@ library_mv_input <- function(exp_ids, out_id, pthr = 5e-8, root = studies_root()
   U <- U[U$key %in% cl$variant_id[cl$status == "index"], , drop = FALSE]; led$clumped <- nrow(U)
   d <- data.frame(variant_id = U$key, ea = U$ea, oa = U$oa, stringsAsFactors = FALSE); found <- integer(K)
   ref <- .lib_fmt(data.frame(key = U$key, beta = 1, se = 1, ea = U$ea, oa = U$oa, eaf = U$eaf), "exposure")
+  # Palindromic variants are kept (action 1) only when every exposure was declared to be on the forward strand, as library_pair_input
+  # does for a pair (Round 26); otherwise they are aligned by allele frequency or dropped (action 2). Found in the Rees 2017 validation.
+  fwd <- all(vapply(ds, function(x) identical(x$recipe$facts$strand, "forward"), TRUE)); led$palindromic_kept <- fwd
   for (k in seq_len(K)) {
     X <- ds[[k]]$data; X$key <- .vkey(X)$key; X <- X[X$key %in% U$key, , drop = FALSE]
-    H <- if (nrow(X)) suppressWarnings(suppressMessages(TwoSampleMR::harmonise_data(ref, .lib_fmt(X, "outcome"), action = 2))) else NULL
+    H <- if (nrow(X)) suppressWarnings(suppressMessages(TwoSampleMR::harmonise_data(ref, .lib_fmt(X, "outcome"), action = if (fwd) 1 else 2))) else NULL
     H <- if (is.null(H)) data.frame(SNP = character(), beta.outcome = numeric(), se.outcome = numeric(), mr_keep = logical()) else H[H$mr_keep, , drop = FALSE]
     m <- match(d$variant_id, H$SNP); found[k] <- sum(!is.na(m))
     d[[sprintf("beta_x_%d", k)]] <- H$beta.outcome[m]; d[[sprintf("se_x_%d", k)]] <- H$se.outcome[m]
