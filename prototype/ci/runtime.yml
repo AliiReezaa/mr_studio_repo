@@ -61,9 +61,13 @@ dependencies:
   - r-r.utils
   - r-iterators
   - r-rcpp
-  - r-mgsub
+  # mgsub 1.7.3: pure R. The conda-forge 2.0.0 build is marked noarch but holds a compiled library that loads on no platform (run 44481927955).
+  - r-mgsub=1.7.3
   - r-sfsmisc
   - r-gridbase
   - r-colorspace
   # Bidirectional MR-cML (Round 63): MRCD imports pracma (and Rcpp, above).
   - r-pracma
+  # LHC-MR (Round 65): imports of lhcMR, which is installed from a pinned commit (prototype.yml).
+  - r-mixtools
+  - r-rslurm

@@ -140,12 +140,14 @@ jobs:
         with: { repository: xue-hr/MRCD, ref: 11ca09599063ac236ba66c0307aa1186aebb0cad, path: _pinned/mrcd }
       - uses: actions/checkout@v7
         with: { repository: xue-hr/BiDirectCausal, ref: b463ff10621a700ad72d28337135e1a799229812, path: _pinned/bidirectcausal }
+      - uses: actions/checkout@v7   # Round 65: LHC-MR
+        with: { repository: LizaDarrous/lhcMR, ref: aee7f348744dc7be8b4e7cd52d645ee225cd8b95, path: _pinned/lhcmr }
 
       - name: Install the pinned MR packages into the runtime
         run: |
           pp() { if [[ "$RUNNER_OS" == "Windows" ]]; then cygpath -m "$PWD/_pinned/$1"; else echo "$PWD/_pinned/$1"; fi; }
           export PK_MRMIX="$(pp mrmix)" PK_MRPRESSO="$(pp mrpresso)" PK_RADIALMR="$(pp radialmr)" PK_MRRAPS="$(pp mrraps)" PK_TWOSAMPLEMR="$(pp twosamplemr)"
-          export PK_GENOMICSEM="$(pp genomicsem)" PK_MRCML="$(pp mrcml)" PK_MRCD="$(pp mrcd)" PK_BIDIRECTCAUSAL="$(pp bidirectcausal)"
+          export PK_GENOMICSEM="$(pp genomicsem)" PK_MRCML="$(pp mrcml)" PK_MRCD="$(pp mrcd)" PK_BIDIRECTCAUSAL="$(pp bidirectcausal)" PK_LHCMR="$(pp lhcmr)"
           python prototype/ci/patch_mrraps.py _pinned/mrraps   # drops the rsnps import (optional plot annotation only; no osx-arm64 build)
           # simex 1.8 (Round 41): downloaded with the runner's curl, because the relocated R cannot reach its SSL
           # certificates at this step on macOS; R checks the SHA-256 before installing it.
@@ -176,18 +178,18 @@ jobs:
               if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n)
               cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n))))
             }
-            # Round 64: GenomicSEM (with simsalapar, checked by SHA-256) and MRcML are pure R and required.
+            # Round 64: GenomicSEM (with simsalapar, checked by SHA-256) and MRcML, Round 65: lhcMR; pure R and required.
             ss <- Sys.getenv("PK_SIMSALAPAR")
             if (!file.exists(ss) || !identical(digest::digest(file = ss, algo = "sha256"), "738704c61016276f1a01e0764a525ec9e5b0743003dfdf53487822a6ba881c6f"))
               stop("simsalapar 1.0-13 source could not be downloaded or its checksum differs")
-            install.packages(c(ss, Sys.getenv(c("PK_GENOMICSEM", "PK_MRCML"))), repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
-            for (n in c("simsalapar", "GenomicSEM", "MRcML")) { if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n); cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n)))) }
+            install.packages(c(ss, Sys.getenv(c("PK_GENOMICSEM", "PK_MRCML", "PK_LHCMR"))), repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
+            for (n in c("simsalapar", "GenomicSEM", "MRcML", "lhcMR")) { if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n); cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n)))) }
             # MRCD is compiled (C++ and LAPACK); where the runner cannot build it, the app reports that BiDirectCausal is not installed.
             mk <- file.path(tempdir(), "Makevars"); writeLines("FLIBS=", mk); Sys.setenv(R_MAKEVARS_USER = mk)
             tryCatch(install.packages(unname(Sys.getenv(c("PK_MRCD", "PK_BIDIRECTCAUSAL"))), repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch")), error = function(e) message("optional: ", conditionMessage(e)))
             for (n in c("MRCD", "BiDirectCausal")) cat(sprintf("%-12s %s\n", n, if (requireNamespace(n, quietly = TRUE)) as.character(utils::packageVersion(n)) else "NOT INSTALLED (optional)"))'
           {
-            for d in twosamplemr mrmix mrpresso radialmr genomicsem mrcml mrcd bidirectcausal; do echo "$d $(git -C "_pinned/$d" rev-parse HEAD)"; done
+            for d in twosamplemr mrmix mrpresso radialmr genomicsem mrcml mrcd bidirectcausal lhcmr; do echo "$d $(git -C "_pinned/$d" rev-parse HEAD)"; done
           } > "package-lock-${{ matrix.id }}.txt"
           cat "package-lock-${{ matrix.id }}.txt"
           du -sh prototype/runtime | tee "size-${{ matrix.id }}.txt"

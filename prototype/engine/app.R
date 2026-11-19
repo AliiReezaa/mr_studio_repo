@@ -188,6 +188,13 @@ mr_server <- function(engine_dir) {
           if (inherits(res, "error")) { ev("ldsc", folder = a$folder, rows = list(), msg = conditionMessage(res)); return() }
           ev("ldsc", folder = a$folder, rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else ldsc_text(res))
         },
+        lhcmr_get = , lhcmr_fetch = , lhcmr_start = {   # Round 65: LHC-MR, run in a separate process (one to two hours)
+          req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
+          r <- tryCatch(switch(t, lhcmr_fetch = lhcmr_fetch_start(), lhcmr_start = { if (!requireNamespace("lhcMR", quietly = TRUE)) stop("lhcMR is not installed in this runtime.", call. = FALSE); lhcmr_pair_start(rv$h, p) }, NULL), error = function(e) e)
+          res <- lhcmr_pair_read(rv$h, p)
+          ev("lhcmr", folder = a$folder, status = lhcmr_status(rv$h, p), msg = if (inherits(r, "error")) conditionMessage(r) else "",
+             rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else lhcmr_text(res))
+        },
         mvcov_compute = {   # Round 55: covariances from the chosen individual-level file, for these exposures in model order
           req(rv$h); if (is.null(rv$mvcov)) stop("Choose the individual-level file first.", call. = FALSE)
           cov <- mv_cov_from_file(rv$mvcov$path, unlist(a$cols))

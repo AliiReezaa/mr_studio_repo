@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -1355,6 +1355,20 @@ local({
   expect("Round 64: the results text gives heritabilities, genetic correlation and the cross-trait intercept with its reading", grepl("genetic correlation -0.170 (SE 0.018)", ldsc_text(res), fixed = TRUE) && grepl("overlapping samples", ldsc_text(res)))
   dd <- file.path(tempdir(), "ldsc_ref64"); dir.create(dd, showWarnings = FALSE)
   expect("Round 64: with nothing installed the status says so", { st <- ldsc_ref_status(dd); !st$hm3 && !st$official && !length(st$computed) })
+})
+# ---- Round 65: LHC-MR ----
+local({
+  ldpos <- data.frame(CHR = c(1, 1, 6, 6, 6), POS = c(1000, 2000, 28.4e6, 30e6, 33.6e6), RSID = paste0("rs", 1:5), stringsAsFactors = FALSE)
+  d <- data.frame(snp = c(paste0("rs", 1:5), "rs9"), ea = "A", oa = "G", beta = c(0.02, -0.01, 0.03, 0.5, 0.01, 0.1), se = 0.01, eaf = c(0.3, 0.6, 0.2, 0.4, 0.1, 0.2), n = 1e5, stringsAsFactors = FALSE)
+  m <- lhcmr_prepare(d, ldpos); led <- attr(m, "ledger")
+  expect("Round 65: LHC-MR preparation keeps variants of the authors' LD file, takes chromosome and position from it and leaves out HLA (chr6 28.5-33.5 Mb)",
+         identical(m$SNP, c("rs1", "rs2", "rs3", "rs5")) && identical(m$POS, c(1000, 2000, 28.4e6, 33.6e6)) && led$in_ld_file == 5L && led$hla_removed == 1L && isTRUE(all.equal(m$TSTAT, m$BETA / m$SE)) && isTRUE(all.equal(m$MAF[2], 0.4)))
+  expect("Round 65: LHC-MR preparation refuses a dataset without sample size", inherits(tryCatch(lhcmr_prepare(d[, names(d) != "n"], ldpos), error = function(e) e), "error"))
+  sc <- lhcmr_script("p1", c("02_datasets/lhcmr/a.tsv.gz", "02_datasets/lhcmr/b.tsv.gz"), c("A", "B"), "/ld.csv", "/rho.csv", "/ldsc", "/hm3", 7L, 1L, bfile = "/panel/EUR", plink = "/bin/plink")
+  expect("Round 65: the LHC-MR script parses, pins lhcMR and GenomicSEM, sets the seed and clumps locally", !inherits(tryCatch(parse(text = sc), error = function(e) e), "error") && any(grepl(PIN_LHCMR, sc)) && any(grepl(PIN_GENOMICSEM, sc)) && any(grepl("set.seed(seed)", sc, fixed = TRUE)) && any(grepl("assignInNamespace(\"clump_data\"", sc, fixed = TRUE)))
+  res <- data.frame(parameter = c("axy", "ayx", "tX", "tY", "h2X", "h2Y", "iXY"), estimate = c(-0.128, -0.128, 0.032, -0.124, 0.256, 0.546, -0.103), se = 0.02, p = 1e-5, ci_lower = -0.2, ci_upper = 0, variants = 1e6, variants_used = 1e5, bimodal = c(FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE), stringsAsFactors = FALSE); attr(res, "labels") <- c(x = "BMI", y = "Height")
+  expect("Round 65: the LHC-MR text gives both directions, the confounder effects and the bimodality caution", { t <- lhcmr_text(res); grepl("BMI on Height -0.128", t) && grepl("confounder effects 0.032 on BMI", t) && grepl("bimodal", t) })
+  expect("Round 65: with nothing installed the LHC-MR status says so", { st <- lhcmr_ref_status(file.path(tempdir(), "nolhc")); !st$ld && !st$rho })
 })
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })
