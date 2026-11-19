@@ -1226,7 +1226,7 @@ ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param
   a <- NULL
   a <- mrgui_adapter(id = id, adapter_version = "1.1.0", label = label, input_kind = "pair_iv", estimands = estimands,
     requires = list(min_ivs = min_ivs, needs_ld = "none", needs_eaf = FALSE, needs_n = needs_n, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
-    packages = if (pkg == "TwoSampleMR") list(TwoSampleMR = PIN_TWOSAMPLEMR_V11) else list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
+    packages = switch(pkg, TwoSampleMR = list(TwoSampleMR = PIN_TWOSAMPLEMR_V11), MRMix = list(MRMix = PIN_MRMIX_V11), BWMR = list(BWMR = PIN_BWMR_V11), list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION)), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
     params = c(.ci_param_v11, params, .minf_param_v11),
     check = function(input, params) {
       d <- .usable(input$data)
@@ -1237,13 +1237,13 @@ ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param
     run = function(input, params, ctx) {
       e <- new.env(parent = globalenv()); for (k in names(params)) assign(k, params[[k]], envir = e)
       d <- .usable(input$data); d <- d[(d$beta_x / d$se_x)^2 >= params$min_f, , drop = FALSE]
-      e$dat <- d; e$seed <- as.integer(ctx$seed); e$EXPOSURE_ID <- input$exposure_id; e$OUTCOME_ID <- input$outcome_id; e$SCALE <- input$outcome_scale
+      e$dat <- d; e$seed <- as.integer(ctx$seed); e$EXPOSURE_ID <- input$exposure_id; e$OUTCOME_ID <- input$outcome_id; e$SCALE <- input$outcome_scale; e$XSCALE <- input$exposure_scale %||% "beta"
       RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(e$seed)
       eval(parse(text = c(.mr_body_common, body)), envir = e)
       list(estimates = e$estimates, diagnostics = e$diagnostics)
     },
     emit_script = function(spec, params, seed) .detector_emit(a, spec, params, seed, pkg, c(
-      sprintf("EXPOSURE_ID <- %s; OUTCOME_ID <- %s; SCALE <- %s", .q(spec$exposure_id), .q(spec$outcome_id), .q(spec$outcome_scale)),
+      sprintf("EXPOSURE_ID <- %s; OUTCOME_ID <- %s; SCALE <- %s; XSCALE <- %s", .q(spec$exposure_id), .q(spec$outcome_id), .q(spec$outcome_scale), .q(spec$exposure_scale %||% "beta")),
       sprintf("# ---- 5. Analysis: %s (%s) ----", label, pkg), "RNGkind(\"Mersenne-Twister\", \"Inversion\", \"Rejection\"); set.seed(seed)",
       .mr_body_common, body),
       if (stochastic) "fixed seed: the method draws random numbers with this seed" else "fixed seed (this method is deterministic; kept for the record)"),
@@ -1376,3 +1376,56 @@ ADAPTER_SIGN_V11 <- .mrpkg_adapter("sign", "Sign concordance test", 6L, list(), 
   "f <- TwoSampleMR::mr_sign(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, pars)",
   "estimates <- est1(0, 0, 0, 0, 0, 0L)[0, ]   # no effect estimate: an empty table with the standard columns",
   "diagnostics <- drow(\"sign_concordance\", f$b, f$nsnp, f$pval, \"(proportion of variants with the same sign - 0.5) x 2; binomial test\")"), pkg = "TwoSampleMR", estimands = character(0))
+
+# ---- Round 60: MRMix (Qi and Chatterjee 2019, Nat Commun 10:1941) --------------------------------------------------------------
+# MRMix 0.1.0 from GitHub (gqi/MRMix), pinned to the commit the runtime installs. It works on standardised associations (per SD of the
+# genotype; continuous traits also per SD of the trait, as MRMix::standardize). MR Studio reports the estimate per unit of the exposure
+# like the other methods, by multiplying by the median implied SD of the outcome (continuous outcome only) and dividing by the median
+# implied SD of the exposure, SD = se x sqrt(n x 2p(1 - p)); the standardised estimate is kept as a diagnostic.
+PIN_MRMIX_V11 <- "56afdb2bc96760842405396f5d3f02e60e305039"
+.mrmix_check <- function(d, params) {
+  if (!all(c("n_x", "n_y") %in% names(d)) || !all(is.finite(d$n_x) & is.finite(d$n_y))) return(verdict("block", "FEAS_NEEDS_N", "MRMix needs the sample sizes of the exposure and outcome GWAS (n_x, n_y)."))
+  f <- if ("eaf_x" %in% names(d)) d$eaf_x else rep(NA_real_, nrow(d)); if ("eaf_y" %in% names(d)) f[!is.finite(f)] <- d$eaf_y[!is.finite(f)]
+  if (sum(is.finite(f) & f > 0 & f < 1) < 3) return(verdict("block", "FEAS_NEEDS_EAF", "MRMix needs effect allele frequencies (eaf_x, or eaf_y in its place) to standardise the associations."))
+  NULL }
+ADAPTER_MRMIX_V11 <- .mrpkg_adapter("mrmix", "MRMix", 3L, list(), FALSE, c(
+  "z <- stats::qnorm(1 - (1 - ci_level) / 2)",
+  "maf <- if (\"eaf_x\" %in% names(dat)) dat$eaf_x else rep(NA_real_, nrow(dat)); if (\"eaf_y\" %in% names(dat)) maf[!is.finite(maf)] <- dat$eaf_y[!is.finite(maf)]   # eaf_y in place of a missing eaf_x, as TwoSampleMR::run_mrmix",
+  "dat <- dat[is.finite(maf) & maf > 0 & maf < 1, , drop = FALSE]; maf <- maf[is.finite(maf) & maf > 0 & maf < 1]",
+  "xt <- if (XSCALE == \"log_or\") \"binary\" else \"continuous\"; yt <- if (SCALE == \"log_or\") \"binary\" else \"continuous\"",
+  "l <- MRMix::standardize(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, xt, yt, dat$n_x, dat$n_y, maf)",
+  "f <- MRMix::MRMix(l$betahat_x_std, l$betahat_y_std, l$sx_std, l$sy_std)",
+  "g <- sqrt(2 * maf * (1 - maf)); sd_x <- if (xt == \"continuous\") stats::median(dat$se_x * sqrt(dat$n_x) * g) else 1; sd_y <- if (yt == \"continuous\") stats::median(dat$se_y * sqrt(dat$n_y) * g) else 1",
+  "k <- sd_y / sd_x; b <- f$theta * k; se <- f$SE_theta * k   # back to the scale of the other methods (per unit of the exposure)",
+  "estimates <- est1(b, se, b - z * se, b + z * se, f$pvalue_theta, nrow(dat))",
+  "diagnostics <- rbind(drow(\"mrmix_theta_std\", f$theta, p = f$pvalue_theta, note = sprintf(\"standardised estimate (SE %.4g), per SD of the exposure\", f$SE_theta)),",
+  "  drow(\"mrmix_pi0\", f$pi0, note = \"estimated proportion of variants with no pleiotropic effect\"), drow(\"mrmix_sigma2\", f$sigma2, note = \"variance of the pleiotropic effects (standardised)\"),",
+  "  drow(\"mrmix_scale\", k, note = sprintf(\"implied SD of exposure %.4g, of outcome %.4g\", sd_x, sd_y)))"), needs_n = TRUE, check_extra = .mrmix_check, pkg = "MRMix")
+
+# ---- Round 61: MR-GRIP (Dudbridge et al. 2025, PLoS Genet 21:e1011967), TwoSampleMR::mr_grip ------------------------------------
+# MR-Egger made independent of allele coding: the regression of beta_y x beta_x on beta_x^2 with an intercept, weighted by
+# 1 / (beta_x^2 se_y^2); with the intercept fixed at zero it equals IVW. The weak-instrument adjusted version is also offered.
+ADAPTER_GRIP_V11 <- .mrpkg_adapter("grip", "MR-GRIP", 3L,
+  .enum_p("grip_variant", "standard", c("standard", "weak"), c(standard = "MR-GRIP", weak = "MR-GRIP adjusted for weak instruments"), "Version",
+          "The adjusted version corrects for weak instruments; it is less precise.", "b / b.adj", "Dudbridge et al. 2025 report both (Table 6)."), FALSE, c(.tsmr_params,
+  "f <- TwoSampleMR::mr_grip(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, pars)",
+  "b <- if (grip_variant == \"weak\") f$b.adj else f$b; se <- if (grip_variant == \"weak\") f$se.adj else f$se; p <- if (grip_variant == \"weak\") f$pval.adj else f$pval",
+  "estimates <- rbind(est1(b, se, b - z * se, b + z * se, p, f$nsnp), transform(est1(f$b_i, f$se_i, f$b_i - z * f$se_i, f$b_i + z * f$se_i, f$pval_i, f$nsnp), estimand = \"pleiotropy_intercept\"))",
+  "diagnostics <- drow(\"grip_variant\", NA, note = grip_variant)"), pkg = "TwoSampleMR", estimands = c("causal_effect", "pleiotropy_intercept"))
+
+# ---- Round 62: BWMR (Zhao et al. 2020, Bioinformatics 36:1501-1508, PMID 31593215) --------------------------------------------------
+# Bayesian weighted MR: variational Bayes with weights that down-weight outlying variants. BWMR 0.1.1 from GitHub (jiazhao97/BWMR), pinned.
+# The released function fails on R 4.2 and later (a class() comparison of length 2) and calls ggplot2 without importing it; the authors
+# give the fix in updates/BWMR_updated.R. The script applies that one-line fix to the installed function at run time (the package code is
+# not copied here, as it carries no licence) and attaches ggplot2.
+PIN_BWMR_V11 <- "c00e8186f12ed25899aaf85b7ac5c98c6d86c24c"
+ADAPTER_BWMR_V11 <- .mrpkg_adapter("bwmr", "BWMR", 3L, list(), FALSE, c(
+  "z <- stats::qnorm(1 - (1 - ci_level) / 2)",
+  "suppressPackageStartupMessages(library(ggplot2))   # BWMR draws its plots with ggplot2 functions it does not import",
+  "src <- deparse(BWMR::BWMR)",
+  "src <- sub('class(Sigma_hat) == \"try-error\"', 'inherits(Sigma_hat, \"try-error\")', src, fixed = TRUE)   # the authors' fix for R >= 4.2 (updates/BWMR_updated.R)",
+  "bwmr <- eval(parse(text = src)); environment(bwmr) <- asNamespace(\"BWMR\")",
+  "f <- suppressWarnings(bwmr(gammahat = dat$beta_x, Gammahat = dat$beta_y, sigmaX = dat$se_x, sigmaY = dat$se_y))",
+  "estimates <- est1(f$beta, f$se_beta, f$beta - z * f$se_beta, f$beta + z * f$se_beta, f$P_value, nrow(dat))",
+  "diagnostics <- rbind(drow(\"bwmr_downweighted\", sum(f$weights < 0.5), note = \"variants with posterior weight below 0.5 (likely outliers)\"),",
+  "  drow(\"bwmr_tau2\", f$tau^2, note = \"variance of the polygenic (pleiotropic) effects\"))"), pkg = "BWMR")

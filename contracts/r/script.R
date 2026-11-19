@@ -150,7 +150,7 @@ local({
       if (length(m) == 4) { pins[[m[2]]] <- m[4]; if (m[3] == "version") cran[[m[2]]] <- m[4] }
     }
   }
-  repo <- c(TwoSampleMR = "MRCIEU/TwoSampleMR", MRPRESSO = "rondolab/MR-PRESSO", RadialMR = "WSpiller/RadialMR", mr.raps = "qingyuanzhao/mr.raps")
+  repo <- c(BWMR = "jiazhao97/BWMR", MRMix = "gqi/MRMix", TwoSampleMR = "MRCIEU/TwoSampleMR", MRPRESSO = "rondolab/MR-PRESSO", RadialMR = "WSpiller/RadialMR", mr.raps = "qingyuanzhao/mr.raps")
   absent <- names(pins)[!vapply(names(pins), requireNamespace, logical(1), quietly = TRUE)]
   if (length(absent)) {
     say("These R packages are not installed in your R yet: ", paste(absent, collapse = ", "))
@@ -278,7 +278,7 @@ materialise_pair <- function(pair_dir, methods, seed) {
   for (i in seq_along(methods)) {
     m <- methods[[i]]; a <- m$adapter
     spec <- list(exposure_id = m$input$exposure_id, outcome_id = m$input$outcome_id,
-                 outcome_scale = m$input$outcome_scale,
+                 outcome_scale = m$input$outcome_scale, exposure_scale = m$input$exposure_scale %||% "beta",
                  data_file = sprintf("analysis_data_%s.csv", a$id),
                  estimates_file = sprintf("%s_estimates.csv", a$id),
                  diagnostics_file = sprintf("%s_diagnostics.csv", a$id))

@@ -1,0 +1,7 @@
+"table","method","paper","mr_studio","match","replay"
+"5 (urate on CHD)","IVW","1.11 (1.03 to 1.20), 0.0401","1.11 (1.03 to 1.20), 0.0401",TRUE,"identical"
+"5 (urate on CHD)","MR-GRIP","1.04 (0.96 to 1.13), 0.0417","1.04 (0.96 to 1.13), 0.0417",TRUE,"identical"
+"5 (urate on CHD)","MR-GRIP weak","1.03 (0.95 to 1.12), 0.0421","1.03 (0.95 to 1.12), 0.0421",TRUE,"identical"
+"6 (BMI on CAD)","IVW","1.44 (1.26 to 1.63), 0.0648","1.44 (1.26 to 1.63), 0.0648",TRUE,"identical"
+"6 (BMI on CAD)","MR-GRIP","1.54 (1.25 to 1.89), 0.1050","1.54 (1.25 to 1.89), 0.105",TRUE,"identical"
+"6 (BMI on CAD)","MR-GRIP weak","1.56 (1.07 to 2.26), 0.1900","1.56 (1.07 to 2.26), 0.19",TRUE,"identical"

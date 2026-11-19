@@ -169,6 +169,12 @@ mr_server <- function(engine_dir) {
           req(rv$h); res <- mediation_run(rv$h, ui_state_get(rv$h$con, "pairs") %||% list(), as.numeric(a$ci %||% 0.95))
           ev("mediation", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), spec = attr(res, "spec"))   # Shiny sends a data frame by columns
         },
+        bidir_cml = {   # Round 63: bidirectional constrained maximum likelihood over each forward/reverse couple
+          req(rv$h); if (!requireNamespace("BiDirectCausal", quietly = TRUE)) { ev("bidir_cml", rows = list(), msg = "BiDirectCausal is not installed in this runtime."); return() }
+          res <- bidir_cml_run(rv$h, ui_state_get(rv$h$con, "pairs") %||% list())
+          ev("bidir_cml", rows = unlist(lapply(names(res), function(k) { r <- res[[k]]; if (!is.data.frame(r)) return(list())
+            lapply(seq_len(nrow(r)), function(i) c(list(forward = k), as.list(r[i, , drop = FALSE]))) }), recursive = FALSE), errors = Filter(Negate(is.data.frame), res))
+        },
         mvcov_compute = {   # Round 55: covariances from the chosen individual-level file, for these exposures in model order
           req(rv$h); if (is.null(rv$mvcov)) stop("Choose the individual-level file first.", call. = FALSE)
           cov <- mv_cov_from_file(rv$mvcov$path, unlist(a$cols))

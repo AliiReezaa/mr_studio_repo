@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -1300,6 +1300,33 @@ expect("Round 59: the sign test gives a diagnostic only, Rucker reports Q, Q' an
     any(e59$method == "egger_boot" & e59$estimand == "pleiotropy_intercept") })
 expect("Round 59: the funnel figure has a precision-weighted density panel and its legend says so", { f <- tempfile(fileext = ".png"); lf <- data.frame(wr = rnorm(20, 0.3, 0.05), wr_se = runif(20, 0.02, 0.06))
   grDevices::png(f); .draw_funnel(lf, list()); grDevices::dev.off(); file.exists(f) && grepl("Right: density", paste(deparse(.report_text_uni), collapse = " ")) })
+# ---- Round 60: MRMix ----
+r60 <- studio_run(h58, p58$exposure_label, p58$outcome_label, p58$input, "mrmix", idx = 3L, params = list(ci_level = 0.95)); pl60 <- pair_payload(h58$dir, r60$pair_folder); e60 <- .est_df(pl60)
+expect("Round 60: MRMix runs as a script, replays identically, covers the simulated effect 0.30 and keeps its standardised estimate", identical(pl60$replay$status, "identical") && nrow(e60) == 1L &&
+  e60$ci_lower <= 0.3 && 0.3 <= e60$ci_upper && any(vapply(pl60$diagnostics, function(g) identical(g$name, "mrmix_theta_std"), TRUE)))
+expect("Round 60: MRMix is blocked with the reason without allele frequencies or sample sizes", { q <- p58$input; q$data$eaf_x <- NA; q$data$eaf_y <- NA; q2 <- p58$input; q2$data$n_y <- NA
+  identical(ADAPTER_MRMIX_V11$check(q, list())$codes, "FEAS_NEEDS_EAF") && identical(ADAPTER_MRMIX_V11$check(q2, list())$codes, "FEAS_NEEDS_N") })
+# ---- Round 61: MR-GRIP ----
+r61 <- studio_run(h58, p58$exposure_label, p58$outcome_label, p58$input, "grip", idx = 4L, params = list(ci_level = 0.95)); pl61 <- pair_payload(h58$dir, r61$pair_folder); e61 <- .est_df(pl61)
+expect("Round 61: MR-GRIP runs as a script, replays identically, equals TwoSampleMR::mr_grip and is unchanged when an allele is recoded", {
+  d <- p58$input$data; g <- TwoSampleMR::mr_grip(d$beta_x, d$beta_y, d$se_x, d$se_y, TwoSampleMR::default_parameters()); d2 <- d; d2$beta_x[1:5] <- -d2$beta_x[1:5]; d2$beta_y[1:5] <- -d2$beta_y[1:5]
+  g2 <- TwoSampleMR::mr_grip(d2$beta_x, d2$beta_y, d2$se_x, d2$se_y, TwoSampleMR::default_parameters()); ce <- e61[e61$estimand == "causal_effect", ]
+  identical(pl61$replay$status, "identical") && abs(ce$estimate - g$b) < 1e-10 && abs(g2$b - g$b) < 1e-12 && any(e61$estimand == "pleiotropy_intercept") })
+# ---- Round 62: BWMR ----
+r62 <- studio_run(h58, p58$exposure_label, p58$outcome_label, p58$input, "bwmr", idx = 5L, params = list(ci_level = 0.95)); pl62 <- pair_payload(h58$dir, r62$pair_folder); e62 <- .est_df(pl62)
+expect("Round 62: BWMR runs as a script with the authors' R 4 fix, replays identically and covers the simulated effect 0.30", identical(pl62$replay$status, "identical") && nrow(e62) == 1L && e62$ci_lower <= 0.3 && 0.3 <= e62$ci_upper &&
+  any(grepl("inherits(Sigma_hat", readLines(Sys.glob(file.path(h58$dir, "03_pairs", r62$pair_folder, "02_scripts", "*_bwmr.R"))), fixed = TRUE)))
+# ---- Round 63: bidirectional cML ----
+h63 <- studio_new("BiDir cML"); a63 <- pair_input("expB", "outB"); b63 <- pair_input("outB", "expB")
+f63 <- studio_run(h63, a63$exposure_label, a63$outcome_label, a63$input, "ivw_mre", idx = 1L)$pair_folder; g63 <- studio_run(h63, b63$exposure_label, b63$outcome_label, b63$input, "ivw_mre", idx = 2L)$pair_folder
+pr63 <- list(list(ex = "expB", out = "outB", folder = f63, exName = "B", outName = "outcome B", rev = FALSE), list(ex = "outB", out = "expB", folder = g63, exName = "outcome B", outName = "B", rev = TRUE))
+res63 <- bidir_cml_run(h63, pr63)[[1]]
+expect("Round 63: BiDirMRcML recovers both simulated directions (B on outcome B 0.25, back 0.10) from the forward and reverse pairs", { g <- function(d) res63[res63$method == "BiDirMRcML" & res63$version == "S.DP" & res63$direction == d, ]
+  is.data.frame(res63) && g("XtoY")$ci_lower <= 0.25 && 0.25 <= g("XtoY")$ci_upper && g("YtoX")$ci_lower <= 0.10 && 0.10 <= g("YtoX")$ci_upper })
+expect("Round 63: the bidirectional script is registered, re-running it gives the same table, and the text labels BiDirCDcML as standardised", {
+  f <- file.path(h63$dir, "04_across_pairs", "bidirectional_cml", paste0(f63, ".R")); old <- setwd(h63$dir); sys.source(f, envir = new.env()); setwd(old)
+  again <- utils::read.csv(file.path(h63$dir, "04_across_pairs", "bidirectional_cml", paste0(f63, "_results.csv")))
+  isTRUE(all.equal(again, res63, check.attributes = FALSE)) && any(manifest_read(h63$dir)$relative_path == file.path("04_across_pairs", "bidirectional_cml", paste0(f63, ".R"))) && grepl("standardised", bidir_cml_text(res63)) })
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })
 expect("Round 50: one exposure, more than six, or mixing simulated and imported traits is refused", grepl("at least two exposures", err_of(mv_pair_input("expA", "outA"))) && grepl("at most six", err_of(mv_pair_input(rep("expA", 7), "outA"))) && grepl("cannot be mixed", err_of(mv_pair_input(c("expA", "lib:X"), "outA"))))

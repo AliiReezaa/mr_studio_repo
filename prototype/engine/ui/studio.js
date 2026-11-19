@@ -42,6 +42,9 @@ const METHODS = [
   { id: 'mvqhet', name: 'MVMR Q-minimisation', family: 'Multivariable, weak-instrument-robust', built: true, min: 4, speed: 'seconds', short: 'MVMR Q-min', mv: true },
   { id: 'ivw_mre', name: 'Inverse-variance weighted', family: 'Core estimator', built: true, min: 2, speed: 'instant', short: 'IVW' },
   { id: 'divw', name: 'Debiased IVW', family: 'Weak-instrument robust', built: true, min: 2, speed: 'instant', short: 'dIVW' },
+  { id: 'bwmr', name: 'BWMR', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'seconds', short: 'BWMR' },
+  { id: 'grip', name: 'MR-GRIP', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'instant', short: 'MR-GRIP' },
+  { id: 'mrmix', name: 'MRMix', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'seconds', short: 'MRMix' },
   { id: 'egger_boot', name: 'MR-Egger (bootstrap)', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'seconds', short: 'Egger boot' },
   { id: 'pwm', name: 'Penalised weighted median', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'seconds', short: 'Pen. WM' },
   { id: 'smode_nome', name: 'Simple mode (NOME)', family: 'Pleiotropy-robust', built: true, min: 3, speed: 'seconds', short: 'Simple mode NOME' },
@@ -801,6 +804,13 @@ function cmpPanel(pair) {
 }
 // Round 45: bidirectional MR. The two directions are ordinary pairs; this panel reads them side by side.
 function partnerOf(pair) { return pair ? S.pairs.find((q) => q.ex === pair.out && q.out === pair.ex && q.folder) : null; }
+// Round 63: bidirectional constrained maximum likelihood (both directions at once), from the across-pairs script
+function bcmlBlock(pair, q) {
+  const fw = pair.rev ? q : pair, rows = (S.bcml || []).filter((r) => r.forward === fw.folder && r.version === 'S.DP'); if (!rows.length) return '';
+  const X = fw.exName, Y = fw.outName, g = (m, d) => rows.find((r) => r.method === m && r.direction === d), f = (r) => r ? fx(r.estimate, 3) + ' (' + fx(r.ci_lower, 3) + ' to ' + fx(r.ci_upper, 3) + '), P ' + fp(r.p) : '–';
+  return '<div style="display:flex;flex-direction:column;gap:4px;font-size:13px;border-top:1px solid var(--line);padding-top:10px"><div style="font-size:12px;color:var(--mute)">Both directions at once, robust to correlated pleiotropy (' + rows[0].variants + ' variants; with screening and data perturbation)</div>' +
+    ['BiDirMRcML', 'BiDirCDcML'].map((m) => '<div><b>' + m + '</b>' + (m === 'BiDirCDcML' ? ' (per SD)' : '') + ': ' + esc(X + ' → ' + Y) + ' ' + f(g(m, 'XtoY')) + '; ' + esc(Y + ' → ' + X) + ' ' + f(g(m, 'YtoX')) + '</div>').join('') + '</div>';
+}
 function dirSection(pair, pay) {
   const q = partnerOf(pair), qp = q && S.payloads[q.folder]; if (!q || !qp) return '';
   const iv = (p) => (p.estimates || []).find((e) => e.method === 'ivw_mre' && e.estimand === 'causal_effect'), a = iv(pay), b = iv(qp); if (!a || !b) return '';
@@ -813,7 +823,7 @@ function dirSection(pair, pay) {
   const both = sa && sb;
   return '<section style="box-sizing:border-box;padding:20px 24px;border-radius:20px;background:var(--panel);border:1px solid ' + (both || (!sa && sb) ? 'var(--warn)' : 'var(--line)') + ';display:flex;flex-direction:column;gap:10px"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px"><h2 style="margin:0;font-size:16px;font-weight:600">Direction of effect, both ways</h2><span class="mono" style="font-size:11px;color:' + (both || (!sa && sb) ? 'var(--warn)' : 'var(--accent)') + '">' + esc(verdict.toUpperCase()) + '</span></div>' +
     row(X + ' → ' + Y + ' (IVW)', a) + row(Y + ' → ' + X + ' (IVW)', b) + '<div style="font-size:13px">' + esc(say) + '</div>' +
-    '<div style="font-size:12px;color:var(--mute)">' + (sh ? sh + ' variant' + (sh === 1 ? ' is an instrument' : 's are instruments') + ' in both directions; such variants can create an apparent effect both ways. ' : 'No variant is an instrument in both directions. ') + 'Genetic correlation and methods that model both directions at once (bidirectional MR-cML, LHC-MR) are not built yet.</div>' +
+    '<div style="font-size:12px;color:var(--mute)">' + (sh ? sh + ' variant' + (sh === 1 ? ' is an instrument' : 's are instruments') + ' in both directions; such variants can create an apparent effect both ways. ' : 'No variant is an instrument in both directions. ') + 'Genetic correlation (LDSC) and LHC-MR need full summary statistics and are run separately.</div>' + bcmlBlock(pair, q) +
     '<div><button type="button" data-a="to_pair" data-v="' + esc(q.folder) + '" style="height:34px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:550;font-size:12px">Open ' + esc(Y + ' → ' + X) + '</button></div></section>';
 }
 // Rules that need results (feasibility engine R25 to R27), shown under the summary tiles when any fired.
@@ -1157,7 +1167,7 @@ function startRun() {
 }
 function runNext() {
   const r = S.run; if (!r || r.state === 'done') return;
-  if (r.i >= r.total) { r.state = 'done'; if (S.kind === 'mediation') send('mediation', { ci: S.params.ci_level || 0.95 }); render(); return; }
+  if (r.i >= r.total) { r.state = 'done'; if (S.kind === 'bidir') send('bidir_cml', {}); if (S.kind === 'mediation') send('mediation', { ci: S.params.ci_level || 0.95 }); render(); return; }
   if (r.paused) { render(); return; }
   const p = S.pairs[r.i]; r.t0 = Date.now(); r.log.push('Pair ' + (r.i + 1) + ': starting ' + p.exName + ' → ' + p.outName); render();
   const f = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out), withSt = !p.mv && S.steiger && S.methods.indexOf('ivw_mre') >= 0 && steigerPair(f).ok, withLoo = !p.mv && S.loo && S.methods.indexOf('ivw_mre') >= 0 && !(f && f.instruments < 3);
@@ -1348,6 +1358,7 @@ function applyStudy(m) {
   const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder, pthr: p.pthr || null, rev: !!p.rev, mv: !!p.mv, exNames: p.exNames || null, med: p.med || null }));
   S.ex = Array.from(new Set([].concat.apply([], S.pairs.filter((p) => !p.rev).map((p) => [].concat(p.ex))))); S.out = Array.from(new Set(S.pairs.filter((p) => !p.rev).map((p) => p.out)));
   const md = S.pairs.find((p) => p.med); S.medRes = null; S.med = [];   // Round 57: a mediation study is rebuilt from its steps
+  S.bcml = null; if (S.kind === 'bidir' && S.pairs.some((p) => p.rev && p.folder)) send('bidir_cml', {});
   if (md) { S.ex = [md.med.x]; S.out = [md.med.y]; S.med = [].concat(md.med.ms || []); if (S.pairs.some((p) => p.folder)) send('mediation', { ci: 0.95 }); }
   if (pairs.length && pairs[0].methods) { S.steiger = pairs[0].methods.indexOf('steiger') >= 0; S.loo = pairs[0].methods.indexOf('loo') >= 0; S.methods = Array.from(new Set([].concat.apply([], pairs.map((p) => p.methods || [])))).filter((x) => x !== 'steiger' && x !== 'loo'); }
   S.prev = {}; pairs.forEach((p) => { const pv = p.prev || {}; if (prevOk(pv.x)) S.prev[p.ex] = pv.x; if (prevOk(pv.y)) S.prev[p.out] = pv.y; }); if (pairs.length && pairs[0].params) S.params = Object.assign({ ci_level: 0.95, min_f: 0, ivw_model: 'mre' }, pairs[0].params); else if (pairs.length && pairs[0].ci) S.params.ci_level = pairs[0].ci;
@@ -1387,6 +1398,7 @@ function handle(m) {
     case 'import_report': if (S.imp) { S.imp.report = { ok: m.ok, errors: [].concat(m.errors || []), warnings: [].concat(m.warnings || []), stats: m.stats || {} }; render(); } break;
     case 'import_saved': if (S.imp) { S.imp.saving = false; S.imp.saved = { rec: m.rec, template: m.template }; } S.lib = m.items || []; S.tmpls = m.templates || []; if (m.catalogue) S.cat = m.catalogue; render(); break;
     case 'study_open_failed': S.dialog = { title: 'This study could not be opened', body: m.msg + '\n\nNothing was changed. You can look at the folder yourself, or start a new study.', mono: S.root + '/' + m.name, danger: true, buttons: [{ label: 'Close', a: 'dialog_close' }, { label: 'Show folder', a: 'study_folder', v: m.name, primary: true }] }; render(); break;
+    case 'bidir_cml': S.bcml = m.rows || []; render(); break;
     case 'mediation': S.medRes = (m.rows && m.rows.length) ? { rows: m.rows, spec: m.spec } : null; render(); break;
     case 'mvcov_head': { const cols = m.columns || [], lc = (x) => String(x).toLowerCase(); S.mvc = { name: m.name, columns: cols, busy: false,
       cols: S.ex.map((e) => { const n = lc((((S.cat && S.cat.exposures) || []).find((x) => x.id === e) || {}).name || e); return cols.find((c) => lc(c) === n || lc(c) === lc(e)) || ''; }) }; S.notice = null; render(); break; }

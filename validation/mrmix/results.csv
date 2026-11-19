@@ -1,0 +1,3 @@
+"outcome","n_variants","theta_std_studio","theta_std_twosamplemr","estimate","expected","se","replay","diff_std","diff_scale"
+"BMI (continuous)",264,-0.3,-0.3,-0.28783775450635,-0.28783775450635,0.119394944620389,"identical",0,0
+"CHD (binary)",102,-0.24,-0.24,-0.228035762044089,-0.228035762044089,0.482131282210818,"identical",0,0
