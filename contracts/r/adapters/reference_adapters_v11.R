@@ -1110,6 +1110,12 @@ ADAPTER_EGGER_SIMEX_V11 <- mrgui_adapter(
     "  drow(\"mv_qhet_q\", est$q, J - K, stats::pchisq(est$q, J - K, lower.tail = FALSE), \"Q_A at the estimate\"),",
     "  drow(\"mv_qhet_ci\", if (mv_qhet_ci == \"bootstrap\") mv_qhet_iter else J, note = mv_qhet_ci),",
     "  drow(\"mv_pheno_cor\", as.numeric(COV_SOURCE == \"individual-level data\" || any(R[upper.tri(R)] != 0)), note = cov_note))"),
+  mvcml = c("# MVMR-cML (Lin, Xue and Pan 2023): constrained maximum likelihood with BIC selection of invalid variants, optionally data perturbation",
+    "n_cml <- min(c(vapply(seq_len(K), function(k) stats::median(dat[[sprintf(\"n_x_%d\", k)]]), 0), stats::median(dat$n_y)))   # smallest GWAS sample size",
+    "fit <- MendelianRandomization::mr_mvcML(inp, n = n_cml, DP = identical(mv_cml_dp, \"dp\"), num_pert = mv_cml_pert, seed = seed, alpha = 1 - ci_level)",
+    "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
+    "inv <- if (length(fit@BIC_invalid)) dat$variant_id[fit@BIC_invalid] else character()",
+    "diagnostics <- rbind(drow(\"mv_cml_invalid\", length(inv), note = if (length(inv)) paste(inv, collapse = \";\") else NA_character_), drow(\"mv_cml_n\", n_cml, note = \"sample size used\"))"),
   mvmedian = c("# MVMR median (weighted), bootstrap standard errors with the script's seed",
     "fit <- MendelianRandomization::mr_mvmedian(inp, alpha = 1 - ci_level, iterations = mv_iter, seed = seed)",
     "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
@@ -1165,6 +1171,8 @@ PIN_BOOT <- "1.3-32"   # Round 54: boot, for the bootstrap BCa interval of the Q
       K <- sum(grepl("^beta_x_[0-9]+$", names(input$data))); n <- nrow(.mv_usable(input$data))
       if (K < 2) return(verdict("block", "FEAS_TOO_FEW_EXPOSURES", sprintf("%s needs at least 2 exposures; %d given.", label, K)))
       if (n < K + extra_k) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("%s needs at least %d variants with all %d exposures (exposures + %d); %d available.", label, K + extra_k, K, extra_k, n)))
+      if (id == "mvcml" && !(all(sprintf("n_x_%d", seq_len(K)) %in% names(input$data)) && "n_y" %in% names(input$data) && all(is.finite(unlist(.mv_usable(input$data)[, c(sprintf("n_x_%d", seq_len(K)), "n_y")])))))
+        return(verdict("block", "FEAS_NEEDS_N", "MVMR-cML needs the sample size of every exposure GWAS and of the outcome GWAS."))
       if (id %in% c("mvivw", "mvqhet") && !any(grepl("^cov_x_", names(input$data))) && !.mv_cor_ok(params, K)) return(verdict("block", "FEAS_INVALID_CORRELATION", "The phenotypic correlations of the exposures do not form a valid correlation matrix (it must be positive definite). Check the values."))
       verdict("ok", character(), character())
     },
@@ -1194,5 +1202,115 @@ PIN_BOOT <- "1.3-32"   # Round 54: boot, for the bootstrap BCa interval of the Q
 ADAPTER_MVIVW_V11 <- .mv_adapter("mvivw", "MVMR-IVW", 1L, c(.mv_model_param, .mv_cor_params), FALSE, "mvivw")
 ADAPTER_MVEGGER_V11 <- .mv_adapter("mvegger", "MVMR-Egger", 2L, .mv_orient_param, FALSE, "mvegger")
 ADAPTER_MVQHET_V11 <- .mv_adapter("mvqhet", "MVMR Q-minimisation", 2L, c(.mv_qhet_params, .mv_cor_params), TRUE, "mvqhet")
+.mv_cml_params <- list(mv_cml_dp = list(type = "enum", default = "dp", values = c("dp", "ma"), value_labels = c(dp = "With data perturbation (MVMR-cML-DP, recommended)", ma = "Without data perturbation (MVMR-cML-BIC)"),
+    label = "Variant", hint = "Data perturbation allows for uncertainty in which variants are selected as invalid.", package_arg = "DP", kind = "enum", conventional = TRUE, advanced = FALSE,
+    evidence = "Lin et al. 2023; MendelianRandomization::mr_mvcML default (DP = TRUE).", affects = c("estimate", "se", "ci", "p")),
+  mv_cml_pert = list(type = "integer", default = 200L, min = 50L, max = 2000L, label = "Perturbations", hint = "Number of data perturbations (DP only).", package_arg = "num_pert", kind = "integer",
+    conventional = TRUE, advanced = TRUE, evidence = "MendelianRandomization::mr_mvcML default (num_pert = 200).", affects = c("se", "ci", "p")))
+ADAPTER_MVCML_V11 <- .mv_adapter("mvcml", "MVMR-cML", 2L, .mv_cml_params, TRUE, "mvcml")
 ADAPTER_MVMEDIAN_V11 <- .mv_adapter("mvmedian", "MVMR median", 2L, .mv_iter_param, TRUE, "mvmedian")
 ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param, FALSE, "mvlasso")
+
+# ---- Round 58: more MendelianRandomization estimators ---------------------------------------------------------------------
+# One body per method, run by the app (evaluated in an environment) and written into the script, so the two cannot drift apart.
+# The body sees dat (usable variants after the F filter), the settings, seed, ci_level and the .est_cols values, and sets
+# estimates and diagnostics.
+.mr_body_common <- c(
+  "mri <- MendelianRandomization::mr_input(bx = dat$beta_x, bxse = dat$se_x, by = dat$beta_y, byse = dat$se_y)",
+  "est1 <- function(b, se, lo, hi, p, n, method = \"wald\") data.frame(estimand = \"causal_effect\", exposure_id = EXPOSURE_ID, outcome_id = OUTCOME_ID, scale = SCALE,",
+  "  estimate = as.numeric(b), se = as.numeric(se), ci_lower = as.numeric(lo), ci_upper = as.numeric(hi), ci_level = ci_level, ci_method = method, p = as.numeric(p),",
+  "  n_ivs_used = as.integer(n), stringsAsFactors = FALSE)",
+  "drow <- function(name, value, df = NA_real_, p = NA_real_, note = NA_character_) data.frame(name = name, value = as.numeric(value), df = as.numeric(df), p = as.numeric(p),",
+  "  note = as.character(note), stringsAsFactors = FALSE)")
+.mrpkg_adapter <- function(id, label, min_ivs, params, stochastic, body, needs_n = FALSE, check_extra = NULL) {
+  a <- NULL
+  a <- mrgui_adapter(id = id, adapter_version = "1.1.0", label = label, input_kind = "pair_iv", estimands = "causal_effect",
+    requires = list(min_ivs = min_ivs, needs_ld = "none", needs_eaf = FALSE, needs_n = needs_n, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+    packages = list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
+    params = c(.ci_param_v11, params, .minf_param_v11),
+    check = function(input, params) {
+      d <- .usable(input$data)
+      if (nrow(d) < min_ivs) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("%s needs at least %d usable instruments; %d available.", label, min_ivs, nrow(d))))
+      if (!is.null(check_extra)) { v <- check_extra(d, params); if (!is.null(v)) return(v) }
+      w <- .common_warnings(d); verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+    },
+    run = function(input, params, ctx) {
+      e <- new.env(parent = globalenv()); for (k in names(params)) assign(k, params[[k]], envir = e)
+      d <- .usable(input$data); d <- d[(d$beta_x / d$se_x)^2 >= params$min_f, , drop = FALSE]
+      e$dat <- d; e$seed <- as.integer(ctx$seed); e$EXPOSURE_ID <- input$exposure_id; e$OUTCOME_ID <- input$outcome_id; e$SCALE <- input$outcome_scale
+      RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(e$seed)
+      eval(parse(text = c(.mr_body_common, body)), envir = e)
+      list(estimates = e$estimates, diagnostics = e$diagnostics)
+    },
+    emit_script = function(spec, params, seed) .detector_emit(a, spec, params, seed, "MendelianRandomization", c(
+      sprintf("EXPOSURE_ID <- %s; OUTCOME_ID <- %s; SCALE <- %s", .q(spec$exposure_id), .q(spec$outcome_id), .q(spec$outcome_scale)),
+      sprintf("# ---- 5. Analysis: %s (MendelianRandomization) ----", label), "RNGkind(\"Mersenne-Twister\", \"Inversion\", \"Rejection\"); set.seed(seed)",
+      .mr_body_common, body),
+      if (stochastic) "fixed seed: the method draws random numbers with this seed" else "fixed seed (this method is deterministic; kept for the record)"),
+    column_requirements = .colreq_basic)
+  a
+}
+.enum_p <- function(name, default, values, labels, label, hint, arg, evidence, affects = c("estimate", "se", "ci", "p"), advanced = FALSE)
+  setNames(list(list(type = "enum", default = default, values = values, value_labels = labels, label = label, hint = hint, package_arg = arg, kind = "enum",
+                     conventional = TRUE, advanced = advanced, evidence = evidence, affects = affects)), name)
+.num_p <- function(name, type, default, min, max, label, hint, arg, evidence, affects = c("estimate", "se", "ci", "p"), advanced = TRUE)
+  setNames(list(list(type = type, default = default, min = min, max = max, label = label, hint = hint, package_arg = arg, kind = type, conventional = TRUE,
+                     advanced = advanced, evidence = evidence, affects = affects)), name)
+
+# Two-sample maximum likelihood (Burgess, Butterworth and Thompson 2013): allows for uncertainty in the variant-exposure associations.
+ADAPTER_MAXLIK_V11 <- .mrpkg_adapter("maxlik", "Maximum likelihood", 3L, c(
+  .enum_p("ml_model", "default", c("default", "random", "fixed"), c(default = "Package default (random effects with more than 3 variants)", random = "Random effects", fixed = "Fixed effect"),
+          "Effects model", "How heterogeneity enters the standard error.", "model", "MendelianRandomization::mr_maxlik default (model = \"default\").", c("se", "ci", "p")),
+  .num_p("ml_psi", "double", 0, -0.99, 0.99, "Correlation between the exposure and outcome associations (psi)",
+         "Set it when the exposure and outcome GWAS share participants; 0 for separate samples.", "psi", "MendelianRandomization::mr_maxlik default (psi = 0).")), FALSE, c(
+  "fit <- MendelianRandomization::mr_maxlik(mri, model = ml_model, psi = ml_psi, alpha = 1 - ci_level)",
+  "estimates <- est1(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
+  "diagnostics <- rbind(drow(\"ml_heterogeneity\", fit@Heter.Stat[1], fit@SNPs - 1, fit@Heter.Stat[2], \"likelihood-ratio heterogeneity test\"), drow(\"ml_model\", NA, note = fit@Model))"))
+
+# Mode-based estimate (Hartwig, Davey Smith and Bowden 2017), MendelianRandomization implementation.
+ADAPTER_MBE_V11 <- .mrpkg_adapter("mbe", "Mode-based estimate (MendelianRandomization)", 3L, c(
+  .enum_p("mbe_weighting", "weighted", c("weighted", "simple"), c(weighted = "Weighted mode", simple = "Simple mode"), "Weighting",
+          "Weighted by the inverse variance of each variant's ratio estimate, or equal weights.", "weighting", "MendelianRandomization::mr_mbe default (weighting = \"weighted\")."),
+  .enum_p("mbe_stderror", "delta", c("delta", "simple"), c(delta = "Second-order (delta) weights (NOME not assumed)", simple = "First-order weights (NOME assumed)"), "Ratio standard errors",
+          "Whether the ratio standard errors allow for uncertainty in the variant-exposure associations.", "stderror", "MendelianRandomization::mr_mbe default (stderror = \"delta\")."),
+  .num_p("mbe_phi", "double", 1, 0.1, 5, "Bandwidth multiplier (phi)", "Smaller values give a narrower kernel and a less biased but more variable estimate.", "phi",
+         "MendelianRandomization::mr_mbe default (phi = 1)."),
+  .num_p("mbe_iter", "integer", 10000L, 500L, 100000L, "Bootstrap iterations", "Iterations for the bootstrap standard error.", "iterations", "MendelianRandomization::mr_mbe default (iterations = 10000).", c("se", "ci", "p"))), TRUE, c(
+  "fit <- MendelianRandomization::mr_mbe(mri, weighting = mbe_weighting, stderror = mbe_stderror, phi = mbe_phi, seed = seed, iterations = mbe_iter, alpha = 1 - ci_level)",
+  "estimates <- est1(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
+  "diagnostics <- drow(\"mbe_bootstrap\", mbe_iter, note = \"bootstrap iterations\")"))
+
+# MR-cML (Xue, Shen and Pan 2021): constrained maximum likelihood, model-averaged by BIC, optionally with data perturbation (DP).
+.cml_n_check <- function(d, params) if (!all(c("n_x", "n_y") %in% names(d)) || !all(is.finite(d$n_x) & is.finite(d$n_y))) verdict("block", "FEAS_NEEDS_N", "MR-cML needs the sample sizes of the exposure and outcome GWAS (n_x, n_y).") else NULL
+ADAPTER_CML_V11 <- .mrpkg_adapter("cml", "MR-cML", 3L, c(
+  .enum_p("cml_dp", "dp", c("dp", "ma"), c(dp = "cML-MA-BIC-DP: with data perturbation (recommended)", ma = "cML-MA-BIC: without data perturbation"), "Variant",
+          "Data perturbation allows for uncertainty in which variants are selected as invalid, giving wider and better-calibrated intervals.", "DP", "Xue et al. 2021; MendelianRandomization::mr_cML default (DP = TRUE)."),
+  .num_p("cml_pert", "integer", 200L, 50L, 2000L, "Perturbations", "Number of data perturbations (cML-DP only).", "num_pert", "MendelianRandomization::mr_cML default (num_pert = 200).", c("se", "ci", "p"))), TRUE, c(
+  "# the sample size is the smaller of the exposure and outcome GWAS medians, as the package recommends",
+  "n_cml <- min(stats::median(dat$n_x), stats::median(dat$n_y))",
+  "fit <- MendelianRandomization::mr_cML(mri, MA = TRUE, DP = identical(cml_dp, \"dp\"), num_pert = cml_pert, random_seed = seed, n = n_cml, Alpha = 1 - ci_level)",
+  "estimates <- est1(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
+  "inv <- if (length(fit@BIC_invalid)) dat$variant_id[fit@BIC_invalid] else character()",
+  "diagnostics <- rbind(drow(\"cml_invalid\", length(inv), note = if (length(inv)) paste(inv, collapse = \";\") else NA_character_),",
+  "  drow(\"cml_gof1\", NA, p = fit@GOF1_p, note = \"goodness of fit, test 1\"), drow(\"cml_gof2\", NA, p = fit@GOF2_p, note = \"goodness of fit, test 2\"), drow(\"cml_n\", n_cml, note = \"sample size used\"))"),
+  needs_n = TRUE, check_extra = .cml_n_check)
+
+# MR-Robust (Burgess et al. 2016; Rees et al. 2019): IVW with robust regression (MM-estimation) and/or penalised weights.
+ADAPTER_ROBUST_V11 <- .mrpkg_adapter("robust_ivw", "MR-Robust", 3L,
+  .enum_p("rob_variant", "both", c("both", "robust", "penalized"), c(both = "Robust regression with penalised weights (MR-Robust)", robust = "Robust regression (MM-estimation) only", penalized = "Penalised weights only"),
+          "Variant", "Robust regression down-weights outlying variants; penalised weights shrink the weight of variants whose ratio estimate is heterogeneous.", "robust, penalized",
+          "Rees et al. 2019 (PLoS One): the robust and penalised IVW performed best together."), FALSE, c(
+  "fit <- MendelianRandomization::mr_ivw(mri, robust = rob_variant %in% c(\"both\", \"robust\"), penalized = rob_variant %in% c(\"both\", \"penalized\"), alpha = 1 - ci_level)",
+  "estimates <- est1(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
+  "diagnostics <- drow(\"robust_variant\", NA, note = rob_variant)"))
+
+# Penalised IVW (Xu, Wang, Fung and Liu 2023): penalised and debiased IVW with a bootstrap Fieller interval.
+ADAPTER_PIVW_V11 <- .mrpkg_adapter("pivw", "Penalised IVW", 3L, c(
+  .num_p("piv_lambda", "double", 1, 0, 10, "Penalty (lambda)", "Penalty on weak variants; 1 is the package default.", "lambda", "MendelianRandomization::mr_pivw default (lambda = 1)."),
+  .enum_p("piv_disp", "balanced", c("balanced", "none"), c(balanced = "Allow for balanced pleiotropy (standard)", none = "No pleiotropy"), "Pleiotropy in the standard error",
+          "Whether the standard error allows for balanced horizontal pleiotropy.", "over.dispersion", "MendelianRandomization::mr_pivw default (over.dispersion = TRUE).", c("se", "ci", "p")),
+  .enum_p("piv_ci", "fieller", c("fieller", "wald"), c(fieller = "Bootstrap Fieller interval (standard)", wald = "Normal (Wald) interval"), "Interval",
+          "The bootstrap Fieller interval is valid with weak instruments.", "Boot.Fieller", "MendelianRandomization::mr_pivw default (Boot.Fieller = TRUE).", c("ci"))), TRUE, c(
+  "fit <- MendelianRandomization::mr_pivw(mri, lambda = piv_lambda, over.dispersion = identical(piv_disp, \"balanced\"), Boot.Fieller = identical(piv_ci, \"fieller\"), alpha = 1 - ci_level)",
+  "estimates <- est1(fit@Estimate, fit@StdError, min(fit@CILower), max(fit@CIUpper), fit@Pvalue, fit@SNPs, if (identical(piv_ci, \"fieller\")) \"bootstrap\" else \"wald\")",
+  "diagnostics <- rbind(drow(\"pivw_condition\", fit@Condition, note = \"(mean F - 1) x sqrt(number of variants)\"), drow(\"pivw_tau2\", fit@Tau2, note = \"balanced pleiotropy variance\"))"))

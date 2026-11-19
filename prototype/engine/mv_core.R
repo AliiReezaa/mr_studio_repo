@@ -115,6 +115,7 @@ mv_add_text <- function(txt, mvx) {
     if (lib) sprintf("Instruments were the union of the variants associated with any exposure at P < %s, clumped together (r2 < 0.001 within 10,000 kb, 1000 Genomes reference panel) using the smallest P over the exposures; the effects of every exposure at every instrument were taken from its full summary statistics and aligned to the same effect allele with TwoSampleMR::harmonise_data. ", format(mvx[[1]]$pthr, scientific = TRUE)) else "",
     "Methods (MendelianRandomization ", PIN_MENDELIANRANDOMIZATION, "): ", paste(c(if ("mvivw" %in% used) sprintf("MVMR-IVW (model: %s)", st$mv_model %||% "default"), if ("mvegger" %in% used) sprintf("MVMR-Egger, oriented to exposure %s [Rees 2017]", format(st$mv_orient %||% 1)),
       if ("mvmedian" %in% used) sprintf("the MVMR median with %s bootstrap iterations [Grant 2021]", format(st$mv_iter %||% 10000)), if ("mvlasso" %in% used) "MVMR-Lasso [Grant 2021]",
+      if ("mvcml" %in% used) sprintf("MVMR-cML, constrained maximum likelihood with BIC selection of invalid variants%s [Lin 2023]", if (identical(st$mv_cml_dp, "ma")) "" else " and data perturbation"),
       if ("mvqhet" %in% used) sprintf("Q-statistic minimisation, which estimates the direct effects by minimising Q_A and so is robust to weak instruments, with an additive heterogeneity variance when the minimum exceeds its degrees of freedom and %s [Sanderson 2021]",
         if (identical(st$mv_qhet_ci, "bootstrap")) sprintf("bias-corrected and accelerated bootstrap intervals (%s iterations)", format(st$mv_qhet_iter %||% 1000)) else "jackknife standard errors (leaving out one variant at a time)")), collapse = "; "),
     ". Instrument strength was assessed with the conditional F statistic of each exposure (values below 10 indicate weak instruments), and heterogeneity with Cochran's Q of the MVMR-IVW fit and with Q_A, which also allows for the uncertainty of the variant-exposure associations [Sanderson 2021]; ", .mv_cov_text(st, mvx[[1]]$labels, mvx[[1]]$cov_source), "."))
@@ -138,7 +139,7 @@ mv_add_text <- function(txt, mvx) {
   txt$limitations <- c(txt$limitations, "Multivariable MR estimates are direct effects conditional on the exposures included in the model; they change if exposures are added or removed, and they assume that each variant affects the outcome only through the exposures in the model. The conditional F statistic assumes that the exposure samples do not overlap.")
   txt
 }
-.short_mv <- function(m) unname(c(mvivw = "MVMR-IVW", mvegger = "MVMR-Egger", mvmedian = "MVMR median", mvlasso = "MVMR-Lasso", mvqhet = "MVMR Q-min")[m])
+.short_mv <- function(m) unname(c(mvivw = "MVMR-IVW", mvegger = "MVMR-Egger", mvmedian = "MVMR median", mvlasso = "MVMR-Lasso", mvqhet = "MVMR Q-min", mvcml = "MVMR-cML")[m])
 
 # ---- Round 55: covariances of the variant-exposure associations from individual-level data (as MVMR::snpcov_mvmr, corrected) ----
 #' For every variant j and pair of exposures (i, k), the covariance of the two single-variant regression slopes estimated in the same
