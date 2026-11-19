@@ -73,9 +73,12 @@ lhcmr_script <- function(folder, files, labels, ldf, rhof, ldsc_dir, hm3, seed, 
     "out")
 }
 
-lhcmr_cores <- function() if (.Platform$OS.type == "windows") 1L else max(1L, parallel::detectCores() - 1L)
+# Each parallel worker holds a copy of the merged data (several GB with full GWAS), so the default stays gentle: at most 2 workers,
+# fewer on small machines, 1 on Windows (no forking). MRSTUDIO_LHCMR_CORES overrides it. The run is also given low priority.
+lhcmr_cores <- function() { e <- suppressWarnings(as.integer(Sys.getenv("MRSTUDIO_LHCMR_CORES", ""))); if (is.finite(e) && e >= 1L) return(e)
+  if (.Platform$OS.type == "windows") 1L else max(1L, min(2L, parallel::detectCores() %/% 4L)) }
 
-#' Prepare both datasets, write and run the LHC-MR script of a pair (long: about an hour on 8 cores).
+#' Prepare both datasets, write and run the LHC-MR script of a pair (long: one to several hours on the default 2 workers).
 lhcmr_pair_run <- function(h, pair, root = studies_root(), dir = lhcmr_ref_dir(), ldsc = ldsc_ref_dir(), cores = lhcmr_cores(), sp_pair = 50L, nblock = 200L) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("LHC-MR is for a pair with one exposure.")
   ids <- c(pair$ex, pair$out); if (!all(startsWith(ids, "lib:"))) stop("LHC-MR needs the full summary statistics of both traits, imported into the Data library.")
@@ -126,6 +129,7 @@ lhcmr_pair_start <- function(h, pair, root = studies_root(), engine = getOption(
   job <- file.path(dirname(sf), paste0(pair$folder, "_job.R"))
   writeLines(c("a <- commandArgs(TRUE); engine <- a[1]; sdir <- a[2]; root <- a[3]; pj <- a[4]; sf <- a[5]; cores <- as.integer(a[6])",
     "st <- function(state, msg = '') writeLines(jsonlite::toJSON(list(state = state, msg = msg, time = format(Sys.time(), '%Y-%m-%d %H:%M:%S')), auto_unbox = TRUE), sf)",
+    "invisible(tools::psnice(value = 15L))   # low priority, so the computer stays responsive during the one to two hours",
     "tryCatch({ options(mrgui.engine_dir = engine); source(file.path(engine, 'studio_core.R')); load_contracts(find_contracts_dir(engine))",
     "  for (f in c('import_core.R', 'ld_core.R', 'ldsc_core.R', 'lhcmr_core.R')) source(file.path(engine, f))",
     "  pair <- jsonlite::fromJSON(pj); lhcmr_pair_run(list(dir = sdir), pair, root = root, cores = cores); st('done')",

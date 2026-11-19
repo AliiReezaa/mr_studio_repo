@@ -168,6 +168,13 @@ jobs:
             curl -fsSL -o "$MX" https://cran.r-project.org/src/contrib/Archive/mixtools/mixtools_2.0.0.1.tar.gz
           if [[ "$RUNNER_OS" == "Windows" ]]; then MX="$(cygpath -m "$MX")"; fi
           export PK_MIXTOOLS="$MX"
+          # Round 65: compilers for the packages built from source on macOS (mixtools on arm64, MRCD on both): the runtime has none
+          # (run 44577398117: arm64-apple-darwin20.0.0-clang not found). Installed after the relocation test, into the moved runtime;
+          # the trim step below removes them before packaging.
+          if [[ "$RUNNER_OS" == "macOS" ]]; then
+            micromamba install -y -p "$PWD/prototype/runtime" -c conda-forge c-compiler cxx-compiler fortran-compiler
+            export PATH="$PWD/prototype/runtime/bin:$PATH" SDKROOT="$(xcrun --show-sdk-path)"
+          fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             RT="$PWD/prototype/runtime"
             export PATH="$RT:$RT/Library/bin:$RT/Library/mingw-w64/bin:$RT/Library/usr/bin:$(dirname "$RBIN"):$PATH"
