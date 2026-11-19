@@ -175,6 +175,19 @@ mr_server <- function(engine_dir) {
           ev("bidir_cml", rows = unlist(lapply(names(res), function(k) { r <- res[[k]]; if (!is.data.frame(r)) return(list())
             lapply(seq_len(nrow(r)), function(i) c(list(forward = k), as.list(r[i, , drop = FALSE]))) }), recursive = FALSE), errors = Filter(Negate(is.data.frame), res))
         },
+        ldsc_status = ev("ldsc_ref", status = ldsc_status()),   # Round 64: LD scores and LD score regression
+        ldsc_fetch = { r <- tryCatch(ldsc_ref_fetch(), error = function(e) e); if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ldsc_ref", status = ldsc_status()) },
+        ldsc_compute = { pop <- a$pop %||% tryCatch({ p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); x <- ld_pop_for(library_dataset(sub("^lib:", "", p$ex))$recipe$facts$ancestry); if (is.na(x)) "EUR" else x }, error = function(e) "EUR")
+          r <- tryCatch(ldsc_compute_start(pop), error = function(e) e); if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ldsc_ref", status = ldsc_status()) },
+        ldsc_get = , ldsc = {
+          req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
+          res <- if (identical(t, "ldsc_get")) ldsc_pair_read(rv$h, p) else {
+            if (!requireNamespace("GenomicSEM", quietly = TRUE)) { ev("ldsc", folder = a$folder, rows = list(), msg = "GenomicSEM is not installed in this runtime."); return() }
+            prev <- vapply(1:2, function(i) suppressWarnings(as.numeric(a$prev[[i]] %||% NA)), 0)
+            tryCatch(ldsc_pair_run(rv$h, p, a$source, prev), error = function(e) e) }
+          if (inherits(res, "error")) { ev("ldsc", folder = a$folder, rows = list(), msg = conditionMessage(res)); return() }
+          ev("ldsc", folder = a$folder, rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else ldsc_text(res))
+        },
         mvcov_compute = {   # Round 55: covariances from the chosen individual-level file, for these exposures in model order
           req(rv$h); if (is.null(rv$mvcov)) stop("Choose the individual-level file first.", call. = FALSE)
           cov <- mv_cov_from_file(rv$mvcov$path, unlist(a$cols))

@@ -48,3 +48,22 @@ dependencies:
   - r-psych
   - r-rmarkdown
   - r-tidyr
+  # LD score regression (Round 64): imports of GenomicSEM, which is installed from a pinned commit (prototype.yml);
+  # its import simsalapar is not on conda-forge and is installed from its CRAN source, checked by SHA-256.
+  - r-e1071
+  - r-readr
+  - r-gdata
+  - r-lavaan
+  - r-doparallel
+  - r-foreach
+  - r-stringr
+  - r-splitstackshape
+  - r-r.utils
+  - r-iterators
+  - r-rcpp
+  - r-mgsub
+  - r-sfsmisc
+  - r-gridbase
+  - r-colorspace
+  # Bidirectional MR-cML (Round 63): MRCD imports pracma (and Rcpp, above).
+  - r-pracma

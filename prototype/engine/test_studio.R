@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -1327,6 +1327,35 @@ expect("Round 63: the bidirectional script is registered, re-running it gives th
   f <- file.path(h63$dir, "04_across_pairs", "bidirectional_cml", paste0(f63, ".R")); old <- setwd(h63$dir); sys.source(f, envir = new.env()); setwd(old)
   again <- utils::read.csv(file.path(h63$dir, "04_across_pairs", "bidirectional_cml", paste0(f63, "_results.csv")))
   isTRUE(all.equal(again, res63, check.attributes = FALSE)) && any(manifest_read(h63$dir)$relative_path == file.path("04_across_pairs", "bidirectional_cml", paste0(f63, ".R"))) && grepl("standardised", bidir_cml_text(res63)) })
+# ---- Round 64: LD scores and LD score regression ----
+local({
+  set.seed(64); n <- 61L; m <- 40L; g <- matrix(rbinom(n * m, 2, 0.3), n, m); g[, 5] <- g[, 4]; g[3, 7] <- NA; g[, 9] <- 0   # a copy, a missing value, a monomorphic variant
+  for (j in 2:m) if (j != 5 && j != 9) { k <- runif(n) < 0.6; g[k, j] <- g[k, j - 1] }   # LD between neighbours
+  enc <- function(x) { code <- ifelse(is.na(x), 1L, c(3L, 2L, 0L)[x + 1L]); code <- c(code, rep(0L, (4 - n %% 4) %% 4)); q <- matrix(code, 4); as.raw(q[1, ] + 4L * q[2, ] + 16L * q[3, ] + 64L * q[4, ]) }
+  pre <- file.path(tempdir(), "r64"); con <- file(paste0(pre, ".bed"), "wb"); writeBin(as.raw(c(0x6c, 0x1b, 0x01)), con); for (j in 1:m) writeBin(enc(g[, j]), con); close(con)
+  bp <- cumsum(sample(20000:60000, m)); writeLines(sprintf("22\trs%d\t0\t%d\tA\tG", 1:m, bp), paste0(pre, ".bim")); writeLines(sprintf("f%d i%d 0 0 0 -9", 1:n, 1:n), paste0(pre, ".fam"))
+  d <- ldsc_l2_bfile(pre, wind = 2e5)
+  keep <- setdiff(1:m, 9); gi <- g[, keep]; for (j in seq_len(ncol(gi))) gi[is.na(gi[, j]), j] <- mean(gi[, j], na.rm = TRUE)
+  r2 <- suppressWarnings(stats::cor(gi))^2; u <- r2 - (1 - r2) / (n - 2); u[abs(outer(bp[keep], bp[keep], "-")) > 2e5] <- 0
+  expect("Round 64: LD scores equal the LDSC estimator computed directly (corrected r2 summed within the window; missing set to the mean; monomorphic dropped)",
+         nrow(d) == m - 1L && !("rs9" %in% d$SNP) && max(abs(d$L2 - rowSums(u))) < 1e-10)
+  expect("Round 64: the decoded genotypes give the allele frequencies of the data", isTRUE(all.equal(d$MAF[1], min(mean(g[, 1]) / 2, 1 - mean(g[, 1]) / 2))))
+  hm <- data.frame(SNP = c("rs1", "rs2", "rs3", "rs4", "rs5"), A1 = c("A", "C", "A", "G", "T"), A2 = c("G", "T", "C", "A", "G"), stringsAsFactors = FALSE)
+  ds <- data.frame(snp = c("rs1", "rs2", "rs3", "rs4", "rs5", "rs6"), ea = c("A", "T", "A", "G", "T", "A"), oa = c("G", "C", "G", "A", "G", "C"), beta = c(0.2, 0.3, 0.1, 0.4, 0.5, 0.1), se = 0.1, eaf = c(0.3, 0.4, 0.2, 0.005, 0.5, 0.3), n = c(1000, 1000, 1000, 1000, 500, 1000), stringsAsFactors = FALSE)
+  mu <- ldsc_munge(ds, hm); led <- attr(mu, "ledger")
+  expect("Round 64: preparation keeps HapMap3 variants with matching alleles, signs Z for the list's A1, drops MAF < 0.01 and low N (munge_sumstats rules)",
+         identical(mu$SNP, c("rs1", "rs2")) && isTRUE(all.equal(mu$Z, c(2, -3))) && led$hapmap3 == 5L && led$alleles_match == 4L && led$maf == 3L && led$kept == 2L)
+  expect("Round 64: preparation refuses a dataset without rsIDs or without sample size",
+         inherits(tryCatch(ldsc_munge(ds[, setdiff(names(ds), "snp")], hm), error = function(e) e), "error") && inherits(tryCatch(ldsc_munge(ds[, setdiff(names(ds), "n")], hm), error = function(e) e), "error"))
+  sc <- ldsc_script("p1", c("02_datasets/ldsc/a.sumstats.gz", "02_datasets/ldsc/b.sumstats.gz"), c("A", "B"), "/ld", "official", c(NA, 0.4), c(NA, 0.1))
+  expect("Round 64: the LDSC script parses, pins GenomicSEM and writes the liability-scale prevalences", !inherits(tryCatch(parse(text = sc), error = function(e) e), "error") && any(grepl(PIN_GENOMICSEM, sc)) && any(grepl("c(NA, 0.4)", sc, fixed = TRUE)))
+  res <- data.frame(quantity = c("h2", "h2", "rg", "genetic_covariance", "intercept", "intercept", "cross_trait_intercept"), trait = c("A", "B", "both", "both", "A", "B", "both"),
+                    estimate = c(0.44, 0.24, -0.17, -0.06, 1.3, 1.07, -0.128), se = c(0.02, 0.007, 0.018, 0.007, 0.057, 0.019, 0.013), p = c(1e-50, 1e-60, 3.7e-22, 1e-15, 1e-7, 1e-4, 2e-24),
+                    ci_lower = -0.2, ci_upper = -0.14, scale = "observed", mean_chi2 = NA, snps = 1173569, stringsAsFactors = FALSE); attr(res, "labels") <- c(x = "A", y = "B")
+  expect("Round 64: the results text gives heritabilities, genetic correlation and the cross-trait intercept with its reading", grepl("genetic correlation -0.170 (SE 0.018)", ldsc_text(res), fixed = TRUE) && grepl("overlapping samples", ldsc_text(res)))
+  dd <- file.path(tempdir(), "ldsc_ref64"); dir.create(dd, showWarnings = FALSE)
+  expect("Round 64: with nothing installed the status says so", { st <- ldsc_ref_status(dd); !st$hm3 && !st$official && !length(st$computed) })
+})
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })
 expect("Round 50: one exposure, more than six, or mixing simulated and imported traits is refused", grepl("at least two exposures", err_of(mv_pair_input("expA", "outA"))) && grepl("at most six", err_of(mv_pair_input(rep("expA", 7), "outA"))) && grepl("cannot be mixed", err_of(mv_pair_input(c("expA", "lib:X"), "outA"))))

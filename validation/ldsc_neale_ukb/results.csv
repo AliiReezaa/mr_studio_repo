@@ -1,0 +1,17 @@
+"part","quantity","reference","mr_studio","criterion","pass"
+"A","largest difference from PLINK r2 sums (200 variants, chr22, 1 Mb)","0","8.0e-06","< 1e-4 (PLINK prints 6 digits)",TRUE
+"B","correlation of computed and official LD scores (genome)","1","0.9951","> 0.98",TRUE
+"B","mean computed / mean official LD score","0.908 (variants in the panel / official)","0.905","within 0.03 of the panel's share of HapMap3 variants",TRUE
+"C","largest difference, app path vs GenomicSEM::ldsc on the Neale files (h2, rg, covariance, intercepts)","0","2.0e-15","< 1e-10",TRUE
+"C","variants not in w_hm3.snplist or with other alleles, removed (height, BMI)","munge_sumstats rule","12107, 12107","reported",TRUE
+"C","h2 and rg estimates, app path vs direct","0","4.2e-16","< 1e-10",TRUE
+"C","replay of the study script","identical","identical","identical",TRUE
+"D","lambda GC, Height","2.5032","2.5025","within 0.005",TRUE
+"D","intercept, Height","1.313 (0.052)","1.298 (0.057)","within 2 combined SE",TRUE
+"D","SNP heritability, Height","0.485 (0.022), partitioned","0.441 (0.020)","within 2 combined SE",TRUE
+"D","lambda GC, BMI","2.1946","2.1958","within 0.005",TRUE
+"D","intercept, BMI","1.105 (0.022)","1.074 (0.019)","within 2 combined SE",TRUE
+"D","SNP heritability, BMI","0.248 (0.008), partitioned","0.244 (0.007)","within 2 combined SE",TRUE
+"E","h2 Height with computed vs official LD scores","0.441 (0.020)","0.448 (0.021)","within 1 SE of the official-score estimate",TRUE
+"E","h2 BMI with computed vs official LD scores","0.244 (0.007)","0.248 (0.007)","within 1 SE of the official-score estimate",TRUE
+"E","rg  with computed vs official LD scores","-0.170 (0.018)","-0.170 (0.018)","within 1 SE of the official-score estimate",TRUE
