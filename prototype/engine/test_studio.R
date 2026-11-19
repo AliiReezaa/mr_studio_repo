@@ -1290,6 +1290,16 @@ expect("Round 58: maximum likelihood and MR-Robust equal MendelianRandomization 
   abs(e58$estimate[e58$method == "maxlik"] - MendelianRandomization::mr_maxlik(mi)@Estimate) < 1e-10 && abs(e58$estimate[e58$method == "robust_ivw"] - MendelianRandomization::mr_ivw(mi, robust = TRUE, penalized = TRUE)@Estimate) < 1e-10 })
 expect("Round 58: MR-cML and MVMR-cML are blocked with the reason when sample sizes are missing", { q <- p58$input; q$data$n_x <- NA; m <- mv_pair_input(c("expA", "expB"), "outA")$input; m$data$n_y <- NULL
   identical(ADAPTER_CML_V11$check(q, resolve_params(ADAPTER_CML_V11, list()))$codes, "FEAS_NEEDS_N") && identical(ADAPTER_MVCML_V11$check(m, resolve_params(ADAPTER_MVCML_V11, list()))$codes, "FEAS_NEEDS_N") })
+# ---- Round 59: TwoSampleMR estimators and diagnostics ----
+m59 <- c("egger_boot", "pwm", "smode_nome", "wmode_nome", "rucker", "sign")
+r59 <- studio_run(h58, p58$exposure_label, p58$outcome_label, p58$input, m59, idx = 2L, params = list(ci_level = 0.95, eb_nboot = 200L, pwm_nboot = 200L, smn_nboot = 200L, wmn_nboot = 200L)); pl59 <- pair_payload(h58$dir, r59$pair_folder); e59 <- .est_df(pl59)
+expect("Round 59: bootstrap Egger, penalised weighted median, NOME modes and Rucker run as scripts, replay identically and cover the simulated effect 0.30", identical(pl59$replay$status, "identical") &&
+  all(vapply(r59$results, function(x) identical(x$status, "ok"), TRUE)) && { ce <- e59[e59$estimand == "causal_effect", ]; setequal(ce$method, setdiff(m59, "sign")) && all(ce$ci_lower <= 0.3 & 0.3 <= ce$ci_upper) })
+expect("Round 59: the sign test gives a diagnostic only, Rucker reports Q, Q' and the selected model, and bootstrap Egger adds its intercept", {
+  g <- function(n) Filter(function(x) x$name == n, pl59$diagnostics); !any(e59$method == "sign") && length(g("sign_concordance")) == 1L && all(c("q_ivw", "q_rucker", "q_diff", "rucker_model") %in% vapply(pl59$diagnostics, function(x) x$name, "")) &&
+    any(e59$method == "egger_boot" & e59$estimand == "pleiotropy_intercept") })
+expect("Round 59: the funnel figure has a precision-weighted density panel and its legend says so", { f <- tempfile(fileext = ".png"); lf <- data.frame(wr = rnorm(20, 0.3, 0.05), wr_se = runif(20, 0.02, 0.06))
+  grDevices::png(f); .draw_funnel(lf, list()); grDevices::dev.off(); file.exists(f) && grepl("Right: density", paste(deparse(.report_text_uni), collapse = " ")) })
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })
 expect("Round 50: one exposure, more than six, or mixing simulated and imported traits is refused", grepl("at least two exposures", err_of(mv_pair_input("expA", "outA"))) && grepl("at most six", err_of(mv_pair_input(rep("expA", 7), "outA"))) && grepl("cannot be mixed", err_of(mv_pair_input(c("expA", "lib:X"), "outA"))))

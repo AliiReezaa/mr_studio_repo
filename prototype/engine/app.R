@@ -38,6 +38,8 @@ run_params <- function(x) {
   if (!is.null(x$simex_b)) out$simex_b <- as.integer(round(as.numeric(x$simex_b)))   # Round 41
   if (!is.null(x$mv_orient)) out$mv_orient <- as.integer(round(as.numeric(x$mv_orient)))   # Round 50
   if (!is.null(x$mv_iter)) out$mv_iter <- as.integer(round(as.numeric(x$mv_iter)))
+  for (k in intersect(c("pwm_penk", "smn_phi", "wmn_phi"), names(x))) out[[k]] <- as.numeric(x[[k]])   # Round 59
+  for (k in intersect(c("eb_nboot", "pwm_nboot", "smn_nboot", "wmn_nboot", "rk_nboot"), names(x))) out[[k]] <- as.integer(round(as.numeric(x[[k]])))
   for (k in intersect(c("ml_psi", "mbe_phi", "piv_lambda"), names(x))) out[[k]] <- as.numeric(x[[k]])   # Round 58
   for (k in intersect(c("mbe_iter", "cml_pert", "mv_cml_pert"), names(x))) out[[k]] <- as.integer(round(as.numeric(x[[k]])))
   if (!is.null(x$mv_qhet_iter)) out$mv_qhet_iter <- as.integer(round(as.numeric(x$mv_qhet_iter)))   # Round 54

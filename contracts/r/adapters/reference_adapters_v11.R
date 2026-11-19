@@ -1216,17 +1216,17 @@ ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param
 # The body sees dat (usable variants after the F filter), the settings, seed, ci_level and the .est_cols values, and sets
 # estimates and diagnostics.
 .mr_body_common <- c(
-  "mri <- MendelianRandomization::mr_input(bx = dat$beta_x, bxse = dat$se_x, by = dat$beta_y, byse = dat$se_y)",
+  "mri <- if (requireNamespace(\"MendelianRandomization\", quietly = TRUE)) MendelianRandomization::mr_input(bx = dat$beta_x, bxse = dat$se_x, by = dat$beta_y, byse = dat$se_y) else NULL",
   "est1 <- function(b, se, lo, hi, p, n, method = \"wald\") data.frame(estimand = \"causal_effect\", exposure_id = EXPOSURE_ID, outcome_id = OUTCOME_ID, scale = SCALE,",
   "  estimate = as.numeric(b), se = as.numeric(se), ci_lower = as.numeric(lo), ci_upper = as.numeric(hi), ci_level = ci_level, ci_method = method, p = as.numeric(p),",
   "  n_ivs_used = as.integer(n), stringsAsFactors = FALSE)",
   "drow <- function(name, value, df = NA_real_, p = NA_real_, note = NA_character_) data.frame(name = name, value = as.numeric(value), df = as.numeric(df), p = as.numeric(p),",
   "  note = as.character(note), stringsAsFactors = FALSE)")
-.mrpkg_adapter <- function(id, label, min_ivs, params, stochastic, body, needs_n = FALSE, check_extra = NULL) {
+.mrpkg_adapter <- function(id, label, min_ivs, params, stochastic, body, needs_n = FALSE, check_extra = NULL, pkg = "MendelianRandomization", estimands = "causal_effect") {
   a <- NULL
-  a <- mrgui_adapter(id = id, adapter_version = "1.1.0", label = label, input_kind = "pair_iv", estimands = "causal_effect",
+  a <- mrgui_adapter(id = id, adapter_version = "1.1.0", label = label, input_kind = "pair_iv", estimands = estimands,
     requires = list(min_ivs = min_ivs, needs_ld = "none", needs_eaf = FALSE, needs_n = needs_n, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
-    packages = list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
+    packages = if (pkg == "TwoSampleMR") list(TwoSampleMR = PIN_TWOSAMPLEMR_V11) else list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
     params = c(.ci_param_v11, params, .minf_param_v11),
     check = function(input, params) {
       d <- .usable(input$data)
@@ -1242,9 +1242,9 @@ ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param
       eval(parse(text = c(.mr_body_common, body)), envir = e)
       list(estimates = e$estimates, diagnostics = e$diagnostics)
     },
-    emit_script = function(spec, params, seed) .detector_emit(a, spec, params, seed, "MendelianRandomization", c(
+    emit_script = function(spec, params, seed) .detector_emit(a, spec, params, seed, pkg, c(
       sprintf("EXPOSURE_ID <- %s; OUTCOME_ID <- %s; SCALE <- %s", .q(spec$exposure_id), .q(spec$outcome_id), .q(spec$outcome_scale)),
-      sprintf("# ---- 5. Analysis: %s (MendelianRandomization) ----", label), "RNGkind(\"Mersenne-Twister\", \"Inversion\", \"Rejection\"); set.seed(seed)",
+      sprintf("# ---- 5. Analysis: %s (%s) ----", label, pkg), "RNGkind(\"Mersenne-Twister\", \"Inversion\", \"Rejection\"); set.seed(seed)",
       .mr_body_common, body),
       if (stochastic) "fixed seed: the method draws random numbers with this seed" else "fixed seed (this method is deterministic; kept for the record)"),
     column_requirements = .colreq_basic)
@@ -1314,3 +1314,65 @@ ADAPTER_PIVW_V11 <- .mrpkg_adapter("pivw", "Penalised IVW", 3L, c(
   "fit <- MendelianRandomization::mr_pivw(mri, lambda = piv_lambda, over.dispersion = identical(piv_disp, \"balanced\"), Boot.Fieller = identical(piv_ci, \"fieller\"), alpha = 1 - ci_level)",
   "estimates <- est1(fit@Estimate, fit@StdError, min(fit@CILower), max(fit@CIUpper), fit@Pvalue, fit@SNPs, if (identical(piv_ci, \"fieller\")) \"bootstrap\" else \"wald\")",
   "diagnostics <- rbind(drow(\"pivw_condition\", fit@Condition, note = \"(mean F - 1) x sqrt(number of variants)\"), drow(\"pivw_tau2\", fit@Tau2, note = \"balanced pleiotropy variance\"))"))
+
+# ---- Round 59: TwoSampleMR estimators and diagnostics ---------------------------------------------------------------------
+PIN_TWOSAMPLEMR_V11 <- "5e93ee7d8e1f67581acb8134299759389d73efba"
+.tsmr_params <- c("pars <- TwoSampleMR::default_parameters()   # the package defaults, with this method's settings below",
+  "z <- stats::qnorm(1 - (1 - ci_level) / 2)",
+  "tsd <- data.frame(id.exposure = EXPOSURE_ID, id.outcome = OUTCOME_ID, exposure = EXPOSURE_ID, outcome = OUTCOME_ID, SNP = dat$variant_id, beta.exposure = dat$beta_x,",
+  "  beta.outcome = dat$beta_y, se.exposure = dat$se_x, se.outcome = dat$se_y, mr_keep = TRUE, stringsAsFactors = FALSE)")
+.tsmr_wald <- "est_w <- function(f) est1(f$b, f$se, f$b - z * f$se, f$b + z * f$se, f$pval, f$nsnp)"
+.nboot_p <- function(name, def = 1000L) .num_p(name, "integer", def, 100L, 100000L, "Bootstrap iterations", "Iterations for the bootstrap standard error.", "nboot", "TwoSampleMR default (nboot = 1000).", c("se", "ci", "p"))
+
+# MR-Egger with bootstrap standard errors (Bowden et al. 2015), TwoSampleMR::mr_egger_regression_bootstrap
+ADAPTER_EGGER_BOOT_V11 <- .mrpkg_adapter("egger_boot", "MR-Egger (bootstrap)", 3L, .nboot_p("eb_nboot"), TRUE, c(.tsmr_params, .tsmr_wald,
+  "pars$nboot <- eb_nboot",
+  "f <- TwoSampleMR::mr_egger_regression_bootstrap(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, pars)",
+  "estimates <- rbind(est_w(f), transform(est1(f$b_i, f$se_i, f$b_i - z * f$se_i, f$b_i + z * f$se_i, f$pval_i, f$nsnp), estimand = \"pleiotropy_intercept\"))",
+  "diagnostics <- drow(\"egger_boot_nboot\", eb_nboot, note = \"bootstrap iterations\")"), pkg = "TwoSampleMR", estimands = c("causal_effect", "pleiotropy_intercept"))
+
+# Penalised weighted median (Burgess et al. 2016), TwoSampleMR::mr_penalised_weighted_median
+ADAPTER_PWM_V11 <- .mrpkg_adapter("pwm", "Penalised weighted median", 3L, c(.nboot_p("pwm_nboot"),
+  .num_p("pwm_penk", "double", 20, 1, 1000, "Penalty constant (penk)", "How strongly variants with heterogeneous ratio estimates are down-weighted.", "penk", "TwoSampleMR default (penk = 20).")), TRUE, c(.tsmr_params, .tsmr_wald,
+  "pars$nboot <- pwm_nboot; pars$penk <- pwm_penk",
+  "f <- TwoSampleMR::mr_penalised_weighted_median(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, pars)",
+  "estimates <- est_w(f)", "diagnostics <- drow(\"pwm_penk\", pwm_penk, note = \"penalty constant\")"), pkg = "TwoSampleMR")
+
+# Simple and weighted mode under the NOME assumption (Hartwig et al. 2017), TwoSampleMR::mr_simple_mode_nome / mr_weighted_mode_nome
+.nome_params <- function(pref) c(.nboot_p(paste0(pref, "_nboot")),
+  .num_p(paste0(pref, "_phi"), "double", 1, 0.1, 5, "Bandwidth multiplier (phi)", "Smaller values give a narrower kernel.", "phi", "TwoSampleMR default (phi = 1)."))
+ADAPTER_SMODE_NOME_V11 <- .mrpkg_adapter("smode_nome", "Simple mode (NOME)", 3L, .nome_params("smn"), TRUE, c(.tsmr_params, .tsmr_wald,
+  "pars$nboot <- smn_nboot; pars$phi <- smn_phi",
+  "f <- TwoSampleMR::mr_simple_mode_nome(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, pars)",
+  "estimates <- est_w(f)", "diagnostics <- drow(\"mode_nome\", NA, note = \"ratio standard errors assume no measurement error in the exposure associations (NOME)\")"), pkg = "TwoSampleMR")
+ADAPTER_WMODE_NOME_V11 <- .mrpkg_adapter("wmode_nome", "Weighted mode (NOME)", 3L, .nome_params("wmn"), TRUE, c(.tsmr_params, .tsmr_wald,
+  "pars$nboot <- wmn_nboot; pars$phi <- wmn_phi",
+  "f <- TwoSampleMR::mr_weighted_mode_nome(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, pars)",
+  "estimates <- est_w(f)", "diagnostics <- drow(\"mode_nome\", NA, note = \"ratio standard errors assume no measurement error in the exposure associations (NOME)\")"), pkg = "TwoSampleMR")
+
+# Rucker's framework (Bowden et al. 2018): Q (IVW) against Rucker's Q' (MR-Egger), model selection between IVW and MR-Egger, and its
+# bootstrap and jackknife versions. TwoSampleMR::mr_rucker, mr_rucker_bootstrap, mr_rucker_jackknife.
+ADAPTER_RUCKER_V11 <- .mrpkg_adapter("rucker", "Rucker model selection", 4L, c(
+  .enum_p("rk_variant", "point", c("point", "bootstrap", "jackknife"), c(point = "Selected model (point estimate)", bootstrap = "Bootstrap over variants", jackknife = "Jackknife"),
+          "Version", "The point estimate picks IVW or MR-Egger by comparing Q and Rucker's Q'; the bootstrap and jackknife repeat the selection on resampled variants.", "mr_rucker / _bootstrap / _jackknife",
+          "Bowden et al. 2018 (Int J Epidemiol); TwoSampleMR."),
+  .enum_p("rk_stat", "median", c("median", "mean"), c(median = "Median of the resampled estimates", mean = "Mean of the resampled estimates"), "Summary (bootstrap or jackknife)",
+          "How the resampled estimates are summarised.", "Rucker median / mean", "TwoSampleMR reports both."),
+  .nboot_p("rk_nboot")), TRUE, c(.tsmr_params,
+  "pars$nboot <- rk_nboot",
+  "r1 <- suppressMessages(TwoSampleMR::mr_rucker(tsd, pars))[[1]]",
+  "res <- switch(rk_variant, point = r1$selected, bootstrap = suppressMessages(TwoSampleMR::mr_rucker_bootstrap(tsd, pars))$res,",
+  "  jackknife = suppressMessages(TwoSampleMR::mr_rucker_jackknife(tsd, pars))[[1]]$res)",
+  "row <- if (rk_variant == \"point\") res[1, ] else res[grepl(sprintf(\"Rucker %s\", rk_stat), res$Method), ][1, ]",
+  "# the interval limits are put in order: the jackknife mean row of TwoSampleMR lists them the other way round",
+  "estimates <- est1(row$Estimate, row$SE, min(row$CI_low, row$CI_upp), max(row$CI_low, row$CI_upp), row$P, row$nsnp, if (rk_variant == \"point\") \"wald\" else \"bootstrap\")",
+  "q <- r1$Q",
+  "diagnostics <- rbind(drow(\"q_ivw\", q$Q[1], q$df[1], q$P[1], \"Cochran's Q (IVW)\"), drow(\"q_rucker\", q$Q[2], q$df[2], q$P[2], \"Rucker's Q' (MR-Egger)\"),",
+  "  drow(\"q_diff\", q$Q[3], q$df[3], q$P[3], \"Q - Q'\"), drow(\"rucker_model\", NA, note = r1$res))"), pkg = "TwoSampleMR")
+
+# Sign concordance test (TwoSampleMR::mr_sign): are the variant-exposure and variant-outcome associations in the same direction more often
+# than chance? A diagnostic, not an effect estimate.
+ADAPTER_SIGN_V11 <- .mrpkg_adapter("sign", "Sign concordance test", 6L, list(), FALSE, c(.tsmr_params,
+  "f <- TwoSampleMR::mr_sign(dat$beta_x, dat$beta_y, dat$se_x, dat$se_y, pars)",
+  "estimates <- est1(0, 0, 0, 0, 0, 0L)[0, ]   # no effect estimate: an empty table with the standard columns",
+  "diagnostics <- drow(\"sign_concordance\", f$b, f$nsnp, f$pval, \"(proportion of variants with the same sign - 0.5) x 2; binomial test\")"), pkg = "TwoSampleMR", estimands = character(0))
