@@ -1313,10 +1313,13 @@ expect("Round 61: MR-GRIP runs as a script, replays identically, equals TwoSampl
   g2 <- TwoSampleMR::mr_grip(d2$beta_x, d2$beta_y, d2$se_x, d2$se_y, TwoSampleMR::default_parameters()); ce <- e61[e61$estimand == "causal_effect", ]
   identical(pl61$replay$status, "identical") && abs(ce$estimate - g$b) < 1e-10 && abs(g2$b - g$b) < 1e-12 && any(e61$estimand == "pleiotropy_intercept") })
 # ---- Round 62: BWMR ----
+if (requireNamespace("BWMR", quietly = TRUE)) {
 r62 <- studio_run(h58, p58$exposure_label, p58$outcome_label, p58$input, "bwmr", idx = 5L, params = list(ci_level = 0.95)); pl62 <- pair_payload(h58$dir, r62$pair_folder); e62 <- .est_df(pl62)
 expect("Round 62: BWMR runs as a script with the authors' R 4 fix, replays identically and covers the simulated effect 0.30", identical(pl62$replay$status, "identical") && nrow(e62) == 1L && e62$ci_lower <= 0.3 && 0.3 <= e62$ci_upper &&
   any(grepl("inherits(Sigma_hat", readLines(Sys.glob(file.path(h58$dir, "03_pairs", r62$pair_folder, "02_scripts", "*_bwmr.R"))), fixed = TRUE)))
+} else cat("SKIP  Round 62 (BWMR): package BWMR is not installed in this runtime\n")
 # ---- Round 63: bidirectional cML ----
+if (requireNamespace("BiDirectCausal", quietly = TRUE)) {
 h63 <- studio_new("BiDir cML"); a63 <- pair_input("expB", "outB"); b63 <- pair_input("outB", "expB")
 f63 <- studio_run(h63, a63$exposure_label, a63$outcome_label, a63$input, "ivw_mre", idx = 1L)$pair_folder; g63 <- studio_run(h63, b63$exposure_label, b63$outcome_label, b63$input, "ivw_mre", idx = 2L)$pair_folder
 pr63 <- list(list(ex = "expB", out = "outB", folder = f63, exName = "B", outName = "outcome B", rev = FALSE), list(ex = "outB", out = "expB", folder = g63, exName = "outcome B", outName = "B", rev = TRUE))
@@ -1327,6 +1330,7 @@ expect("Round 63: the bidirectional script is registered, re-running it gives th
   f <- file.path(h63$dir, "04_across_pairs", "bidirectional_cml", paste0(f63, ".R")); old <- setwd(h63$dir); sys.source(f, envir = new.env()); setwd(old)
   again <- utils::read.csv(file.path(h63$dir, "04_across_pairs", "bidirectional_cml", paste0(f63, "_results.csv")))
   isTRUE(all.equal(again, res63, check.attributes = FALSE)) && any(manifest_read(h63$dir)$relative_path == file.path("04_across_pairs", "bidirectional_cml", paste0(f63, ".R"))) && grepl("standardised", bidir_cml_text(res63)) })
+} else cat("SKIP  Round 63 (bidirectional cML): package BiDirectCausal is not installed in this runtime\n")
 # ---- Round 64: LD scores and LD score regression ----
 local({
   set.seed(64); n <- 61L; m <- 40L; g <- matrix(rbinom(n * m, 2, 0.3), n, m); g[, 5] <- g[, 4]; g[3, 7] <- NA; g[, 9] <- 0   # a copy, a missing value, a monomorphic variant

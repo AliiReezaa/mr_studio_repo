@@ -64,6 +64,8 @@ jobs:
       - name: Build R runtime, then move it (relocation test)
         run: |
           micromamba create -y -p "$RUNNER_TEMP/build_runtime" -f prototype/ci/runtime.yml
+          # Round 65: mixtools (import of lhcMR) from conda-forge where it is built; on macOS arm64 it is built from source later.
+          if [[ "${{ matrix.id }}" != "macos-arm64" ]]; then micromamba install -y -p "$RUNNER_TEMP/build_runtime" -c conda-forge r-mixtools; fi
           micromamba env export -p "$RUNNER_TEMP/build_runtime" --explicit > "runtime-lock-${{ matrix.id }}.txt"
           rm -f prototype/runtime/README.txt
           mv "$RUNNER_TEMP/build_runtime"/* prototype/runtime/
@@ -161,6 +163,11 @@ jobs:
             curl -fsSL -o "$SS" https://cran.r-project.org/src/contrib/Archive/simsalapar/simsalapar_1.0-13.tar.gz
           if [[ "$RUNNER_OS" == "Windows" ]]; then SS="$(cygpath -m "$SS")"; fi
           export PK_SIMSALAPAR="$SS"
+          MX="$RUNNER_TEMP/mixtools_2.0.0.1.tar.gz"   # Round 65: built from source only on macOS arm64 (no conda-forge build there)
+          curl -fsSL -o "$MX" https://cran.r-project.org/src/contrib/mixtools_2.0.0.1.tar.gz || \
+            curl -fsSL -o "$MX" https://cran.r-project.org/src/contrib/Archive/mixtools/mixtools_2.0.0.1.tar.gz
+          if [[ "$RUNNER_OS" == "Windows" ]]; then MX="$(cygpath -m "$MX")"; fi
+          export PK_MIXTOOLS="$MX"
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             RT="$PWD/prototype/runtime"
             export PATH="$RT:$RT/Library/bin:$RT/Library/mingw-w64/bin:$RT/Library/usr/bin:$(dirname "$RBIN"):$PATH"
@@ -179,11 +186,17 @@ jobs:
               cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n))))
             }
             # Round 64: GenomicSEM (with simsalapar, checked by SHA-256) and MRcML, Round 65: lhcMR; pure R and required.
+            if (!requireNamespace("mixtools", quietly = TRUE)) {   # Round 65: macOS arm64, CRAN source checked by SHA-256
+              mx <- Sys.getenv("PK_MIXTOOLS")
+              if (!file.exists(mx) || !identical(digest::digest(file = mx, algo = "sha256"), "9aa341d85e418d481105da267f92a3def4504f7c143583617770c5d6aa8c97c1"))
+                stop("mixtools 2.0.0.1 source could not be downloaded or its checksum differs")
+              install.packages(mx, repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch"))
+            }
             ss <- Sys.getenv("PK_SIMSALAPAR")
             if (!file.exists(ss) || !identical(digest::digest(file = ss, algo = "sha256"), "738704c61016276f1a01e0764a525ec9e5b0743003dfdf53487822a6ba881c6f"))
               stop("simsalapar 1.0-13 source could not be downloaded or its checksum differs")
             install.packages(c(ss, Sys.getenv(c("PK_GENOMICSEM", "PK_MRCML", "PK_LHCMR"))), repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
-            for (n in c("simsalapar", "GenomicSEM", "MRcML", "lhcMR")) { if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n); cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n)))) }
+            for (n in c("mixtools", "simsalapar", "GenomicSEM", "MRcML", "lhcMR")) { if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n); cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n)))) }
             # MRCD is compiled (C++ and LAPACK); where the runner cannot build it, the app reports that BiDirectCausal is not installed.
             mk <- file.path(tempdir(), "Makevars"); writeLines("FLIBS=", mk); Sys.setenv(R_MAKEVARS_USER = mk)
             tryCatch(install.packages(unname(Sys.getenv(c("PK_MRCD", "PK_BIDIRECTCAUSAL"))), repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch")), error = function(e) message("optional: ", conditionMessage(e)))

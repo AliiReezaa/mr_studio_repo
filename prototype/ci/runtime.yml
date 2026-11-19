@@ -68,6 +68,11 @@ dependencies:
   - r-colorspace
   # Bidirectional MR-cML (Round 63): MRCD imports pracma (and Rcpp, above).
   - r-pracma
-  # LHC-MR (Round 65): imports of lhcMR, which is installed from a pinned commit (prototype.yml).
-  - r-mixtools
+  # LHC-MR (Round 65): imports of lhcMR, which is installed from a pinned commit (prototype.yml), and of its import mixtools.
+  # mixtools itself has no conda-forge build for macOS arm64: prototype.yml adds r-mixtools on the other systems and builds
+  # it from its CRAN source (checked by SHA-256) on macOS arm64 (run 44485221147).
   - r-rslurm
+  - r-kernlab
+  - r-segmented
+  - r-scales
+  - r-survival
