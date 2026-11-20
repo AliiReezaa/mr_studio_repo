@@ -40,7 +40,8 @@ fn r_binary(r_home: &Path) -> PathBuf {
     else { r_home.join("bin").join("exec").join("R") }
 }
 
-pub fn start(r_home: &Path, engine_dir: &Path, log_path: &Path, timeout: Duration) -> Result<Engine, String> {
+/// `notify` receives (title, body) for every notification line the engine prints after its ready line (Round 72e).
+pub fn start(r_home: &Path, engine_dir: &Path, log_path: &Path, timeout: Duration, notify: Box<dyn Fn(String, String) + Send>) -> Result<Engine, String> {
     let secret = random_hex(32)?;
     let login_token = random_hex(32)?;
     let bin = r_binary(r_home);
@@ -89,9 +90,23 @@ pub fn start(r_home: &Path, engine_dir: &Path, log_path: &Path, timeout: Duratio
     let stdout = child.stdout.take().ok_or("engine stdout unavailable")?;
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
+        let mut reader = BufReader::new(stdout);
         let mut line = String::new();
-        let _ = BufReader::new(stdout).read_line(&mut line);
+        let _ = reader.read_line(&mut line);
         let _ = tx.send(line);
+        // Round 72e: keep reading, so the engine's output never fills the pipe, and show its notifications
+        // (one line each: MRSTUDIO_NOTIFY {"title": ..., "body": ...}). Nothing else on this channel is acted on.
+        let mut next = String::new();
+        while reader.read_line(&mut next).map(|n| n > 0).unwrap_or(false) {
+            if let Some(rest) = next.trim().strip_prefix("MRSTUDIO_NOTIFY ") {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(rest) {
+                    let title = v.get("title").and_then(|t| t.as_str()).unwrap_or("MR Studio").chars().take(80).collect::<String>();
+                    let body = v.get("body").and_then(|t| t.as_str()).unwrap_or("").chars().take(240).collect::<String>();
+                    notify(title, body);
+                }
+            }
+            next.clear();
+        }
     });
     let line = match rx.recv_timeout(timeout) {
         Ok(l) => l,

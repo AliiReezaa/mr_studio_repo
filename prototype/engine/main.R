@@ -15,6 +15,7 @@ stopifnot(grepl("^[0-9a-f]{64}$", init$secret), grepl("^[0-9a-f]{64}$", init$log
 port <- httpuv::randomPort(host = "127.0.0.1")
 install_gate(init$secret, init$login_token, port)
 parent_pid <- init$parent_pid
+options(mrstudio.shell_notify = TRUE)   # Round 72e: notifications go to the desktop shell (shown as MR Studio)
 rm(init)
 
 # Exit when the desktop shell is gone (crash or force-quit), so no orphan engine

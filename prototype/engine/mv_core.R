@@ -288,3 +288,20 @@ ogw_mv_input <- function(exp_ids, out_id, root = studies_root()) {
        input = list(kind = "multi_iv", data = d, exposure_id = paste(unlist(exp_ids), collapse = "|"), outcome_id = out_id,
                     outcome_scale = if (identical(od$recipe$facts$kind, "binary")) "log_or" else "beta", exposure_scale = "beta"))
 }
+
+# ---- Round 72e: which variants drive the heterogeneity of an MVMR pair -------------------------------------------------------------
+#' Each variant's contribution to Cochran's Q of MVMR-IVW, (by - sum_k b_k bx_k)^2 / se_y^2 with the fitted direct effects, and whether
+#' MVMR-Lasso left it out as pleiotropic. Read from the pair's own analysis data and result tables.
+mv_review <- function(h, folder) {
+  pd <- file.path(h$dir, "03_pairs", folder)
+  d <- utils::read.csv(file.path(pd, "01_data", "analysis_data_mvivw.csv"), stringsAsFactors = FALSE); d <- d[d$mr_keep %in% c(TRUE, "TRUE"), , drop = FALSE]
+  e <- utils::read.csv(file.path(pd, "04_tables", "mvivw_estimates.csv"), stringsAsFactors = FALSE); b <- as.numeric(e$estimate[e$estimand == "direct_effect"])
+  K <- length(b); fit <- as.numeric(as.matrix(d[, sprintf("beta_x_%d", seq_len(K)), drop = FALSE]) %*% b)
+  q <- (d$beta_y - fit)^2 / d$se_y^2
+  lf <- file.path(pd, "04_tables", "mvlasso_diagnostics.csv"); flag <- character()
+  if (file.exists(lf)) { g <- utils::read.csv(lf, stringsAsFactors = FALSE); x <- g$note[g$name == "mv_lasso_excluded"]; if (length(x) && !is.na(x[1]) && nzchar(x[1])) flag <- strsplit(x[1], ";", fixed = TRUE)[[1]] }
+  o <- order(-q)
+  list(q_total = sum(q), df = nrow(d) - K, n = nrow(d),
+       rows = data.frame(variant_id = d$variant_id[o], q = q[o], share = q[o] / sum(q), lasso = d$variant_id[o] %in% flag, stringsAsFactors = FALSE),
+       lasso = flag)
+}

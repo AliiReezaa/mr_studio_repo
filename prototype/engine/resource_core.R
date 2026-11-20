@@ -119,6 +119,8 @@ keep_awake_stop <- function() {
 }
 #' A system notification (macOS Notification Centre, Windows notification area). Text is MR Studio's own, never from a page.
 notify_done <- function(title, msg) {
+  # Round 72e: inside the app the desktop shell shows it as MR Studio (Tauri notification); this line on standard output asks it to.
+  if (isTRUE(getOption("mrstudio.shell_notify"))) { cat("MRSTUDIO_NOTIFY ", jsonlite::toJSON(list(title = title, body = msg), auto_unbox = TRUE), "\n", sep = ""); flush(stdout()); return(invisible(TRUE)) }
   sys <- Sys.info()[["sysname"]]; clean <- function(x) gsub("[\"'`$\\\\]", "", x)
   tryCatch(.with_user_env(
     if (sys == "Darwin") {

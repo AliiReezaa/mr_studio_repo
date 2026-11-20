@@ -57,7 +57,8 @@ run_params <- function(x) {
 param_schemas <- function() {
   one <- function(ad) lapply(ad$params, function(p) list(label = p$label, hint = p$hint, min = p$min, max = p$max, default = p$default, type = p$type,
                                                          values = if (!is.null(p$values)) as.list(p$values), value_labels = if (!is.null(p$value_labels)) as.list(p$value_labels), value_hints = if (!is.null(p$value_hints)) as.list(p$value_hints)))
-  list(ivw_mre = one(ADAPTER_IVW_MRE_V11), egger = one(ADAPTER_EGGER_V11), divw = one(ADAPTER_DIVW_V11), raps = one(ADAPTER_RAPS_V11), conmix = one(ADAPTER_CONMIX_V11), lasso = one(ADAPTER_LASSO_V11), egger_simex = one(ADAPTER_EGGER_SIMEX_V11), wm = one(ADAPTER_WM_V11), smed = one(ADAPTER_SMED_V11), mode = one(ADAPTER_MODE_V11), smode = one(ADAPTER_SMODE_V11), presso = one(ADAPTER_PRESSO_V11), radial = one(ADAPTER_RADIAL_V11), radegger = one(ADAPTER_RADEGGER_V11), steiger = one(ADAPTER_STEIGER_V11), loo = one(ADAPTER_LOO_V11))
+  # Round 72e: every method the engine knows (the six MVMR methods were missing, so their Customise panels were empty)
+  ad <- param_adapters(); s <- lapply(ad, one); names(s) <- names(ad); s
 }
 
 mr_server <- function(engine_dir) {
@@ -251,6 +252,11 @@ mr_server <- function(engine_dir) {
           ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder), left_out = if (length(r$left_out)) paste(sprintf("%s: %s.", names(r$left_out), r$left_out), collapse = " ") else "")
         },
         instruments = ev("instruments", folder = a$folder, rows = { it <- instrument_table(a$ex, a$out, as.numeric(a$pthr %||% 5e-8)); unname(lapply(seq_len(nrow(it)), function(i) as.list(it[i, , drop = FALSE]))) }),
+        full_status = { r <- tryCatch(full_gwas_status(a$ex, a$out), error = function(e) list(ok = FALSE, why = "instruments")); ev("full_status", folder = a$folder, ok = isTRUE(r$ok), why = r$why) },   # Round 72e
+        mv_review = {   # Round 72e: per-variant contributions to the MVMR-IVW heterogeneity, and MVMR-Lasso's flags
+          req(rv$h); r <- tryCatch(mv_review(rv$h, a$folder), error = function(e) e)
+          if (inherits(r, "error")) ev("mv_review", folder = a$folder, error = conditionMessage(r))
+          else ev("mv_review", folder = a$folder, q_total = r$q_total, df = r$df, n = r$n, lasso = as.list(r$lasso), rows = lapply(seq_len(min(nrow(r$rows), 15L)), function(i) as.list(r$rows[i, ]))) },
         run_sens = {
           req(rv$h)
           rem <- sort(unlist(a$remove)); parent <- a$folder
@@ -264,7 +270,8 @@ mr_server <- function(engine_dir) {
           if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }
           sens <- Filter(function(x) !(identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem)), sens)
           rec <- list(parent = parent, remove = as.list(rem), folder = r$pair_folder, label = r$label, kept = r$kept)
-          if (identical(a$kind, "eaf")) rec$kind <- "eaf"   # Round 34: without the variants flagged by the allele-frequency check
+          if (identical(a$kind, "eaf")) rec$kind <- "eaf"
+          if (!is.null(a$why)) rec$why <- as.character(a$why)[1]   # Round 72e: why these variants were left out (MVMR review)   # Round 34: without the variants flagged by the allele-frequency check
           sens[[length(sens) + 1L]] <- rec; ui_state_set(rv$h$con, "sens", sens)
           ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(rv$h$dir, r$pair_folder), reused = isTRUE(r$reused))
         },
@@ -344,7 +351,7 @@ mr_server <- function(engine_dir) {
           rows <- lapply(a$sets, function(q) tryCatch({ ex <- unlist(q[[1]]); out <- q[[2]]
               rs <- lapply(ex, function(e) tryCatch(library_dataset(sub("^lib:", "", e))$recipe, error = function(z) NULL))
               if (all(startsWith(ex, "lib:")) && all(vapply(rs, function(r) !is.null(r) && .is_ogw_instruments(r), TRUE))) {
-                r <- ogw_mv_build(ex, out, ogw_token_get(), isTRUE(settings_read()$offline)); list(ok = TRUE, note = if (isTRUE(r$reused)) "" else sprintf("prepared \"%s\" (%d joint instruments, clumped on %s)", r$name, r$ledger$final, r$ledger$clumped_where)) }
+                r <- ogw_mv_build(ex, out, ogw_token_get(), isTRUE(settings_read()$offline)); list(ok = TRUE, note = if (isTRUE(r$reused)) "" else sprintf("prepared \"%s\": %d joint instruments (clumped on %s); every exposure and the outcome were looked up on OpenGWAS at all of them, so the exposure an outcome download was made for does not matter", r$name, r$ledger$final, r$ledger$clumped_where)) }
               else list(ok = TRUE, note = "") }, error = function(e) list(ok = FALSE, msg = conditionMessage(e))))
           ev("mv_ready", rows = rows) },
         bidir_prepare = {   # Round 72c: the reverse pairs of a bidirectional study, prepared from OpenGWAS where needed

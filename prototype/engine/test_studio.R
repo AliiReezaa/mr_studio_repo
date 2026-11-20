@@ -1565,6 +1565,24 @@ local({ root <- file.path(tempfile("ogwmed"), "MR Studio"); dir.create(library_d
   f <- stats::lm(beta_y ~ 0 + beta_x_1 + beta_x_2, data = d, weights = 1 / d$se_y^2)
   expect("Round 72c: a mediator downloaded as an outcome is also downloaded as its own instruments, and the direct-effect step recovers 0.2 (exposure) and 0.4 (mediator)",
          identical(r$m_out[[1]], "lib:M for X") && grepl("^lib:", r$m_inst[[1]]) && r$m_inst[[1]] != "lib:M for X" && abs(coef(f)[[1]] - 0.2) < 0.03 && abs(coef(f)[[2]] - 0.4) < 0.03) })
+# ---- Round 72e: MVMR heterogeneity review and reruns without chosen variants ----
+local({ inp <- mv_pair_input(c("expA", "expB"), "outA"); h <- studio_new("MV review")
+  r <- studio_run(h, inp$exposure_label, inp$outcome_label, inp$input, c("mvivw", "mvlasso"), idx = 1L)
+  rv <- mv_review(h, r$pair_folder); q <- Filter(function(d) identical(d$method, "mvivw") && identical(d$name, "mv_q"), pair_payload(h$dir, r$pair_folder)$diagnostics)[[1]]
+  expect("Round 72e: the per-variant contributions add up to Cochran's Q of MVMR-IVW, largest first", abs(rv$q_total - as.numeric(q$value)) < 1e-6 && !is.unsorted(rev(rv$rows$q)))
+  s2 <- studio_run_reduced(h, inp, rv$rows$variant_id[1:2], "mvivw", 0.95, idx = 2L)
+  expect("Round 72e: an MVMR pair reruns without chosen variants as a sensitivity analysis", identical(s2$results$mvivw$status, "ok") && s2$kept == sum(inp$input$data$mr_keep) - 2L) })
+local({ root <- file.path(tempfile("fullgw"), "MR Studio"); dir.create(library_dir(root), recursive = TRUE)
+  mk <- function(name, rec) { dd <- file.path(library_dir(root), name); dir.create(dd); lib_table_write(data.frame(snp = "rs1", ea = "A", oa = "G", beta = 0.1, se = 0.01), dd, "standardised")
+    atomic_write_text(file.path(dd, "recipe.json"), jsonlite::toJSON(c(list(trait = name), rec), auto_unbox = TRUE)) }
+  mk("OG", list(usable_as_exposure = TRUE, usable_as_outcome = FALSE, rows_kept = 79, source = list(type = "opengwas", id = "ieu-a-300")))
+  mk("OGY", list(usable_as_exposure = FALSE, usable_as_outcome = TRUE, rows_kept = 77, source = list(type = "opengwas", id = "ieu-a-7", for_exposure = "OG")))
+  mk("TAB", list(usable_as_exposure = TRUE, usable_as_outcome = FALSE, rows_kept = 50, source = list(type = "import")))
+  mk("FX", list(usable_as_exposure = TRUE, usable_as_outcome = TRUE, rows_kept = 2.4e6, source = list(type = "import")))
+  mk("FY", list(usable_as_exposure = TRUE, usable_as_outcome = TRUE, rows_kept = 1.1e6, source = list(type = "import")))
+  expect("Round 72e: complete-GWAS analyses are offered only when both traits are complete summary statistics, with the reason otherwise",
+         identical(full_gwas_status("lib:OG", "lib:OGY", root)$why, "opengwas") && identical(full_gwas_status("lib:TAB", "lib:FY", root)$why, "instruments") &&
+         isTRUE(full_gwas_status("lib:FX", "lib:FY", root)$ok) && identical(full_gwas_status("expA", "outA", root)$why, "simulated")) })
 # ---- Round 72c: IVW after Steiger filtering without the prevalence of a binary outcome is left out, not failed ----
 local({ d <- data.frame(variant_id = sprintf("rs%d", 1:12), ea = "A", oa = "G", beta_x = seq(.05, .16, length.out = 12), se_x = .01, eaf_x = .3, beta_y = seq(.05, .16, length.out = 12) * .3, se_y = .02, eaf_y = .3,
                         p_x = 1e-10, p_y = .01, n_x = 1e5, n_y = 2e5, ncase_y = 6e4, ncontrol_y = 1.4e5, harmonise_action = "aligned", mr_keep = TRUE, stringsAsFactors = FALSE)

@@ -14,6 +14,7 @@ struct EngineState(Mutex<Option<engine::Engine>>);
 
 fn main() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())   // Round 72e: "run finished" notifications shown as MR Studio
         .manage(EngineState(Mutex::new(None)))
         .setup(|app| {
             let win = WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
@@ -28,7 +29,12 @@ fn main() {
 
             std::thread::spawn(move || {
                 let (r_home, engine_dir) = engine::locate(&resource_dir);
-                match engine::start(&r_home, &engine_dir, &log_path, Duration::from_secs(90)) {
+                let nh = handle.clone();
+                let notify: Box<dyn Fn(String, String) + Send> = Box::new(move |title, body| {
+                    use tauri_plugin_notification::NotificationExt;
+                    let _ = nh.notification().builder().title(title).body(body).show();
+                });
+                match engine::start(&r_home, &engine_dir, &log_path, Duration::from_secs(90), notify) {
                     Ok(eng) => {
                         if std::env::var_os("MRGUI_SMOKE").is_some() {
                             let passed = smoke::run(eng.port, &eng.login_token);

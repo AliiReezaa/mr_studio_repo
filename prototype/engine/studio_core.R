@@ -368,7 +368,18 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8, p = NULL) {   # p: an input 
        has_n = nrow(kept) > 0 && all(c("n_x", "n_y") %in% names(kept)) && all(is.finite(kept$n_x) & is.finite(kept$n_y) & kept$n_x > 2 & kept$n_y > 2),
        simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y),
        scale_x = p$input$exposure_scale %||% "beta", steiger = steiger_readiness(p),
-       i2gx = if (exists("feas_i2gx")) feas_i2gx(kept$beta_x, kept$se_x) else NA_real_)
+       i2gx = if (exists("feas_i2gx")) feas_i2gx(kept$beta_x, kept$se_x) else NA_real_, full_gwas = full_gwas_status(exp_id, out_id))
+}
+#' Round 72e: whether both traits of a pair are complete summary statistics (genome-wide, in the Data library), as LD score regression,
+#' MRlap, MR-APSS, CAUSE and LHC-MR need. OpenGWAS downloads hold only instruments and their lookups.
+full_gwas_status <- function(exp_id, out_id, root = studies_root()) {
+  ids <- c(exp_id, out_id); if (!all(startsWith(ids, "lib:"))) return(list(ok = FALSE, why = "simulated"))
+  rs <- lapply(ids, function(i) tryCatch(library_dataset(sub("^lib:", "", i), root)$recipe, error = function(e) NULL))
+  full <- vapply(rs, function(r) !is.null(r) && !identical(r$source$type, "opengwas") && is.null(r$source$for_exposure) && isTRUE(r$usable_as_outcome) &&
+                   as.numeric(r$rows_kept %||% 0) >= 200000, TRUE)
+  if (all(full)) return(list(ok = TRUE, why = ""))
+  og <- vapply(rs, function(r) !is.null(r) && identical(r$source$type, "opengwas"), TRUE)
+  list(ok = FALSE, why = if (any(og)) "opengwas" else "instruments")
 }
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "Debiased IVW (dIVW)" = "divw", "MR-RAPS (robust adjusted profile score)" = "raps", "Contamination mixture" = "conmix", "MR-Lasso" = "lasso", "MR-Egger with SIMEX correction" = "egger_simex", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger", "MR Steiger directionality" = "steiger")
@@ -668,7 +679,7 @@ instrument_table <- function(exp_id, out_id, pthr = 5e-8) {
 
 #' Sensitivity branch: the same pair analysed again without the chosen variants, as its own pair folder (the primary results stay as they are).
 studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8, keep_presso = FALSE, keep_loo = FALSE)
-  studio_run_reduced(h, pair_input(exp_id, out_id, pthr), remove, methods, ci_level, idx, params, keep_presso, keep_loo)
+  studio_run_reduced(h, if (length(unlist(exp_id)) > 1) mv_pair_input(unlist(exp_id), out_id, pthr) else pair_input(exp_id, out_id, pthr), remove, methods, ci_level, idx, params, keep_presso, keep_loo)   # Round 72e: MVMR pairs too
 
 #' The same, for a prepared pair input (list with input, exposure_label, outcome_label); used by the outlier module and its tests.
 studio_run_reduced <- function(h, inp, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, keep_presso = FALSE, keep_loo = FALSE) {
