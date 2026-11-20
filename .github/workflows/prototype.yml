@@ -186,7 +186,15 @@ jobs:
           fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             RT="$PWD/prototype/runtime"
+            # Round 70d: R passes its compile and link settings to make in single quotes, which only an MSYS-based make reads.
+            # The runtime has no make, so R found the runner's native one, which kept the quotes: run 44724590284, cause
+            # "No rule to make target '$(CXX11STD)''" and MRCD "x86_64-w64-mingw32-g++ -std=gnu++17 : command not found".
+            # The MSYS2 make from conda-forge is installed into the runtime and named in MAKE, which R's installer uses.
+            micromamba install -y -p "$RT" -c conda-forge m2-make
             export PATH="$RT:$RT/Library/bin:$RT/Library/mingw-w64/bin:$RT/Library/usr/bin:$(dirname "$RBIN"):$PATH"
+            MK="$RT/Library/usr/bin/make.exe"; [ -f "$MK" ] || MK="$(find "$RT" -name make.exe | head -1)"
+            [ -n "$MK" ] || { echo "m2-make did not install make.exe"; exit 1; }
+            export MAKE="$(cygpath -m "$MK")"; "$MAKE" --version | head -1
           fi
           "$RBIN" --no-echo --no-restore --vanilla -e '
             # simex 1.8 (Round 41, MR-Egger with SIMEX correction): CRAN source file, checked by SHA-256 before installing

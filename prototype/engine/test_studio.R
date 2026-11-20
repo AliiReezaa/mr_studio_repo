@@ -902,7 +902,7 @@ expect("feasibility: every rule id is unique and comes from the project's rule l
        !anyDuplicated(fr$rule_id) && all(fr$rule_id %in% spec_ids) && all(fr$test[fr$active_v1 == "yes"] %in% known_tests) && all(nzchar(fr$source)) && all(spec_ids %in% fr$rule_id))
 fx_base <- pair_facts("expA", "outA")
 fz <- feasibility(list(fx_base))
-expect("feasibility: the demo pair (40 strong instruments) leaves every method available, IVW without any rule", all(vapply(fz$methods, `[[`, "", "state") %in% c("ok", "check")) && identical(fz$methods$ivw_mre$state, "ok") && !length(fz$methods$ivw_mre$reasons))
+expect("feasibility: the demo pair (40 strong instruments) leaves every method available, IVW without any rule (a method whose package is not in this runtime is locked for that reason only, Round 70b)", all(vapply(fz$methods, function(x) x$state %in% c("ok", "check") || all(vapply(x$reasons, `[[`, "", "rule") == "PKG"), TRUE)) && identical(fz$methods$ivw_mre$state, "ok") && !length(fz$methods$ivw_mre$reasons))
 mk <- function(...) modifyList(fx_base, list(...))
 f3 <- feasibility(list(mk(instruments = 3)))
 expect("feasibility: 3 instruments lock MR-PRESSO and radial MR-Egger (R20) and warn for MR-Egger (R21); IVW stays usable with the R21b warning",
