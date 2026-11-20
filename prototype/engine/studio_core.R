@@ -396,6 +396,9 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
   rm_ <- runnable_methods(methods, input, ad); methods <- rm_$methods
   if (!length(methods)) stop("None of the chosen methods can run on this pair: ", paste(sprintf("%s (%s)", names(rm_$left_out), rm_$left_out), collapse = "; "), ".")
   if (is.null(steiger_in)) steiger_in <- input   # a continuous pair needs nothing extra; a binary one gets steiger_input()
+  if ("ivw_steiger" %in% methods) { v <- ad$ivw_steiger$check(steiger_in, params[intersect(names(params), names(ad$ivw_steiger$params))])   # Round 72c
+    if (identical(v$status, "block")) { methods <- setdiff(methods, "ivw_steiger"); rm_$left_out[["ivw_steiger"]] <- paste("left out,", paste(v$messages, collapse = " "))
+      if (!length(methods)) stop("None of the chosen methods can run on this pair: ivw_steiger (", paste(v$messages, collapse = " "), ").") } }
   if ("steiger" %in% methods) { v <- ad$steiger$check(steiger_in, list()); if (identical(v$status, "block")) stop(paste(v$messages, collapse = " ")) }   # the script would stop on missing sample sizes but could not tell a binary outcome
   spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = if (m %in% c("steiger", "ivw_steiger")) steiger_in else input,
                                            params = params[intersect(names(params), names(ad[[m]]$params))]))

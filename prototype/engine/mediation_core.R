@@ -40,8 +40,11 @@ mediation_pair_input <- function(med, pthr = 5e-8) {
   if (!role %in% c("total", "xm", "direct", "joint")) stop("Unknown mediation step.", call. = FALSE)
   lib <- startsWith(c(x, ms, y), "lib:")
   if (length(unique(lib)) > 1) stop("Simulated traits cannot be mixed with imported ones. Choose only simulated or only imported datasets.", call. = FALSE)
-  if (all(lib)) return(switch(role, total = pair_input(x, y, pthr), xm = pair_input(x, m, pthr),
-                              direct = mv_pair_input(c(x, m), y, pthr), joint = mv_pair_input(c(x, ms), y, pthr)))
+  # Round 72c: with OpenGWAS downloads a mediator is used in two forms, prepared by mediation_prepare(): looked up at the exposure's
+  # instruments (exposure -> mediator) and as its own instruments (the multivariable steps). m and ms stay the labels the steps are matched by.
+  m_out <- med$m_out %||% m; m_inst <- med$m_inst %||% m; ms_inst <- unlist(med$ms_inst) %||% ms
+  if (all(lib)) return(switch(role, total = pair_input(x, y, pthr), xm = pair_input(x, m_out, pthr),
+                              direct = mv_pair_input(c(x, m_inst), y, pthr), joint = mv_pair_input(c(x, ms_inst), y, pthr)))
   w <- demo_mediation_world(x, ms, y); K <- length(w$traits); j <- match(m, w$traits)
   if (role == "total") return(.demo_uni(w, w$grp == 1L, w$B[w$grp == 1L, 1], w$S[w$grp == 1L, 1], w$by[w$grp == 1L], w$sy[w$grp == 1L], w$n_x[1], w$n_y, w$names[1], w$y_name, x, y))
   if (role == "xm") { r <- w$grp == 1L; return(.demo_uni(w, r, w$B[r, 1], w$S[r, 1], w$B[r, j], w$S[r, j], w$n_x[1], w$n_x[j], w$names[1], w$names[j], x, m)) }
@@ -146,4 +149,23 @@ mediation_results_text <- function(res, spec) {
   tt <- res[res$quantity == "total", ][1, ]
   if (tt$ci_lower <= 0 && tt$ci_upper >= 0) out <- c(out, "The total effect's confidence interval includes no effect, so the proportions mediated should not be interpreted.")
   out
+}
+
+# ---- Round 72c: mediation from OpenGWAS downloads ------------------------------------------------------------------------------------
+#' For exposure x, mediators ms and outcome y (library ids): each mediator in both forms (outcome at x's instruments; own instruments, with
+#' x's instrument settings), then the multivariable sets of x with each mediator, and with all of them, on y. Imported full summary
+#' statistics serve both forms as they are. Returns list(m_out, m_inst, notes).
+mediation_prepare <- function(x, ms, y, jwt = NULL, offline = FALSE, root = studies_root(), get_exposure = ogw_get_exposure, get_outcome = ogw_get_outcome, backend = ogw_backend(), panel = NULL) {
+  ms <- unlist(ms); rx <- library_dataset(sub("^lib:", "", x), root)$recipe; ry <- library_dataset(sub("^lib:", "", y), root)$recipe
+  if (!.is_ogw_instruments(rx)) return(list(m_out = as.list(ms), m_inst = as.list(ms), notes = character()))   # full summary statistics: nothing to prepare
+  notes <- character(); m_out <- m_inst <- character(length(ms))
+  for (i in seq_along(ms)) { rm <- library_dataset(sub("^lib:", "", ms[i]), root)$recipe; src <- rm$source
+    if (!identical(src$type, "opengwas")) { m_out[i] <- m_inst[i] <- ms[i]; next }
+    if (isTRUE(rm$usable_as_exposure)) { m_inst[i] <- ms[i]
+      r <- ogw_ensure_outcome(src, rm$trait, rx$trait, ry$source$params %||% list(proxies = TRUE, rsq = 0.8, maf_threshold = 0.3), jwt, offline, root, get_outcome); m_out[i] <- paste0("lib:", r$name); notes <- c(notes, r$note)
+    } else { m_out[i] <- ms[i]
+      r <- ogw_ensure_exposure(src, rm$trait, rx$source$params, jwt, offline, root, get_exposure); m_inst[i] <- paste0("lib:", r$name); notes <- c(notes, r$note) } }
+  for (i in seq_along(ms)) { r <- ogw_mv_build(c(x, m_inst[i]), y, jwt, offline, root, backend, panel); if (!isTRUE(r$reused)) notes <- c(notes, sprintf("prepared \"%s\"", r$name)) }
+  if (length(ms) > 1) { r <- ogw_mv_build(c(x, m_inst), y, jwt, offline, root, backend, panel); if (!isTRUE(r$reused)) notes <- c(notes, sprintf("prepared \"%s\"", r$name)) }
+  list(m_out = as.list(m_out), m_inst = as.list(m_inst), notes = notes[nzchar(notes)])
 }

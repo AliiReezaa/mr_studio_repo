@@ -91,3 +91,41 @@ mem_guard_start <- function(pid, status_file, every = 30, engine = getOption("mr
 # computation peaked at 0.51 GB on chromosome 2 (one of the largest); PLINK's extraction is a small separate process.
 ldsc_memory_gb <- function(rows) 1.5 + 0.12 * max(rows, 0, na.rm = TRUE) / 1e6
 LDSCORE_MEMORY_GB <- 1.0
+
+# ---- Round 72c: keep the computer awake during a run, and a system notification when it finishes -----------------------------------
+# Both follow the Settings switches (awake, notify; on by default). Nothing is sent online. The keep-awake helper is tied to the engine
+# process, so it ends by itself if the app closes; keep_awake_stop() ends it when the run finishes or is stopped.
+.awake <- new.env()
+keep_awake_start <- function() {
+  keep_awake_stop()
+  sys <- Sys.info()[["sysname"]]; pid <- Sys.getpid()
+  r <- tryCatch(.with_user_env(
+    if (sys == "Darwin") {   # caffeinate: no idle sleep while the engine process lives (-w), released when stopped
+      as.integer(system2("/bin/sh", c("-c", shQuote(sprintf("/usr/bin/caffeinate -i -w %d >/dev/null 2>&1 & echo $!", pid))), stdout = TRUE))
+    } else if (.Platform$OS.type == "windows") {   # SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) until the engine process ends
+      pf <- tempfile(fileext = ".pid")
+      ps <- sprintf("$PID | Out-File -Encoding ascii '%s'; Add-Type -Namespace MRS -Name P -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern uint SetThreadExecutionState(uint f);'; [MRS.P]::SetThreadExecutionState(0x80000001) | Out-Null; Wait-Process -Id %d", normalizePath(pf, winslash = "/", mustWork = FALSE), pid)
+      system2("powershell.exe", c("-NoProfile", "-WindowStyle", "Hidden", "-Command", shQuote(ps, type = "cmd")), wait = FALSE, stdout = FALSE, stderr = FALSE)
+      for (i in 1:20) { if (file.exists(pf) && length(x <- suppressWarnings(as.integer(readLines(pf, warn = FALSE)))) && is.finite(x[1])) break; Sys.sleep(0.25) }
+      if (file.exists(pf)) suppressWarnings(as.integer(readLines(pf, warn = FALSE))[1]) else NA_integer_
+    } else NA_integer_), error = function(e) NA_integer_)
+  .awake$pid <- if (length(r) && is.finite(r[1])) r[1] else NA_integer_
+  invisible(is.finite(.awake$pid))
+}
+keep_awake_stop <- function() {
+  p <- .awake$pid; .awake$pid <- NULL
+  if (!is.null(p) && is.finite(p)) tryCatch(tools::pskill(p), error = function(e) NULL)
+  invisible(TRUE)
+}
+#' A system notification (macOS Notification Centre, Windows notification area). Text is MR Studio's own, never from a page.
+notify_done <- function(title, msg) {
+  sys <- Sys.info()[["sysname"]]; clean <- function(x) gsub("[\"'`$\\\\]", "", x)
+  tryCatch(.with_user_env(
+    if (sys == "Darwin") {
+      system2("/usr/bin/osascript", c("-e", shQuote(sprintf("display notification \"%s\" with title \"%s\"", clean(msg), clean(title)))), wait = FALSE, stdout = FALSE, stderr = FALSE)
+    } else if (.Platform$OS.type == "windows") {
+      ps <- sprintf("Add-Type -AssemblyName System.Windows.Forms; $n = New-Object System.Windows.Forms.NotifyIcon; $n.Icon = [System.Drawing.SystemIcons]::Information; $n.Visible = $true; $n.ShowBalloonTip(8000, '%s', '%s', 'Info'); Start-Sleep -Seconds 9; $n.Dispose()", clean(title), clean(msg))
+      system2("powershell.exe", c("-NoProfile", "-WindowStyle", "Hidden", "-Command", shQuote(ps, type = "cmd")), wait = FALSE, stdout = FALSE, stderr = FALSE)
+    }), error = function(e) NULL)
+  invisible(TRUE)
+}

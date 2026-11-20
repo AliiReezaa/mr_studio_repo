@@ -1498,6 +1498,80 @@ local({ uni <- list(data = data.frame(beta_x = 1, se_x = 1, beta_y = 1, se_y = 1
   a <- runnable_methods(c("mvivw", "ivw_mre", "egger"), uni); b <- runnable_methods(c("mvivw", "ivw_mre"), mv)
   expect("Round 70b: multivariable methods are left out of a one-exposure pair, and one-exposure methods out of a multivariable pair, with the reason",
          identical(a$methods, c("ivw_mre", "egger")) && grepl("two or more exposures", a$left_out[["mvivw"]]) && identical(b$methods, "mvivw") && grepl("one-exposure method", b$left_out[["ivw_mre"]])) })
+expect("Round 72c: an ancestry with no reference panel keeps OpenGWAS's own word instead of a question mark", identical(.ogw_ancestry("Mixed"), "Mixed") && identical(.ogw_ancestry("European"), "EUR") && identical(.ogw_ancestry(NULL), "not reported"))
+# ---- Round 72c: the reverse direction of a bidirectional study from OpenGWAS downloads ----
+local({ root <- file.path(tempfile("bidirrev"), "MR Studio"); dir.create(library_dir(root), recursive = TRUE)
+  mk <- function(name, src, usable_x, usable_y) { dd <- file.path(library_dir(root), name); dir.create(dd)
+    lib_table_write(data.frame(snp = "rs1", ea = "A", oa = "G", beta = 0.1, se = 0.01), dd, "standardised")
+    atomic_write_text(file.path(dd, "recipe.json"), jsonlite::toJSON(list(trait = name, usable_as_exposure = usable_x, usable_as_outcome = usable_y, source = src), auto_unbox = TRUE)) }
+  px <- list(pval = 5e-8, clump = 1, r2 = 0.001, kb = 10000, pop = "EUR", where = "server_live"); py <- list(proxies = TRUE, rsq = 0.8, maf_threshold = 0.3)
+  mk("LDL", list(type = "opengwas", role = "exposure", id = "ieu-a-300", trait = "LDL cholesterol", params = px), TRUE, FALSE)
+  mk("CHD for LDL", list(type = "opengwas", role = "outcome", id = "ieu-a-7", trait = "Coronary heart disease", params = py, for_exposure = "LDL"), FALSE, TRUE)
+  calls <- character()
+  gx <- function(id, jwt, p, r2, kb, pop, name, offline, root, where) { calls <<- c(calls, sprintf("x %s %s %s %s", id, format(p), pop, where)); mk(name, list(type = "opengwas", role = "exposure", id = id, trait = "CHD", params = px), TRUE, FALSE); list(trait = name) }
+  gy <- function(id, exposure_name, jwt, proxies, rsq, maf, name, offline, root) { calls <<- c(calls, sprintf("y %s for %s %s", id, exposure_name, rsq)); mk(name, list(type = "opengwas", role = "outcome", id = id, trait = "LDL", params = py, for_exposure = exposure_name), FALSE, TRUE); list(trait = name) }
+  r1 <- bidir_reverse("lib:LDL", "lib:CHD for LDL", "tok", root = root, get_exposure = gx, get_outcome = gy)
+  r2 <- bidir_reverse("lib:LDL", "lib:CHD for LDL", "tok", root = root, get_exposure = gx, get_outcome = gy)
+  expect("Round 72c: the reverse direction downloads the outcome trait as an exposure with the forward settings, and the exposure trait as an outcome for it",
+         identical(calls, c("x ieu-a-7 5e-08 EUR server_live", sprintf("y ieu-a-300 for %s 0.8", r1$exName))) && identical(r1$ex, paste0("lib:", r1$exName)) && grepl("downloaded", r1$note))
+  expect("Round 72c: a second preparation reuses the reverse downloads", length(calls) == 2L && identical(r2[c("ex", "out")], r1[c("ex", "out")]) && identical(r2$note, ""))
+  mk("My file", list(type = "import"), TRUE, FALSE); mk("Outcome for My file", list(type = "import", for_exposure = "My file"), FALSE, TRUE)
+  expect("Round 72c: data that is neither full summary statistics nor from OpenGWAS gets a clear message", grepl("needs .* as an exposure", err_of(bidir_reverse("lib:My file", "lib:Outcome for My file", root = root)))) })
+# ---- Round 72c: multivariable data from OpenGWAS downloads ----
+local({ root <- file.path(tempfile("ogwmv"), "MR Studio"); dir.create(library_dir(root), recursive = TRUE)
+  set.seed(72); snps <- sprintf("rs%d", 101:140); b1 <- rnorm(40, 0, .05); b2 <- rnorm(40, 0, .05); by <- 0.3 * b1 + 0 * b2 + rnorm(40, 0, .002)
+  truth <- list(`ieu-x1` = b1, `ieu-x2` = b2, `ieu-y` = by)
+  mkx <- function(name, id, rows) { dd <- file.path(library_dir(root), name); dir.create(dd)
+    lib_table_write(data.frame(snp = snps[rows], ea = "A", oa = "C", eaf = .3, beta = truth[[id]][rows], se = .002, p = 1e-12 / seq_along(rows), stringsAsFactors = FALSE), dd, "standardised")
+    atomic_write_text(file.path(dd, "recipe.json"), jsonlite::toJSON(list(trait = name, usable_as_exposure = TRUE, usable_as_outcome = FALSE, facts = list(ancestry = "EUR", n = 1e5, kind = "continuous"),
+      original = list(sha256 = name), source = list(type = "opengwas", role = "exposure", id = id, params = list(pval = 5e-8))), auto_unbox = TRUE)) }
+  mkx("X1", "ieu-x1", 1:22); mkx("X2", "ieu-x2", 15:40)
+  dd <- file.path(library_dir(root), "Y for X1"); dir.create(dd); lib_table_write(data.frame(snp = "rs101", ea = "A", oa = "C", beta = 0, se = 1), dd, "standardised")
+  atomic_write_text(file.path(dd, "recipe.json"), jsonlite::toJSON(list(trait = "Y for X1", usable_as_exposure = FALSE, usable_as_outcome = TRUE, facts = list(ancestry = "EUR", kind = "continuous"),
+    source = list(type = "opengwas", role = "outcome", id = "ieu-y", for_exposure = "X1", params = list(proxies = TRUE, rsq = 0.9, maf_threshold = 0.3))), auto_unbox = TRUE))
+  asked <- list()
+  bk <- list(clump = function(snps, p, r2, kb, pop, jwt) snps,
+             outcome = function(q, id, proxies, rsq, maf, jwt) { asked[[length(asked) + 1L]] <<- list(id = id, proxies = proxies, rsq = rsq); i <- match(q, snps)
+               data.frame(SNP = q, effect_allele.outcome = "A", other_allele.outcome = "C", eaf.outcome = .3, beta.outcome = truth[[id]][i], se.outcome = .002, pval.outcome = .01, samplesize.outcome = 1e5, stringsAsFactors = FALSE) })
+  r1 <- ogw_mv_build(c("lib:X1", "lib:X2"), "lib:Y for X1", "tok", root = root, backend = bk, panel = FALSE)
+  r2 <- ogw_mv_build(c("lib:X1", "lib:X2"), "lib:Y for X1", "tok", root = root, backend = bk, panel = FALSE)
+  inp <- ogw_mv_input(c("lib:X1", "lib:X2"), "lib:Y for X1", root = root)$input$data; inp <- inp[inp$mr_keep, ]
+  f <- stats::lm(beta_y ~ 0 + beta_x_1 + beta_x_2, data = inp, weights = 1 / inp$se_y^2)
+  expect("Round 72c: OpenGWAS multivariable set: the union of both exposures' instruments, every exposure and the outcome looked up there, the outcome with its own proxy settings",
+         nrow(inp) == 40L && r1$ledger$union == 40L && length(asked) == 3L && identical(asked[[3]]$id, "ieu-y") && isTRUE(asked[[3]]$proxies) && asked[[3]]$rsq == 0.9 && !isTRUE(asked[[1]]$proxies))
+  expect("Round 72c: OpenGWAS multivariable set recovers the direct effects (0.3 and 0) and is reused while its downloads are unchanged",
+         abs(coef(f)[[1]] - 0.3) < 0.02 && abs(coef(f)[[2]]) < 0.02 && isTRUE(r2$reused) && identical(r2$name, r1$name) && length(asked) == 3L)
+  old <- Sys.getenv("MRGUI_STUDIES_DIR"); Sys.setenv(MRGUI_STUDIES_DIR = root); on.exit(Sys.setenv(MRGUI_STUDIES_DIR = old))
+  expect("Round 72c: a multivariable pair of OpenGWAS downloads uses the prepared set", identical(mv_pair_input(c("lib:X1", "lib:X2"), "lib:Y for X1")$input$kind, "multi_iv")) })
+# ---- Round 72c: mediation from OpenGWAS downloads ----
+local({ root <- file.path(tempfile("ogwmed"), "MR Studio"); dir.create(library_dir(root), recursive = TRUE)
+  set.seed(73); snps <- sprintf("rs%d", 201:240); bx <- rnorm(40, 0, .05); bm <- 0.5 * bx + rnorm(40, 0, .05); by <- 0.2 * bx + 0.4 * bm + rnorm(40, 0, .002)
+  truth <- list(`ieu-x` = bx, `ieu-m` = bm, `ieu-y` = by)
+  rec <- function(name, src, ux, uy, rows) { dd <- file.path(library_dir(root), name); dir.create(dd)
+    lib_table_write(data.frame(snp = snps[rows], ea = "A", oa = "C", eaf = .3, beta = truth[[src$id]][rows], se = .002, p = 1e-12 / seq_along(rows), stringsAsFactors = FALSE), dd, "standardised")
+    atomic_write_text(file.path(dd, "recipe.json"), jsonlite::toJSON(list(trait = name, usable_as_exposure = ux, usable_as_outcome = uy, facts = list(ancestry = "EUR", n = 1e5, kind = "continuous"),
+      original = list(sha256 = name), source = src), auto_unbox = TRUE)); list(trait = name) }
+  px <- list(pval = 5e-8, clump = 1, r2 = 0.001, kb = 10000, pop = "EUR", where = "server_live"); py <- list(proxies = TRUE, rsq = 0.8, maf_threshold = 0.3)
+  rec("X", list(type = "opengwas", role = "exposure", id = "ieu-x", params = px), TRUE, FALSE, 1:20)
+  rec("M for X", list(type = "opengwas", role = "outcome", id = "ieu-m", for_exposure = "X", params = py), FALSE, TRUE, 1:20)
+  rec("Y for X", list(type = "opengwas", role = "outcome", id = "ieu-y", for_exposure = "X", params = py), FALSE, TRUE, 1:20)
+  gx <- function(id, jwt, p, r2, kb, pop, name, offline, root, where) rec(name, list(type = "opengwas", role = "exposure", id = id, params = px), TRUE, FALSE, 15:40)
+  gy <- function(id, exposure_name, jwt, proxies, rsq, maf, name, offline, root) stop("not expected")
+  bk <- list(clump = function(snps, p, r2, kb, pop, jwt) snps, outcome = function(q, id, proxies, rsq, maf, jwt) { i <- match(q, snps)
+    data.frame(SNP = q, effect_allele.outcome = "A", other_allele.outcome = "C", eaf.outcome = .3, beta.outcome = truth[[id]][i], se.outcome = .002, pval.outcome = .01, samplesize.outcome = 1e5, stringsAsFactors = FALSE) })
+  r <- mediation_prepare("lib:X", "lib:M for X", "lib:Y for X", "tok", root = root, get_exposure = gx, get_outcome = gy, backend = bk, panel = FALSE)
+  old <- Sys.getenv("MRGUI_STUDIES_DIR"); Sys.setenv(MRGUI_STUDIES_DIR = root); on.exit(Sys.setenv(MRGUI_STUDIES_DIR = old))
+  d <- mediation_pair_input(list(role = "direct", x = "lib:X", ms = list("lib:M for X"), y = "lib:Y for X", m = "lib:M for X", m_out = r$m_out[[1]], m_inst = r$m_inst[[1]]))$input$data; d <- d[d$mr_keep, ]
+  f <- stats::lm(beta_y ~ 0 + beta_x_1 + beta_x_2, data = d, weights = 1 / d$se_y^2)
+  expect("Round 72c: a mediator downloaded as an outcome is also downloaded as its own instruments, and the direct-effect step recovers 0.2 (exposure) and 0.4 (mediator)",
+         identical(r$m_out[[1]], "lib:M for X") && grepl("^lib:", r$m_inst[[1]]) && r$m_inst[[1]] != "lib:M for X" && abs(coef(f)[[1]] - 0.2) < 0.03 && abs(coef(f)[[2]] - 0.4) < 0.03) })
+# ---- Round 72c: IVW after Steiger filtering without the prevalence of a binary outcome is left out, not failed ----
+local({ d <- data.frame(variant_id = sprintf("rs%d", 1:12), ea = "A", oa = "G", beta_x = seq(.05, .16, length.out = 12), se_x = .01, eaf_x = .3, beta_y = seq(.05, .16, length.out = 12) * .3, se_y = .02, eaf_y = .3,
+                        p_x = 1e-10, p_y = .01, n_x = 1e5, n_y = 2e5, ncase_y = 6e4, ncontrol_y = 1.4e5, harmonise_action = "aligned", mr_keep = TRUE, stringsAsFactors = FALSE)
+  inp <- list(kind = "pair_iv", data = d, exposure_id = "x", outcome_id = "y", outcome_scale = "log_or", exposure_scale = "beta")
+  h <- studio_new("Steiger prevalence"); r <- studio_run(h, "X", "Y binary", inp, c("ivw_mre", "ivw_steiger"), idx = 1L, steiger_in = inp)
+  expect("Round 72c: without the prevalence of a binary outcome, IVW after Steiger filtering is left out with the reason and IVW still runs",
+         identical(names(r$results), "ivw_mre") && identical(r$results$ivw_mre$status, "ok") && grepl("prevalence", r$left_out[["ivw_steiger"]])) })
 # ---- Round 70: CAUSE ----
 local({
   d <- data.frame(snp = c("rs1", "rs2", "rs3", "rs1", NA), ea = c("a", "C", "G", "a", "T"), oa = c("g", "T", "A", "g", "C"), beta = c(0.1, NA, 0.3, 0.1, 0.2), se = 0.05, stringsAsFactors = FALSE)

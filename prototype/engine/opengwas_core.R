@@ -16,6 +16,9 @@ ogw_pop_code <- function(label) {
   NA_character_
 }
 
+#' Ancestry as stored for a download: the panel code where one exists, otherwise OpenGWAS's own word (Round 72c: "Mixed" was shown as "?").
+.ogw_ancestry <- function(label) { pc <- ogw_pop_code(label); if (is.na(pc)) { l <- as.character(label %||% NA_character_)[1]; if (is.na(l) || !nzchar(l)) "not reported" else l } else pc }
+
 # ---- the access token ----------------------------------------------------------------------------------------------------------------
 #' Tidy what the user pasted (spaces, quotes, "Bearer ") and check that it has the shape of a token. Returns NULL when it does not.
 ogw_clean_token <- function(x) {
@@ -101,6 +104,8 @@ ogw_ca_next <- function() {
   info = function(jwt, id = NULL) as.data.frame(ieugwasr::gwasinfo(id, opengwas_jwt = jwt), stringsAsFactors = FALSE),
   tophits = function(id, p, r2, kb, pop, jwt, clump = 1, force = FALSE) as.data.frame(ieugwasr::tophits(id, pval = p, clump = clump, r2 = r2, kb = kb, pop = pop, force_server = force, opengwas_jwt = jwt), stringsAsFactors = FALSE),
   outcome = function(snps, id, proxies, rsq, maf, jwt) as.data.frame(suppressMessages(TwoSampleMR::extract_outcome_data(snps, id, proxies = proxies, rsq = rsq, maf_threshold = maf, opengwas_jwt = jwt)), stringsAsFactors = FALSE),
+  # Round 72c: joint clumping on the OpenGWAS server (multivariable sets when no 1000 Genomes panel is installed); returns the kept rsIDs
+  clump = function(snps, p, r2, kb, pop, jwt) as.character(ieugwasr::ld_clump(data.frame(rsid = snps, pval = p, stringsAsFactors = FALSE), clump_kb = kb, clump_r2 = r2, pop = pop, opengwas_jwt = jwt)$rsid),
   # Round 49 (FR-106, FR-112): other-trait associations of flagged variants, and their nearest gene from Ensembl VEP (GRCh37, the build of OpenGWAS).
   phewas = function(snps, p, jwt) as.data.frame(ieugwasr::phewas(snps, pval = p, opengwas_jwt = jwt), stringsAsFactors = FALSE),
   genes = function(rsids) { r <- httr::POST("https://grch37.rest.ensembl.org/vep/human/id", body = list(ids = as.list(rsids)), encode = "json", query = list(nearest = "symbol", pick = 1),
@@ -365,7 +370,7 @@ ogw_get_outcome <- function(id, exposure_name, jwt, proxies = TRUE, rsq = 0.8, m
   if (n_prox) w <- c(w, sprintf("%d instruments were replaced by a proxy variant (r² at least %s). The proxy's own ID is in the column proxy_snp.", n_prox, format(rsq)))
   if (!is.finite(meta$sample_size)) w <- c(w, "The catalogue does not give a sample size for this dataset.")
   rec <- list(trait = nm, role = "outcome",
-              facts = list(name = nm, role = "outcome", kind = ogw_kind(meta$ncase), scale = "beta", ea_ok = "yes", frq = "eaf", build = .ogw_build(meta$build), ancestry = ogw_pop_code(meta$population) %||% (meta$population %||% "?"), n = .ogw_n(meta$sample_size),
+              facts = list(name = nm, role = "outcome", kind = ogw_kind(meta$ncase), scale = "beta", ea_ok = "yes", frq = "eaf", build = .ogw_build(meta$build), ancestry = .ogw_ancestry(meta$population), n = .ogw_n(meta$sample_size),
                            scope = "selected", independent = "no", ukb = .ogw_is_ukb(meta)),
               mapping = list(snp = "rsid", chr = "chr", pos = "position", ea = "ea", oa = "nea", eaf = "eaf", beta = "beta", se = "se", p = "p", n = "n"),
               original = list(file = paste0("OpenGWAS:", id)), rows_in_file = nrow(o), rows_kept = nrow(std), warnings = as.list(w), saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),

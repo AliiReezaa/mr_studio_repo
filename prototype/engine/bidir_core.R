@@ -57,3 +57,49 @@ bidir_cml_text <- function(res) {
   sprintf("Bidirectional constrained maximum likelihood (%d variants): %s on %s %s, and %s on %s %s (BiDirMRcML); BiDirCDcML, which works on standardised effects (per SD of one trait on SD of the other), gave %s and %s.",
           res$variants[1], l[["x"]], l[["y"]], f(g("BiDirMRcML", "XtoY")), l[["y"]], l[["x"]], f(g("BiDirMRcML", "YtoX")), f(g("BiDirCDcML", "XtoY")), f(g("BiDirCDcML", "YtoX")))
 }
+
+# ---- Round 72c: the reverse direction of a bidirectional study from OpenGWAS downloads ----------------------------------------------
+# A study picks exposure A (instruments of A) and outcome B (B looked up at A's instruments). The reverse direction needs B's own
+# instruments and A looked up at them, which these two downloads do not hold. When both come from OpenGWAS, the reverse pair is
+# prepared from the same datasets with the same settings: B is downloaded as an exposure (P threshold, clumping, ancestry as for A)
+# and A as an outcome for it (proxy settings as for B). Matching downloads already in the Data library are reused.
+.lib_recipes <- function(root = studies_root()) {
+  d <- list.dirs(library_dir(root), recursive = FALSE, full.names = TRUE); d <- d[file.exists(file.path(d, "recipe.json"))]
+  r <- lapply(d, function(x) tryCatch(jsonlite::fromJSON(file.path(x, "recipe.json"), simplifyVector = FALSE), error = function(e) NULL)); names(r) <- basename(d); Filter(Negate(is.null), r)
+}
+.same_params <- function(a, b, keys) all(vapply(keys, function(k) identical(as.character(a[[k]] %||% ""), as.character(b[[k]] %||% "")), TRUE))
+.free_name <- function(nm, root) { cand <- nm; i <- 2L; while (dir.exists(file.path(library_dir(root), cand))) { cand <- sprintf("%s %d", nm, i); i <- i + 1L }; cand }
+
+#' Library ids for the reverse direction of the pair (exposure ex_id, outcome out_id). Returns list(ex, out, exName, outName, note).
+bidir_reverse <- function(ex_id, out_id, jwt = NULL, offline = FALSE, root = studies_root(), get_exposure = ogw_get_exposure, get_outcome = ogw_get_outcome) {
+  plain <- list(ex = out_id, out = ex_id, note = "")
+  if (!startsWith(ex_id, "lib:") || !startsWith(out_id, "lib:")) return(plain)   # simulated traits: the same datasets serve both directions
+  e <- library_dataset(sub("^lib:", "", ex_id), root)$recipe; o <- library_dataset(sub("^lib:", "", out_id), root)$recipe
+  if (isTRUE(o$usable_as_exposure) && is.null(e$source$for_exposure) && isTRUE(e$usable_as_outcome)) return(plain)   # full summary statistics both ways
+  es <- e$source; os <- o$source
+  if (!identical(es$type, "opengwas") || !identical(os$type, "opengwas") || is.null(es$id) || is.null(os$id))
+    stop(sprintf("The reverse direction needs \"%s\" as an exposure and \"%s\" as an outcome for it. Download both from OpenGWAS, or import the full summary statistics of both traits.", o$trait, e$trait), call. = FALSE)
+  rx <- ogw_ensure_exposure(os, o$trait, es$params, jwt, offline, root, get_exposure)
+  ry <- ogw_ensure_outcome(es, e$trait, rx$name, os$params, jwt, offline, root, get_outcome)
+  nx <- rx$name; ny <- ry$name; note <- c(rx$note, ry$note); note <- note[nzchar(note)]
+  list(ex = paste0("lib:", nx), out = paste0("lib:", ny), exName = nx, outName = ny, note = paste(note, collapse = "; "))
+}
+
+#' The OpenGWAS dataset `src` (source block of a download) as an exposure with the instrument settings `px`; reused when present.
+ogw_ensure_exposure <- function(src, label, px, jwt, offline, root, get_exposure = ogw_get_exposure) {
+  kx <- c("pval", "clump", "r2", "kb", "pop", "where")
+  hit <- Filter(function(r) identical(r$source$type, "opengwas") && identical(r$source$id, src$id) && isTRUE(r$usable_as_exposure) && .same_params(r$source$params, px, kx), .lib_recipes(root))
+  if (length(hit)) return(list(name = names(hit)[1], note = ""))
+  nx <- .free_name(sprintf("%s (%s)", src$trait %||% label, src$id), root)
+  nx <- get_exposure(src$id, jwt, as.numeric(px$pval %||% 5e-8), as.numeric(px$r2 %||% 0.001), as.numeric(px$kb %||% 10000), px$pop, nx, offline, root = root, where = px$where %||% "server")$trait
+  list(name = nx, note = sprintf("downloaded \"%s\" as an exposure", nx))
+}
+#' The OpenGWAS dataset `src` looked up at the instruments of the library exposure `exposure_name`, with the proxy settings `py`.
+ogw_ensure_outcome <- function(src, label, exposure_name, py, jwt, offline, root, get_outcome = ogw_get_outcome) {
+  ky <- c("proxies", "rsq", "maf_threshold")
+  hit <- Filter(function(r) identical(r$source$type, "opengwas") && identical(r$source$id, src$id) && identical(r$source$for_exposure, exposure_name) && .same_params(r$source$params, py, ky), .lib_recipes(root))
+  if (length(hit)) return(list(name = names(hit)[1], note = ""))
+  ny <- .free_name(sprintf("%s for %s", src$trait %||% label, exposure_name), root)
+  ny <- get_outcome(src$id, exposure_name, jwt, !identical(py$proxies, FALSE), as.numeric(py$rsq %||% 0.8), as.numeric(py$maf_threshold %||% 0.3), ny, offline, root = root)$trait
+  list(name = ny, note = sprintf("downloaded \"%s\" as an outcome for %s", ny, exposure_name))
+}

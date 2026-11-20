@@ -337,6 +337,24 @@ mr_server <- function(engine_dir) {
         },
         open_package = { req(rv$h); open_in_file_manager(file.path(rv$h$dir, "05_publication", a$folder)) },
         open_folder = { req(rv$h); open_in_file_manager(rv$h$dir) },
+        med_prepare = {   # Round 72c: the mediators of a mediation study in both forms, and its multivariable sets, from OpenGWAS where needed
+          r <- tryCatch(c(mediation_prepare(a$x, unlist(a$ms), a$y, ogw_token_get(), isTRUE(settings_read()$offline)), list(ok = TRUE)), error = function(e) list(ok = FALSE, msg = conditionMessage(e)))
+          ev("med_ready", r = r) },
+        mv_prepare = {   # Round 72c: multivariable sets from OpenGWAS downloads (no-op for imported full summary statistics)
+          rows <- lapply(a$sets, function(q) tryCatch({ ex <- unlist(q[[1]]); out <- q[[2]]
+              rs <- lapply(ex, function(e) tryCatch(library_dataset(sub("^lib:", "", e))$recipe, error = function(z) NULL))
+              if (all(startsWith(ex, "lib:")) && all(vapply(rs, function(r) !is.null(r) && .is_ogw_instruments(r), TRUE))) {
+                r <- ogw_mv_build(ex, out, ogw_token_get(), isTRUE(settings_read()$offline)); list(ok = TRUE, note = if (isTRUE(r$reused)) "" else sprintf("prepared \"%s\" (%d joint instruments, clumped on %s)", r$name, r$ledger$final, r$ledger$clumped_where)) }
+              else list(ok = TRUE, note = "") }, error = function(e) list(ok = FALSE, msg = conditionMessage(e))))
+          ev("mv_ready", rows = rows) },
+        bidir_prepare = {   # Round 72c: the reverse pairs of a bidirectional study, prepared from OpenGWAS where needed
+          rows <- lapply(a$pairs, function(q) tryCatch(c(bidir_reverse(q[[1]], q[[2]], ogw_token_get(), isTRUE(settings_read()$offline)), list(ok = TRUE)),
+                                                        error = function(e) list(ok = FALSE, msg = conditionMessage(e))))
+          ev("bidir_ready", rows = rows) },
+        run_begin = { if (isTRUE(settings_read()$awake)) keep_awake_start() },   # Round 72c
+        run_end = { keep_awake_stop()
+          if (isTRUE(settings_read()$notify)) { d <- as.integer(a$done %||% 0); n <- as.integer(a$total %||% 0)
+            notify_done("MR Studio", sprintf("%s finished: %d of %d pair%s saved.", if (nzchar(a$study %||% "")) a$study else "The analysis", d, n, if (n == 1) "" else "s")) } },
         open_guide = {   # Round 72: the user guide and tutorial, in the default browser (a fixed address, never one from the page)
           r <- tryCatch({ .with_user_env(utils::browseURL(GUIDE_URL)); TRUE }, error = function(e) e)
           if (inherits(r, "error")) ev("error", msg = paste("The browser could not be opened. The guide is at", GUIDE_URL)) },

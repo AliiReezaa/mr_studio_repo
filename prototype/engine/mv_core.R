@@ -75,7 +75,10 @@ mv_pair_input <- function(exp_ids, out_id, pthr = 5e-8) {
   if (length(exp_ids) < 2) stop("Multivariable MR needs at least two exposures.")
   if (length(exp_ids) > 6) stop("Multivariable MR in MR Studio takes at most six exposures.")
   if (length(unique(c(lib, startsWith(out_id, "lib:")))) > 1) stop("Simulated traits cannot be mixed with imported ones. Choose only simulated or only imported datasets.")
-  if (all(lib)) library_mv_input(exp_ids, out_id, pthr) else demo_mv_input(exp_ids, out_id)
+  if (all(lib)) {   # Round 72c: OpenGWAS instrument downloads use their prepared multivariable set
+    rs <- lapply(exp_ids, function(e) tryCatch(library_dataset(sub("^lib:", "", e))$recipe, error = function(z) NULL))
+    if (all(vapply(rs, function(r) !is.null(r) && .is_ogw_instruments(r), TRUE))) return(ogw_mv_input(exp_ids, out_id))
+    library_mv_input(exp_ids, out_id, pthr) } else demo_mv_input(exp_ids, out_id)
 }
 
 #' What the Check and Methods screens need before an MVMR run (the same fields as pair_facts where they apply).
@@ -201,4 +204,87 @@ mv_cov_clear <- function(h, ex) { key <- paste(unlist(ex), collapse = "|"); st <
 mv_with_cov <- function(h, ex, input) {
   e <- mv_cov_get(h, ex); if (!length(e)) return(input)
   mv_attach_cov(input, utils::read.csv(file.path(h$dir, e[[1]]$file), stringsAsFactors = FALSE))
+}
+
+# ---- Round 72c: multivariable data from OpenGWAS downloads ---------------------------------------------------------------------------
+# The exposures are OpenGWAS instrument downloads (each holds only its own instruments), as in TwoSampleMR::mv_extract_exposures: the
+# union of their instruments is clumped jointly (r2 < 0.001 within 10,000 kb, by the smallest P over the exposures; on this computer when
+# the 1000 Genomes panel is installed, otherwise on the OpenGWAS server), every exposure's effect at the joint instruments is looked up
+# on OpenGWAS (no proxies), and so is the outcome (with the proxy settings of the outcome download the user chose). Everything is
+# aligned to the alleles of the exposure that contributed each instrument (TwoSampleMR::harmonise_data, action 2). The result is kept in
+# the Data library as one dataset and reused while its exposures and outcome are unchanged.
+.ogw_std <- function(o) {
+  col <- function(k) if (k %in% names(o)) o[[k]] else rep(NA, nrow(o))
+  tgt <- as.character(col("target_snp.outcome")); key <- ifelse(!is.na(tgt) & nzchar(tgt), tgt, as.character(col("SNP")))
+  data.frame(key = key, ea = col("effect_allele.outcome"), oa = col("other_allele.outcome"), eaf = suppressWarnings(as.numeric(col("eaf.outcome"))),
+             beta = suppressWarnings(as.numeric(col("beta.outcome"))), se = suppressWarnings(as.numeric(col("se.outcome"))),
+             p = suppressWarnings(as.numeric(col("pval.outcome"))), n = suppressWarnings(as.numeric(col("samplesize.outcome"))), stringsAsFactors = FALSE)
+}
+.is_ogw_instruments <- function(r) identical(r$source$type, "opengwas") && isTRUE(r$usable_as_exposure) && !isTRUE(r$usable_as_outcome)
+#' The library name of the multivariable set for these exposures and outcome (NULL when none is prepared yet).
+ogw_mv_find <- function(exp_ids, out_id, root = studies_root()) {
+  ex <- sub("^lib:", "", unlist(exp_ids)); ou <- sub("^lib:", "", out_id)
+  for (nm in list.dirs(library_dir(root), recursive = FALSE, full.names = FALSE)) {
+    r <- tryCatch(jsonlite::fromJSON(file.path(library_dir(root), nm, "recipe.json"), simplifyVector = FALSE), error = function(e) NULL)
+    if (!is.null(r) && identical(r$source$type, "opengwas_mv") && identical(unname(unlist(r$source$exposure_names)), unname(ex)) && identical(r$source$outcome_name, ou) &&
+        identical(unname(unlist(r$source$exposure_sha)), unname(vapply(ex, function(e) tryCatch(library_dataset(e, root)$recipe$original$sha256 %||% "", error = function(z) "?"), "")))) return(nm)
+  }
+  NULL
+}
+ogw_mv_build <- function(exp_ids, out_id, jwt, offline = FALSE, root = studies_root(), backend = ogw_backend(), panel = NULL) {
+  .ogw_need(jwt, offline)
+  ex <- sub("^lib:", "", unlist(exp_ids)); ou <- sub("^lib:", "", out_id); K <- length(ex)
+  have <- ogw_mv_find(exp_ids, out_id, root); if (!is.null(have)) return(list(name = have, reused = TRUE))
+  ds <- lapply(ex, function(e) library_dataset(e, root)); od <- library_dataset(ou, root)
+  for (k in seq_len(K)) if (!.is_ogw_instruments(ds[[k]]$recipe)) stop("\"", ex[k], "\" is not an OpenGWAS exposure download.", call. = FALSE)
+  if (!identical(od$recipe$source$type, "opengwas") || is.null(od$recipe$source$id)) stop("The outcome \"", ou, "\" must come from OpenGWAS too, so that it can be looked up at the joint instruments.", call. = FALSE)
+  ids <- vapply(ds, function(x) x$recipe$source$id, ""); oid <- od$recipe$source$id; op <- od$recipe$source$params %||% list()
+  # 1. joint instruments
+  U <- do.call(rbind, lapply(seq_len(K), function(k) { x <- ds[[k]]$data; data.frame(key = x$snp, ea = x$ea, oa = x$oa, eaf = if ("eaf" %in% names(x)) x$eaf else NA_real_, p = x$p, from = k, stringsAsFactors = FALSE) }))
+  U <- U[order(U$p), , drop = FALSE]; U <- U[!duplicated(U$key) & grepl("^rs[0-9]+$", U$key), , drop = FALSE]; led <- list(exposures = ex, own = vapply(ds, function(x) nrow(x$data), 1L), union = nrow(U))
+  pop <- ld_pop_for(ds[[1]]$recipe$facts$ancestry); if (is.na(pop)) pop <- "EUR"
+  local <- if (is.null(panel)) !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), paste0(pop, ".bed"))) else isTRUE(panel)
+  keep <- if (local) { cl <- ld_clump_here(U$key, U$p, 0.001, 10000, pop); cl$variant_id[cl$status == "index"] } else .ogw_do(backend$clump(U$key, U$p, 0.001, 10000, pop, jwt))
+  U <- U[U$key %in% keep, , drop = FALSE]; led$clumped <- nrow(U); led$clumped_where <- if (local) "this computer" else "OpenGWAS server"
+  if (nrow(U) < 3) stop("Only ", nrow(U), " joint instruments remain after clumping; MVMR needs more.", call. = FALSE)
+  ref <- .lib_fmt(data.frame(key = U$key, beta = 1, se = 1, ea = U$ea, oa = U$oa, eaf = U$eaf), "exposure")
+  al <- function(tbl) { if (!nrow(tbl)) return(NULL); H <- suppressWarnings(suppressMessages(TwoSampleMR::harmonise_data(ref, .lib_fmt(tbl, "outcome"), action = 2))); H[H$mr_keep, , drop = FALSE] }
+  d <- data.frame(variant_id = U$key, ea = U$ea, oa = U$oa, stringsAsFactors = FALSE); found <- integer(K)
+  # 2. every exposure at the joint instruments
+  for (k in seq_len(K)) {
+    H <- al(.ogw_std(.ogw_do(backend$outcome(U$key, ids[k], FALSE, 0.8, 0.3, jwt)))); m <- if (is.null(H)) rep(NA_integer_, nrow(d)) else match(d$variant_id, H$SNP); found[k] <- sum(!is.na(m))
+    d[[sprintf("beta_x_%d", k)]] <- if (is.null(H)) NA_real_ else H$beta.outcome[m]; d[[sprintf("se_x_%d", k)]] <- if (is.null(H)) NA_real_ else H$se.outcome[m]
+    nn <- if (!is.null(H) && "samplesize.outcome" %in% names(H)) H$samplesize.outcome[m] else rep(NA_real_, nrow(d))
+    d[[sprintf("n_x_%d", k)]] <- ifelse(is.finite(nn), nn, suppressWarnings(as.numeric(ds[[k]]$recipe$facts$n %||% NA)))
+  }
+  # 3. the outcome at the joint instruments
+  H <- al(.ogw_std(.ogw_do(backend$outcome(U$key, oid, !identical(op$proxies, FALSE), as.numeric(op$rsq %||% 0.8), as.numeric(op$maf_threshold %||% 0.3), jwt))))
+  m <- if (is.null(H)) rep(NA_integer_, nrow(d)) else match(d$variant_id, H$SNP)
+  d$beta_y <- if (is.null(H)) NA_real_ else H$beta.outcome[m]; d$se_y <- if (is.null(H)) NA_real_ else H$se.outcome[m]
+  d$n_y <- if (!is.null(H) && "samplesize.outcome" %in% names(H)) H$samplesize.outcome[m] else NA_real_
+  d$mr_keep <- stats::complete.cases(d[, c(sprintf("beta_x_%d", seq_len(K)), sprintf("se_x_%d", seq_len(K)), "beta_y", "se_y")])
+  led$found <- found; led$found_outcome <- sum(!is.na(m)); led$final <- sum(d$mr_keep)
+  # 4. keep it in the Data library
+  nm <- clean_study_name(substr(sprintf("MV %s on %s", paste(ex, collapse = " + "), ou), 1, 90)); base <- nm; i <- 2L
+  while (dir.exists(file.path(library_dir(root), nm))) { nm <- sprintf("%s %d", base, i); i <- i + 1L }
+  dest <- file.path(library_dir(root), nm); dir.create(dest, recursive = TRUE)
+  lib_table_write(d, dest, "standardised")
+  rec <- list(trait = nm, role = "multivariable", usable_as_exposure = FALSE, usable_as_outcome = FALSE, usable_in_runs = FALSE,
+              facts = list(name = nm, kind = od$recipe$facts$kind %||% "continuous", ancestry = ds[[1]]$recipe$facts$ancestry, n = od$recipe$facts$n),
+              original = list(sha256 = digest::digest(d, algo = "sha256")), rows_kept = nrow(d), ledger = led,
+              source = list(type = "opengwas_mv", exposures = as.list(ids), exposure_names = as.list(ex), exposure_sha = as.list(vapply(ds, function(x) x$recipe$original$sha256 %||% "", "")),
+                            outcome = oid, outcome_name = ou, params = op, clumping = led$clumped_where, downloaded_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"), packages = .ogw_versions()))
+  atomic_write_text(file.path(dest, "recipe.json"), jsonlite::toJSON(rec, auto_unbox = TRUE, pretty = TRUE, null = "null"))
+  list(name = nm, reused = FALSE, ledger = led)
+}
+#' The multivariable input from a prepared OpenGWAS set (the same structure as library_mv_input()).
+ogw_mv_input <- function(exp_ids, out_id, root = studies_root()) {
+  nm <- ogw_mv_find(exp_ids, out_id, root)
+  if (is.null(nm)) stop("The multivariable data for these OpenGWAS downloads is not prepared yet. Open the Check step again to prepare it.", call. = FALSE)
+  s <- library_dataset(nm, root); d <- s$data; ex <- unlist(s$recipe$source$exposure_names); od <- library_dataset(s$recipe$source$outcome_name, root)
+  ds <- lapply(ex, function(e) library_dataset(e, root))
+  list(exposure_label = paste(ex, collapse = " + "), outcome_label = od$recipe$trait, simulated = FALSE, anc_x = ds[[1]]$recipe$facts$ancestry %||% "?", anc_y = od$recipe$facts$ancestry %||% "?",
+       exposure_labels = ex, ledger = list(mv = s$recipe$ledger),
+       input = list(kind = "multi_iv", data = d, exposure_id = paste(unlist(exp_ids), collapse = "|"), outcome_id = out_id,
+                    outcome_scale = if (identical(od$recipe$facts$kind, "binary")) "log_or" else "beta", exposure_scale = "beta"))
 }
