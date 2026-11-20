@@ -60,10 +60,22 @@ jobs:
         with:
           init-shell: bash
           post-cleanup: none
+          # Round 72b: run 44748712659 failed on Intel Mac when one conda-forge download timed out after 30 s. Longer timeouts and more
+          # retries, with back-off, for every package download of this job.
+          condarc: |
+            remote_connect_timeout_secs: 60
+            remote_read_timeout_secs: 120
+            remote_max_retries: 6
+            remote_backoff_factor: 3
 
       - name: Build R runtime, then move it (relocation test)
         run: |
-          micromamba create -y -p "$RUNNER_TEMP/build_runtime" -f prototype/ci/runtime.yml
+          # up to three attempts, each from a clean folder, so a download that still fails after the retries above does not end the build
+          for attempt in 1 2 3; do
+            micromamba create -y -p "$RUNNER_TEMP/build_runtime" -f prototype/ci/runtime.yml && break
+            [ "$attempt" = 3 ] && { echo "the R runtime could not be built after 3 attempts"; exit 1; }
+            echo "attempt $attempt failed; trying again in 60 s"; rm -rf "$RUNNER_TEMP/build_runtime"; sleep 60
+          done
           # Round 65: mixtools (import of lhcMR) from conda-forge where it is built; on macOS arm64 it is built from source later.
           if [[ "${{ matrix.id }}" != "macos-arm64" ]]; then micromamba install -y -p "$RUNNER_TEMP/build_runtime" -c conda-forge r-mixtools; fi
           micromamba env export -p "$RUNNER_TEMP/build_runtime" --explicit > "runtime-lock-${{ matrix.id }}.txt"
