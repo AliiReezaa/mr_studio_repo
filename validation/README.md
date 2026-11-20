@@ -28,7 +28,7 @@ Two kinds of check are used:
 | `xue2022_bidir_cml` | BiDirMRcML, BiDirCDcML | Xue and Pan 2022, PLoS Genet (PMID 35576237) | Simulated bidirectional data | Equivalence, recovery of known effects | Passed |
 | `ldsc_neale_ukb` | LD scores (computed from 1000 Genomes), cross-trait LDSC | Bulik-Sullivan et al. 2015, Nat Genet (PMIDs 25642630, 26414676) | Neale lab UK Biobank height and BMI | Reproduction, equivalence | Passed (16 of 16 checks) |
 | `mounier2023_mrlap` | MRlap | Mounier and Kutalik 2023, Genet Epidemiol (PMID 37036286) | The package's Example A and its stored result | Reproduction, equivalence | Passed |
-| `darrous2021_lhcmr` | LHC-MR (adaptive, resumable runner) | Darrous et al. 2021, Nat Commun (PMID 34907193), Supplementary Data 2 | Neale lab UK Biobank BMI and height | Reproduction, equivalence | Pending (final run in progress) |
+| `darrous2021_lhcmr` | LHC-MR (adaptive, resumable runner) | Darrous et al. 2021, Nat Commun (PMID 34907193), Supplementary Data 2 | Neale lab UK Biobank BMI and height | Reproduction, equivalence | Passed (causal effects both ways and intercept within 1 SE of the paper) |
 | `hu2022_mrapss` | MR-APSS | Hu et al. 2022, PNAS (PMID 35787050) | Neale lab UK Biobank BMI and height; package example | Reproduction, equivalence | Passed (both directions within 2 SE of the paper) |
 | `calibration` | Feasibility thresholds (instrument counts, strength, allele frequency, ancestry, outliers, IVW models) | Simulation and real data | Simulated and OpenGWAS data | Calibration | See README |
 

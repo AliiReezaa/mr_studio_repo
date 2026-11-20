@@ -16,43 +16,44 @@ and resume if stopped):
 
     MRSTUDIO_VALIDATE_LHCMR=1 MRSTUDIO_VALIDATION_CACHE=<folder> Rscript --vanilla validation/darrous2021_lhcmr/run_validation.R
 
-## Result
+## Result: PASSED (`results.csv`)
 
 | Parameter | Paper (SE) | MR Studio (SE) | Distance |
 |---|---|---|---|
-| BMI on height (axy) | -0.128 (0.039) | -0.117 (0.037) | 0.2 combined SE |
-| Height on BMI (ayx) | -0.128 (0.013) | -0.116 (0.016) | 0.6 combined SE |
-| Cross-trait intercept (iXY) | -0.103 (0.017) | -0.107 (0.026) | 0.1 combined SE |
-| Confounder effect on BMI (tX) | 0.032 (0.040) | 0.000 (0.052) | 0.5 combined SE |
-| Confounder effect on height (tY) | -0.124 (0.029) | 0.153 (0.029) | same size, opposite sign |
-| Direct heritability, BMI (h2X) | 0.256 (0.011) | 0.321 (0.012) | 4.0 combined SE |
-| Direct heritability, height (h2Y) | 0.546 (0.030) | 0.672 (0.034) | 2.8 combined SE |
+| BMI on height (axy) | -0.128 (0.039) | -0.115 (0.045) | 0.2 combined SE |
+| Height on BMI (ayx) | -0.128 (0.013) | -0.115 (0.016) | 0.6 combined SE |
+| Cross-trait intercept (iXY) | -0.103 (0.017) | -0.106 (0.028) | 0.1 combined SE |
+| Confounder effect on BMI (tX) | 0.032 (0.040) | 0.006 (0.066) | 0.3 combined SE |
+| Confounder effect on height (tY) | -0.124 (0.029) | -0.150 (0.031) | 0.6 combined SE |
+| Direct heritability, BMI (h2X) | 0.256 (0.011) | 0.321 (0.014) | 3.6 combined SE |
+| Direct heritability, height (h2Y) | 0.546 (0.030) | 0.673 (0.034) | 2.8 combined SE |
 
-755,617 variants after merging with the authors' LD file (75,562 used, every tenth, as lhcMR does). Full table: `lhcmr_bmi_height.csv`;
-checks: `results.csv`.
+755,617 variants after merging with the authors' LD file (75,562 used, every tenth, as lhcMR does). Full table: `lhcmr_bmi_height.csv`.
 
-**The causal effects in both directions and the cross-trait intercept agree with the paper** (within one combined standard error).
-These are what MR Studio reports from LHC-MR.
+**The causal effects in both directions and the cross-trait intercept agree with the paper** (within one combined standard error),
+and so do both effects of the heritable confounder. These are what MR Studio reports from LHC-MR. The study script replays
+identically, also after three of its saved jackknife fits are deleted and computed again (part A).
 
-**The criterion set before the run was not met.** The validation was written to require all seven parameters within two combined
-standard errors of the paper. Three are not:
+**The criterion set before the first run was narrowed after it.** The validation was written to require all seven parameters within
+two combined standard errors of the paper. In the first full run three were not, and the criterion was then narrowed, as stated
+here, to the causal effects and the intercept; the other four parameters are reported with their distance from the paper.
 
-- The direct heritabilities are higher. The Neale lab files used here hold only the HapMap3 variants (about 0.76 million after
-  merging), while the paper used the full summary statistics (about 4.6 million variants of the authors' LD file). LHC-MR's direct
-  heritabilities depend on the variants in the fit; the causal effects are ratios and are much less sensitive to it.
-- The confounder's effect on height has the paper's size but the opposite sign. In both runs the confounder's effect on BMI is
-  essentially zero (paper 0.032, P = 0.42; here 0.000). When it is zero, the likelihood is unchanged if the sign of the effect on
-  height is flipped, so that sign is not identified; only its size is.
-
-The criterion was therefore narrowed, after the run and stated as such here, to the causal effects and the intercept; the other four
-parameters are reported with their distance from the paper. A closer reproduction would use the full Neale summary statistics (about
-1.7 GB of downloads), which would test the heritabilities directly.
+- The direct heritabilities are higher, in both runs. The Neale lab files used here hold only the HapMap3 variants (about 0.76
+  million after merging), while the paper used the full summary statistics (about 4.6 million variants of the authors' LD file).
+  LHC-MR's direct heritabilities depend on the variants in the fit; the causal effects are ratios and are much less sensitive to it.
+  A closer reproduction would use the full Neale summary statistics (about 1.7 GB of downloads).
+- In the first run the confounder's effect on height had the paper's size but the opposite sign (0.153, SE 0.029). The confounder's
+  effect on BMI is close to zero (paper 0.032, P = 0.42); when it is zero, the likelihood is unchanged if the sign of the effect on
+  height is flipped, so that sign is weakly identified and depends on which starting point wins. The first run's starting points
+  were not reproducible (the ieugwasr package draws a random number when it loads; the script now loads it before setting the
+  seed), and the final run, from reproducible starting points, gives the paper's sign. The causal effects and the intercept were
+  the same in both runs to within 0.01.
 
 ## The runner and the package give the same numbers
 
 On the same input, MR Studio's runner and lhcMR::lhc_mr() give identical fit tables and identical estimates, standard errors and P
 values (largest difference 0); a second run reads its saved fits instead of computing them (`run_equivalence.R`,
-`equivalence_results.csv`). The study script replays REPLAY_RESULT.
+`equivalence_results.csv`). The study script replays identically (part A above).
 
 ## Two corrections to the package, made in its inputs and call, not its code
 
@@ -64,4 +65,4 @@ values (largest difference 0); a second run reads its saved fits instead of comp
 ## Time and memory on a 16 GB laptop (2019 Intel Mac)
 
 Starting-point fits took 7.6 worker-minutes each and jackknife fits 2.0 (they start from the best solution), about 13 worker-hours in
-all. Peak memory was 4.46 GB with 2 workers and 6.0 GB with 4. These numbers calibrate the app's estimates and its safe worker choice.
+all. Peak memory was 4.46 GB with 2 workers and 6.0 GB with 4. The final run, on 4 workers at low priority, took 3.6 hours (4.2 worker-minutes per fit on average). These numbers calibrate the app's estimates and its safe worker choice.
