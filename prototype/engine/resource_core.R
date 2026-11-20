@@ -40,6 +40,16 @@ mem_check <- function(need_gb, what, mi = mem_info()) {
                                   what, need_gb, mi$available_gb, mi$total_gb, need_gb / RES_SAFE_SHARE))
 }
 
+#' Start Rscript in the background with the environment it needs: RHOME, because a moved (installed) runtime's Rscript has no valid
+#' built-in location (as run_pair_script does), R_LIBS for the same packages, and `vars` (a named list). Variables are set with
+#' Sys.setenv for the call and restored, never put into the shell command, so paths with spaces ("MR Studio") are safe.
+rscript_background <- function(args, log = NULL, vars = list()) {
+  vars <- c(list(RHOME = R.home(), R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep)), vars)
+  old <- Sys.getenv(names(vars), unset = NA, names = TRUE); do.call(Sys.setenv, vars)
+  on.exit(for (k in names(old)) if (is.na(old[[k]])) Sys.unsetenv(k) else do.call(Sys.setenv, stats::setNames(list(old[[k]]), k)), add = TRUE)
+  system2(default_rscript(), args, stdout = if (is.null(log)) FALSE else log, stderr = if (is.null(log)) FALSE else log, wait = FALSE)
+}
+
 # ---- LHC-MR estimates (calibrated on the validation fit, see validation/darrous2021_lhcmr/README.md) ---------------------------------
 # Peak memory grows with the variants and the workers; time falls with the workers, which share the 250 fits.
 # Peak memory = base + main process data + one data copy per worker (forked workers' resident memory, counted in full: conservative).
@@ -68,13 +78,13 @@ lhcmr_options <- function(variants, mi = mem_info(), cal = LHCMR_CAL, max_worker
 
 #' Guard: a small separate R process that checks free memory every `every` seconds while process `pid` lives, and stops it (and
 #' its forked workers) when free memory falls below the floor, writing the reason into the status file.
-mem_guard_start <- function(pid, status_file, every = 30, engine = getOption("mrgui.engine_dir", "")) {
+mem_guard_start <- function(pid, status_file, every = 30, engine = getOption("mrgui.engine_dir", ""), log = NULL) {
   code <- sprintf(paste0("source(file.path(%s, 'resource_core.R')); pid <- %dL; sf <- %s; alive <- function() if (.Platform$OS.type == 'windows') any(grepl(paste0(' ', pid, ' '), system2('tasklist', c('/FI', shQuote(paste('PID eq', pid))), stdout = TRUE))) else isTRUE(tryCatch(tools::pskill(pid, 0L), error = function(e) FALSE))",
     "; repeat { Sys.sleep(%d); if (!alive()) break; mi <- mem_info(); fl <- suppressWarnings(as.numeric(Sys.getenv('MRSTUDIO_GUARD_FLOOR', RES_GUARD_FLOOR))); if (is.finite(mi$available_gb) && mi$available_gb < max(1, fl * mi$total_gb)) {",
     " if (.Platform$OS.type != 'windows') system(sprintf('pkill -TERM -P %%d', pid)); tools::pskill(pid)",
     "; writeLines(jsonlite::toJSON(list(state = 'stopped', msg = sprintf('Stopped to protect the computer: free memory fell to %%.1f GB of %%.0f GB. Run it again with fewer workers, or close other programs first.', mi$available_gb, mi$total_gb), time = format(Sys.time(), '%%Y-%%m-%%d %%H:%%M:%%S')), auto_unbox = TRUE), sf); break } }"),
     deparse(engine), as.integer(pid), deparse(status_file), as.integer(every))
-  system2(default_rscript(), c("--vanilla", "-e", shQuote(code)), stdout = FALSE, stderr = FALSE, wait = FALSE); invisible(TRUE)
+  rscript_background(c("--vanilla", "-e", shQuote(code)), log = log); invisible(TRUE)
 }
 
 # ---- LDSC and LD score computation (measured 2026-11-20 on a 16 GB Intel Mac): GenomicSEM::ldsc on two 1.1 million variant files

@@ -1386,16 +1386,21 @@ local({
          (if (.Platform$OS.type == "windows") identical(o$workers, 1L) else identical(o$workers, c(1L, 2L))) && all(o$memory_gb <= 5) && nrow(o2) == 0L)
   expect("Round 66: the LHC-MR estimate grows with workers and variants, and time falls with workers", { a <- lhcmr_estimate(1e6, 1L, cal); b <- lhcmr_estimate(2e6, 2L, cal); b$memory_gb > a$memory_gb && lhcmr_estimate(1e6, 2L, cal)$hours < a$hours })
   expect("Round 66: LDSC and LD score computation have memory needs that grow with the data", ldsc_memory_gb(1e7) > ldsc_memory_gb(1e6) && LDSCORE_MEMORY_GB > 0)
+  bl <- tempfile(fileext = ".log"); rscript_background(c("--vanilla", "-e", shQuote("cat(Sys.getenv('RHOME'), '|', Sys.getenv('MRGUI_T66'))")), log = bl, vars = list(MRGUI_T66 = "MR Studio test"))
+  for (w in 1:30) { if (file.exists(bl) && length(readLines(bl, warn = FALSE))) break; Sys.sleep(1) }
+  expect("Round 66: background R jobs get RHOME (needed by a moved runtime) and variables with spaces intact", { x <- paste(readLines(bl, warn = FALSE), collapse = ""); grepl(R.home(), x, fixed = TRUE) && grepl("| MR Studio test", x, fixed = TRUE) && is.na(Sys.getenv("MRGUI_T66", unset = NA)) })
   if (.Platform$OS.type != "windows") {
     sf <- tempfile(fileext = ".json"); writeLines('{"state":"running"}', sf)
     old <- Sys.getenv("MRSTUDIO_GUARD_FLOOR"); Sys.setenv(MRSTUDIO_GUARD_FLOOR = "2")
     job <- parallel::mcparallel(Sys.sleep(60)); pid <- job$pid
-    mem_guard_start(pid, sf, every = 1, engine = if (exists("args_dir")) args_dir else getwd()); for (w in 1:60) { if (grepl("stopped", paste(readLines(sf, warn = FALSE), collapse = ""))) break; Sys.sleep(1) };   # up to 60 s: R starts slowly on CI runners
+    glog <- tempfile(fileext = ".log"); mem_guard_start(pid, sf, every = 1, engine = if (exists("args_dir")) args_dir else getwd(), log = glog); for (w in 1:60) { if (grepl("stopped", paste(readLines(sf, warn = FALSE), collapse = ""))) break; Sys.sleep(1) };   # up to 60 s: R starts slowly on CI runners
     Sys.setenv(MRSTUDIO_GUARD_FLOOR = old)
     st <- tryCatch(jsonlite::fromJSON(sf), error = function(e) list())
     gone <- !is.null(suppressWarnings(parallel::mccollect(job, wait = TRUE, timeout = 3)))   # a stopped child is collected at once
     if (!gone) { tools::pskill(pid); invisible(suppressWarnings(parallel::mccollect(job))) }
-    expect("Round 66: the memory guard stops the running analysis and writes why when free memory falls below its floor", identical(st$state, "stopped") && grepl("Stopped to protect the computer", st$msg) && gone)
+    ok66 <- identical(st$state, "stopped") && grepl("Stopped to protect the computer", st$msg) && gone
+    if (!ok66) cat("  guard diagnostics: status =", paste(readLines(sf, warn = FALSE), collapse = " "), "| gone =", gone, "| Rscript =", default_rscript(), "| log:", if (file.exists(glog)) paste(readLines(glog, warn = FALSE), collapse = " / ") else "(none)", "\n")
+    expect("Round 66: the memory guard stops the running analysis and writes why when free memory falls below its floor", ok66)
   }
 })
 # ---- Round 67: adaptive, resumable LHC-MR runner ----

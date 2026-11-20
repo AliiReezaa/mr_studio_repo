@@ -161,9 +161,8 @@ lhcmr_pair_start <- function(h, pair, root = studies_root(), engine = getOption(
     "  pair <- jsonlite::fromJSON(pj); lhcmr_pair_run(list(dir = sdir), pair, root = root, cores = cores); st('done')",
     "}, error = function(e) st('error', conditionMessage(e)))"), job)
   writeLines(jsonlite::toJSON(list(state = "running", msg = "", time = format(Sys.time(), "%Y-%m-%d %H:%M:%S")), auto_unbox = TRUE), sf)
-  env <- c(sprintf("MRGUI_LDSC_DIR=%s", ldsc_ref_dir()), sprintf("MRGUI_STUDIES_DIR=%s", root))
-  system2(default_rscript(), c("--vanilla", shQuote(job), shQuote(engine), shQuote(h$dir), shQuote(root), shQuote(pj), shQuote(sf), cores), env = env,
-          stdout = file.path(dirname(sf), paste0(pair$folder, "_job.log")), stderr = file.path(dirname(sf), paste0(pair$folder, "_job.log")), wait = FALSE)
+  rscript_background(c("--vanilla", shQuote(job), shQuote(engine), shQuote(h$dir), shQuote(root), shQuote(pj), shQuote(sf), cores),
+                     log = file.path(dirname(sf), paste0(pair$folder, "_job.log")), vars = list(MRGUI_LDSC_DIR = ldsc_ref_dir(), MRGUI_STUDIES_DIR = root))
   invisible(lhcmr_job_read(h, pair))
 }
 
@@ -173,7 +172,7 @@ lhcmr_fetch_start <- function(dir = lhcmr_ref_dir(), engine = getOption("mrgui.e
   writeLines(jsonlite::toJSON(list(state = "running", msg = ""), auto_unbox = TRUE), sf)
   code <- sprintf("sf <- %s; tryCatch({ source(file.path(%s, 'ldsc_core.R')); source(file.path(%s, 'lhcmr_core.R')); lhcmr_ref_fetch(%s); writeLines(jsonlite::toJSON(list(state = 'done', msg = ''), auto_unbox = TRUE), sf) }, error = function(e) writeLines(jsonlite::toJSON(list(state = 'error', msg = conditionMessage(e)), auto_unbox = TRUE), sf))",
                   deparse(sf), deparse(engine), deparse(engine), deparse(dir))
-  system2(default_rscript(), c("--vanilla", "-e", shQuote(code)), stdout = FALSE, stderr = FALSE, wait = FALSE); invisible(TRUE)
+  rscript_background(c("--vanilla", "-e", shQuote(code))); invisible(TRUE)
 }
 lhcmr_status <- function(h = NULL, pair = NULL, dir = lhcmr_ref_dir()) {
   f <- file.path(dir, "fetch_status.json"); fj <- if (file.exists(f)) tryCatch(jsonlite::fromJSON(f), error = function(e) NULL) else NULL

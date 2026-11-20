@@ -221,7 +221,6 @@ ldsc_compute_start <- function(pop = "EUR", dir = ldsc_ref_dir(), engine = getOp
     "  unlink(out, recursive = TRUE); file.rename(tmp, out); st('done', 100)",
     "}, error = function(e) st('error', msg = conditionMessage(e)))"), job)
   writeLines(jsonlite::toJSON(list(state = "running", pop = pop, pct = 0, chr = NA, msg = "", time = format(Sys.time(), "%Y-%m-%d %H:%M:%S")), auto_unbox = TRUE), .ldsc_job_file(dir))
-  env <- c(sprintf("MRGUI_PLINK=%s", plink_bin()), sprintf("MRGUI_LD_DIR=%s", ld_panel_dir()))
-  system2(default_rscript(), c("--vanilla", shQuote(job), shQuote(engine), shQuote(dir), pop), env = env, stdout = file.path(dir, "compute.log"), stderr = file.path(dir, "compute.log"), wait = FALSE)
+  rscript_background(c("--vanilla", shQuote(job), shQuote(engine), shQuote(dir), pop), log = file.path(dir, "compute.log"), vars = list(MRGUI_PLINK = plink_bin(), MRGUI_LD_DIR = ld_panel_dir()))
   invisible(ldsc_status(dir))
 }
