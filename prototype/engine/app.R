@@ -188,6 +188,20 @@ mr_server <- function(engine_dir) {
           if (inherits(res, "error")) { ev("ldsc", folder = a$folder, rows = list(), msg = conditionMessage(res)); return() }
           ev("ldsc", folder = a$folder, rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else ldsc_text(res))
         },
+        mrapss_get = , mrapss_start = {   # Round 69: MR-APSS, run in a separate process (minutes)
+          req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
+          r <- if (identical(t, "mrapss_start")) tryCatch({ if (!requireNamespace("MRAPSS", quietly = TRUE)) stop("MRAPSS is not installed in this runtime.", call. = FALSE); mrapss_pair_start(rv$h, p) }, error = function(e) e) else NULL
+          res <- mrapss_pair_read(rv$h, p)
+          ev("mrapss", folder = a$folder, job = mrapss_job_read(rv$h, p), ldsc_official = ldsc_ref_status()$official, panel = !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), "EUR.bed")),
+             msg = if (inherits(r, "error")) conditionMessage(r) else "", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else mrapss_text(res))
+        },
+        mrlap_get = , mrlap_start = {   # Round 68: MRlap, run in a separate process (minutes)
+          req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
+          r <- if (identical(t, "mrlap_start")) tryCatch({ if (!requireNamespace("MRlap", quietly = TRUE)) stop("MRlap is not installed in this runtime.", call. = FALSE); mrlap_pair_start(rv$h, p) }, error = function(e) e) else NULL
+          res <- mrlap_pair_read(rv$h, p)
+          ev("mrlap", folder = a$folder, job = mrlap_job_read(rv$h, p), ldsc_official = ldsc_ref_status()$official, msg = if (inherits(r, "error")) conditionMessage(r) else "",
+             rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else mrlap_text(res))
+        },
         lhcmr_get = , lhcmr_fetch = , lhcmr_start = {   # Round 65: LHC-MR, run in a separate process (one to two hours)
           req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
           r <- tryCatch(switch(t, lhcmr_fetch = lhcmr_fetch_start(), lhcmr_start = { if (!requireNamespace("lhcMR", quietly = TRUE)) stop("lhcMR is not installed in this runtime.", call. = FALSE); w <- suppressWarnings(as.integer(a$workers %||% NA)); lhcmr_pair_start(rv$h, p, cores = if (is.na(w)) NULL else w) }, NULL), error = function(e) e)
@@ -214,7 +228,7 @@ mr_server <- function(engine_dir) {
           # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
           old <- Filter(function(p) identical(p$ex, a$ex) && identical(p$out, a$out), ui_state_get(rv$h$con, "pairs") %||% list())
           idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-          sti <- if ("steiger" %in% meths) steiger_input(inp, list(x = a$prev$x, y = a$prev$y)) else NULL   # prevalence the analyst entered for a binary trait
+          sti <- if (any(c("steiger", "ivw_steiger") %in% meths)) steiger_input(inp, list(x = a$prev$x, y = a$prev$y)) else NULL   # prevalence the analyst entered for a binary trait
           r <- tryCatch(studio_run(rv$h, inp$exposure_label, inp$outcome_label, inp$input, meths, ci, idx = idx, params = prm, steiger_in = sti), error = function(e) e)
           if (inherits(r, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(r)); return() }
           bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))

@@ -76,3 +76,6 @@ dependencies:
   - r-segmented
   - r-scales
   - r-survival
+  # MR-APSS (Round 69): imports of MRAPSS, which is installed from a pinned commit (prototype.yml).
+  - r-ggnewscale
+  - r-expm

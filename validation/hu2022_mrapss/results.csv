@@ -1,0 +1,8 @@
+"part","quantity","reference","mr_studio","criterion","pass"
+"A (recorded)","bundled example BMI -> T2D (1,227 instruments), pinned version","V1.0.0 on the same example: 0.209 (0.033)","0.216 (0.026)","within 2 combined SE of V1.0.0",TRUE
+"B","Height -> BMI vs the paper (2226 instruments there)","-0.0637 (0.0135)","-0.0761 (0.0104), 1837 instruments","within 2 combined SE",TRUE
+"C","Height -> BMI: app path vs the package pipeline called directly (same files, same seed)","0","1.4e-17","< 1e-10 (read back from the CSV table)",TRUE
+"D","Height -> BMI: replay of the study script","identical","identical","identical",TRUE
+"B","BMI -> Height vs the paper (1300 instruments there)","-0.0330 (0.0602)","-0.1396 (0.0478), 1307 instruments","within 2 combined SE",TRUE
+"C","BMI -> Height: app path vs the package pipeline called directly (same files, same seed)","0","2.8e-17","< 1e-10 (read back from the CSV table)",TRUE
+"D","BMI -> Height: replay of the study script","identical","identical","identical",TRUE

@@ -1,0 +1,6 @@
+"part","quantity","reference","mr_studio","criterion","pass"
+"A","deterministic quantities vs the stored Example A (effects, instruments, all LDSC and architecture values)","0","0.0e+00","< 1e-8, same instruments",TRUE
+"A","corrected effect SE (simulated)","0.05276","0.05271 (sd 0.00024 over 5 seeds)","within 3 Monte Carlo sd",TRUE
+"B","app path vs the stored Example A (observed and corrected effect, instruments, rg)","0","4.4e-07","< 1e-6",TRUE
+"C","app path vs MRlap called directly on the same files, same seed (effects, simulated SE, difference test)","0","3.1e-16","< 1e-10 (the app's values are read back from its CSV table)",TRUE
+"D","replay of the study script","identical","identical","identical",TRUE

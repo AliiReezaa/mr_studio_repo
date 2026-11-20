@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -1312,6 +1312,19 @@ expect("Round 61: MR-GRIP runs as a script, replays identically, equals TwoSampl
   d <- p58$input$data; g <- TwoSampleMR::mr_grip(d$beta_x, d$beta_y, d$se_x, d$se_y, TwoSampleMR::default_parameters()); d2 <- d; d2$beta_x[1:5] <- -d2$beta_x[1:5]; d2$beta_y[1:5] <- -d2$beta_y[1:5]
   g2 <- TwoSampleMR::mr_grip(d2$beta_x, d2$beta_y, d2$se_x, d2$se_y, TwoSampleMR::default_parameters()); ce <- e61[e61$estimand == "causal_effect", ]
   identical(pl61$replay$status, "identical") && abs(ce$estimate - g$b) < 1e-10 && abs(g2$b - g$b) < 1e-12 && any(e61$estimand == "pleiotropy_intercept") })
+# ---- Round 68b: IVW after Steiger filtering ----
+in68b <- p58$input; uv <- which(in68b$data$variant_id %in% .usable(in68b$data)$variant_id)[1:3]
+in68b$data$beta_y[uv] <- 6 * in68b$data$beta_x[uv]   # three variants that explain more variance in the outcome than in the exposure
+r68b <- studio_run(h58, p58$exposure_label, p58$outcome_label, in68b, "ivw_steiger", idx = 6L, params = list(ci_level = 0.95)); pl68b <- pair_payload(h58$dir, r68b$pair_folder); e68b <- .est_df(pl68b)
+expect("Round 68b: IVW after Steiger filtering equals TwoSampleMR::steiger_filtering then mr_ivw (3 variants removed), replays identically and lists the removed variants", {
+  d <- .usable(in68b$data)
+  td <- data.frame(SNP = d$variant_id, beta.exposure = d$beta_x, se.exposure = d$se_x, samplesize.exposure = d$n_x, pval.exposure = 2 * stats::pnorm(-abs(d$beta_x / d$se_x)),
+                   beta.outcome = d$beta_y, se.outcome = d$se_y, samplesize.outcome = d$n_y, pval.outcome = 2 * stats::pnorm(-abs(d$beta_y / d$se_y)), units.exposure = NA, units.outcome = NA,   # no units: r2 from beta, se and n, as the app's Steiger test
+                   id.exposure = "x", id.outcome = "y", exposure = "x", outcome = "y", mr_keep = TRUE, stringsAsFactors = FALSE)
+  sf <- suppressMessages(TwoSampleMR::steiger_filtering(td)); k <- sf[sf$steiger_dir, ]; f <- TwoSampleMR::mr_ivw(k$beta.exposure, k$beta.outcome, k$se.exposure, k$se.outcome)
+  dg <- pl68b$diagnostics; gv <- function(n) dg[vapply(dg, function(g) identical(g$name, n), TRUE)][[1]]
+  identical(pl68b$replay$status, "identical") && abs(e68b$estimate - f$b) < 1e-10 && abs(e68b$se - f$se) < 1e-10 && gv("steiger_kept")$value == nrow(k) &&
+    gv("steiger_removed")$value == 3 && setequal(strsplit(gv("steiger_removed")$note, " ")[[1]], sf$SNP[!sf$steiger_dir]) })
 # ---- Round 62: BWMR ----
 if (requireNamespace("BWMR", quietly = TRUE)) {
 r62 <- studio_run(h58, p58$exposure_label, p58$outcome_label, p58$input, "bwmr", idx = 5L, params = list(ci_level = 0.95)); pl62 <- pair_payload(h58$dir, r62$pair_folder); e62 <- .est_df(pl62)
@@ -1438,6 +1451,40 @@ local({
   sc <- lhcmr_script("p1", c("a", "b"), c("A", "B"), "/ld", "/rho", "/ldsc", "/hm3", 7L, 2L)
   expect("Round 67: the study script embeds the runner and the memory reader, and no longer calls lhc_mr() directly", !inherits(tryCatch(parse(text = sc), error = function(e) e), "error") &&
          any(grepl("^lhcmr_adaptive\\(sp", sc)) && any(grepl("^mem_info <-", sc)) && !any(grepl("^lhc_mr\\(", sc)) && !any(grepl("on.exit(", sc, fixed = TRUE)))
+})
+# ---- Round 68: MRlap ----
+local({
+  d <- data.frame(snp = c("rs1", "rs2", "rs3", "rs4"), chr = c("1", "chr2", NA, NA), pos = c(100, 200, NA, NA), ea = "A", oa = "G", beta = c(0.1, 0.2, 0.3, 0.4), se = 0.05, n = 1e5, stringsAsFactors = FALSE)
+  pm <- data.frame(snp = "rs3", chr = 3L, pos = 300, stringsAsFactors = FALSE); m <- mrlap_prepare(d, pm); led <- attr(m, "ledger")
+  expect("Round 68: MRlap input has rsid chr pos a1 a2 beta se N, positions from the dataset or the 1000 Genomes panel, variants without one left out",
+         identical(names(m), c("rsid", "chr", "pos", "a1", "a2", "beta", "se", "N")) && identical(m$rsid, c("rs1", "rs2", "rs3")) && identical(m$chr, c(1L, 2L, 3L)) && led$no_position == 1L)
+  sc <- mrlap_script("p1", c("02_datasets/mrlap/a.tsv.gz", "02_datasets/mrlap/b.tsv.gz"), c("A", "B"), "/ld", "/hm3", 5L)
+  expect("Round 68: the MRlap script parses, pins MRlap and GenomicSEM, and loads ieugwasr before setting the seed (the corrected SE is simulated)",
+         !inherits(tryCatch(parse(text = sc), error = function(e) e), "error") && any(grepl(PIN_MRLAP, sc)) && any(grepl(PIN_GENOMICSEM, sc)) &&
+         which(grepl("loadNamespace(\"ieugwasr\")", sc, fixed = TRUE))[1] < which(grepl("set.seed(seed)", sc, fixed = TRUE))[1])
+  res <- data.frame(quantity = c("observed_effect", "corrected_effect", "difference"), estimate = c(0.0856, 0.1146, NA), se = c(0.0398, 0.0528, NA), p = c(0.031, 0.03, 0.037), z = NA,
+                    ci_lower = c(0.008, 0.011, NA), ci_upper = c(0.163, 0.218, NA), instruments = 39L, rg = 0.19, int_crosstrait = -0.0011, int_crosstrait_se = 0.0063, h2_exposure = 0.24, h2_outcome = 0.14, stringsAsFactors = FALSE); attr(res, "labels") <- c(x = "BMI", y = "SBP")
+  expect("Round 68: the MRlap text gives the observed and corrected effects and says which to prefer", { t <- mrlap_text(res); grepl("39 instruments", t) && grepl("0.115", t) && grepl("corrected effect should be preferred", t) })
+  sd <- tempfile("st68"); dir.create(sd); writeLines(c("writeLines(getwd(), 'where.txt')"), file.path(sd, "ok.R")); writeLines("stop('planned failure')", file.path(sd, "bad.R"))
+  s1 <- file.path(sd, "s1.json"); s2 <- file.path(sd, "s2.json"); script_job_start(sd, "ok.R", s1, file.path(sd, "l1.log")); script_job_start(sd, "bad.R", s2, file.path(sd, "l2.log"))
+  rd <- function(f) tryCatch(jsonlite::fromJSON(f)$state, error = function(e) "")
+  for (w in 1:60) { if (rd(s1) %in% c("done", "error") && rd(s2) %in% c("done", "error")) break; Sys.sleep(1) }
+  expect("Round 68: a study script runs in the background from the study folder and reports done, or error with the reason",
+         identical(rd(s1), "done") && file.exists(file.path(sd, "where.txt")) && identical(normalizePath(readLines(file.path(sd, "where.txt"))), normalizePath(sd)) &&
+         identical(rd(s2), "error") && grepl("planned failure", tryCatch(jsonlite::fromJSON(s2)$msg, error = function(e) "")))
+})
+# ---- Round 69: MR-APSS ----
+local({
+  d <- data.frame(snp = c("rs1", "rs2", "rs3"), ea = "A", oa = "G", beta = c(0.1, NA, 0.3), se = 0.05, eaf = c(0.3, 0.4, 0.2), n = 1e5, stringsAsFactors = FALSE)
+  m <- mrapss_prepare(d)
+  expect("Round 69: MR-APSS input uses the column names format_data() reads (SNP A1 A2 b se n freq) and drops unusable rows",
+         identical(names(m), c("SNP", "A1", "A2", "b", "se", "n", "freq")) && identical(m$SNP, c("rs1", "rs3")) && attr(m, "ledger")$kept == 2L)
+  sc <- mrapss_script("p1", c("02_datasets/mrapss/a.tsv.gz", "02_datasets/mrapss/b.tsv.gz"), c("A", "B"), "/ld", "/panel/EUR", "/bin/plink", 9L)
+  expect("Round 69: the MR-APSS script parses, pins MRAPSS, clumps locally with PLINK and loads ieugwasr before the seed",
+         !inherits(tryCatch(parse(text = sc), error = function(e) e), "error") && any(grepl(PIN_MRAPSS, sc)) && any(grepl("bfile = BFILE, plink_bin = PLINK", sc, fixed = TRUE)) &&
+         which(grepl("loadNamespace(\"ieugwasr\")", sc, fixed = TRUE))[1] <= which(grepl("set.seed(seed)", sc, fixed = TRUE))[1])
+  res <- data.frame(estimate = 0.216, se = 0.026, ci_lower = 0.165, ci_upper = 0.268, p = 1.9e-16, instruments = 1227L, pi0 = 0.23, sigma_sq = 2e-6, tau_sq = 5e-7, iv_threshold_corrected = 2.2e-5, c12 = 0.05); attr(res, "labels") <- c(x = "BMI", y = "T2D")
+  expect("Round 69: the MR-APSS text gives the estimate, the instruments and what was corrected", { t <- mrapss_text(res); grepl("1227 instruments at P < 5e-5", t) && grepl("BMI on T2D 0.216", t) })
 })
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })

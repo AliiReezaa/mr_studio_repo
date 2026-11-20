@@ -1231,7 +1231,7 @@ ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param
     check = function(input, params) {
       d <- .usable(input$data)
       if (nrow(d) < min_ivs) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("%s needs at least %d usable instruments; %d available.", label, min_ivs, nrow(d))))
-      if (!is.null(check_extra)) { v <- check_extra(d, params); if (!is.null(v)) return(v) }
+      if (!is.null(check_extra)) { v <- if (length(formals(check_extra)) >= 3L) check_extra(d, params, input) else check_extra(d, params); if (!is.null(v)) return(v) }
       w <- .common_warnings(d); verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
     },
     run = function(input, params, ctx) {
@@ -1429,3 +1429,26 @@ ADAPTER_BWMR_V11 <- .mrpkg_adapter("bwmr", "BWMR", 3L, list(), FALSE, c(
   "estimates <- est1(f$beta, f$se_beta, f$beta - z * f$se_beta, f$beta + z * f$se_beta, f$P_value, nrow(dat))",
   "diagnostics <- rbind(drow(\"bwmr_downweighted\", sum(f$weights < 0.5), note = \"variants with posterior weight below 0.5 (likely outliers)\"),",
   "  drow(\"bwmr_tau2\", f$tau^2, note = \"variance of the polygenic (pleiotropic) effects\"))"), pkg = "BWMR")
+
+# ---- Round 68b: IVW after Steiger filtering (Hemani, Tilling and Davey Smith 2017, PLoS Genet 13:e1007081) ------------------
+# A sensitivity analysis, never the primary result: variants that explain more variance in the outcome than in the exposure are left
+# out and the IVW estimate (TwoSampleMR::mr_ivw, as the primary IVW) is computed on the rest. Variance explained exactly as in the
+# Steiger directionality test (continuous: from effect, SE and N; binary: liability scale from the log odds ratio, allele frequency,
+# cases, controls and prevalence). Filtering uses the outcome data to choose instruments, which can itself bias the estimate when
+# pleiotropy or sample overlap is present, so it is offered off by default and labelled as filtered (Burgess et al. 2023 guidelines).
+ADAPTER_IVW_STEIGER_V11 <- .mrpkg_adapter("ivw_steiger", "IVW after Steiger filtering", 3L, list(), FALSE, c(
+  .steiger_script_side("x", "exposure"), .steiger_script_side("y", "outcome"),
+  "keep <- abs(r_x) > abs(r_y)   # Steiger filtering: keep the variants that explain more variance in the exposure than in the outcome",
+  "kept <- dat[keep, , drop = FALSE]",
+  "if (nrow(kept) < 3) stop(sprintf(\"Only %d variants remain after Steiger filtering; IVW needs at least 3.\", nrow(kept)))",
+  "fit <- TwoSampleMR::mr_ivw(kept$beta_x, kept$beta_y, kept$se_x, kept$se_y)   # multiplicative random effects, SE not below the fixed-effect SE",
+  "z <- stats::qnorm(1 - (1 - ci_level) / 2)",
+  "estimates <- est1(fit$b, fit$se, fit$b - z * fit$se, fit$b + z * fit$se, fit$pval, fit$nsnp)",
+  "diagnostics <- rbind(drow(\"steiger_kept\", sum(keep), note = \"variants kept (more variance explained in the exposure)\"),",
+  "  drow(\"steiger_removed\", sum(!keep), note = if (any(!keep)) paste(dat$variant_id[!keep], collapse = \" \") else \"none\"))"),
+  needs_n = TRUE, pkg = "TwoSampleMR",
+  check_extra = function(d, params, input) {
+    for (s in list(list("x", input$exposure_scale %||% "beta", "exposure"), list("y", input$outcome_scale, "outcome"))) {
+      pr <- .steiger_side_problem(d, s[[1]], s[[2]], s[[3]]); if (!is.null(pr)) return(verdict("block", pr$code, pr$msg)) }
+    NULL })
+

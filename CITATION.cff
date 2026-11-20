@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use MR Studio, please cite it as below, together with the papers of the methods you used (each analysis report lists them)."
+title: "MR Studio: a desktop application for Mendelian randomization with GWAS summary statistics"
+abstract: >-
+  Free, local, point-and-click desktop application for two-sample, multivariable, bidirectional and mediation Mendelian
+  randomization with GWAS summary statistics, for macOS and Windows. Every analysis is written as a replayable R script, and
+  every method is validated against published results or the reference package it uses.
+type: software
+authors:
+  - given-names: "Ali Reza"
+    family-names: "Soleymani Taloubaghi"
+license: MIT
+repository-code: "https://github.com/AliiReezaa/mr_studio_repo"
+keywords:
+  - Mendelian randomization
+  - GWAS summary statistics
+  - causal inference
+  - genetic epidemiology
