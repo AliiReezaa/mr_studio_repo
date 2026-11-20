@@ -1,0 +1,17 @@
+"part","quantity","reference","mr_studio","criterion","pass"
+"A","gamma, causal model (posterior median, 95% credible interval)","0.32 (0.24, 0.4)","0.32 (0.24, 0.4)","equal at the printed precision",TRUE
+"A (reported)","eta, causal model","-0.03 (-1.28, 0.91)","-0.03 (-1.35, 0.9)","reported",TRUE
+"A (reported)","q, causal model","0.03 (0, 0.24)","0.03 (0, 0.24)","reported",TRUE
+"A (reported)","eta, sharing model","0.39 (0.3, 0.51)","0.39 (0.29, 0.5)","reported",TRUE
+"A (reported)","q, sharing model","0.62 (0.43, 0.79)","0.63 (0.43, 0.79)","reported",TRUE
+"A","gamma over the 20 seeds","one value","0.32 (0.24, 0.4)","the same for every seed",TRUE
+"A (reported)","delta ELPD, null vs sharing (mean over 20 seeds; the July 2021 render gave -29.514)","-29.661 (SE 5.588)","-30.127 (MC SD 0.091)","0.08 of the vignette's SE apart",TRUE
+"A (reported)","delta ELPD, null vs causal (mean over 20 seeds; the July 2021 render gave -36.856)","-36.736 (SE 7.092)","-37.184 (MC SD 0.042)","0.06 of the vignette's SE apart",TRUE
+"A","delta ELPD, sharing vs causal (Monte Carlo mean and SD over 20 seeds)","-7.075 (SE 1.631)","-7.057 (MC SD 0.108; range -7.255 to -6.800)","vignette value within 3 Monte Carlo SD",TRUE
+"A","P that the causal model fits better (20 seeds)","7.2e-06","7.2e-06 to 1.8e-05","below 0.05 for every seed, as in the vignette",TRUE
+"B","rho from est_cause_params (seed 100, 1,000,000 variants)","0.064655","0.064655","within 1e-4",TRUE
+"B (reported)","mixing proportions, largest difference","0","0.0e+00","reported",TRUE
+"C","app path, LDL on CAD (872 variants clumped locally; the vignette's 719 used the OpenGWAS LD reference)","gamma 0.32 (0.24, 0.4), P 7.2e-06","gamma 0.27 (0.19, 0.35), P 2.3e-05","causal model fits better (P < 0.05) and gamma within the vignette's 95% interval",TRUE
+"C","app path vs the package pipeline called directly (same files, same seed)","0","1.8e-15","< 1e-10 (read back from the CSV table)",TRUE
+"C (reported)","overlap with the vignette's 719 variants","719","523 of 872 in common","reported",TRUE
+"C","replay of the study script","identical","identical","identical",TRUE

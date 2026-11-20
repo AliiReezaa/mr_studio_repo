@@ -195,6 +195,13 @@ mr_server <- function(engine_dir) {
           ev("mrapss", folder = a$folder, job = mrapss_job_read(rv$h, p), ldsc_official = ldsc_ref_status()$official, panel = !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), "EUR.bed")),
              msg = if (inherits(r, "error")) conditionMessage(r) else "", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else mrapss_text(res))
         },
+        cause_get = , cause_start = {   # Round 70: CAUSE, run in a separate process (minutes)
+          req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
+          r <- if (identical(t, "cause_start")) tryCatch({ if (!requireNamespace("cause", quietly = TRUE)) stop("cause is not installed in this runtime.", call. = FALSE); cause_pair_start(rv$h, p) }, error = function(e) e) else NULL
+          res <- cause_pair_read(rv$h, p)
+          ev("cause", folder = a$folder, job = cause_job_read(rv$h, p), panel = !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), "EUR.bed")),
+             msg = if (inherits(r, "error")) conditionMessage(r) else "", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else cause_text(res))
+        },
         mrlap_get = , mrlap_start = {   # Round 68: MRlap, run in a separate process (minutes)
           req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
           r <- if (identical(t, "mrlap_start")) tryCatch({ if (!requireNamespace("MRlap", quietly = TRUE)) stop("MRlap is not installed in this runtime.", call. = FALSE); mrlap_pair_start(rv$h, p) }, error = function(e) e) else NULL
@@ -232,14 +239,16 @@ mr_server <- function(engine_dir) {
           r <- tryCatch(studio_run(rv$h, inp$exposure_label, inp$outcome_label, inp$input, meths, ci, idx = idx, params = prm, steiger_in = sti), error = function(e) e)
           if (inherits(r, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(r)); return() }
           bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
-          if (length(bad)) { ev("pair_done", i = a$i, ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
+          # Round 70c: each method runs on its own; the pair fails only when no method finished, otherwise it is saved and the failures are named
+          if (length(bad) && length(bad) == length(r$results)) { ev("pair_done", i = a$i, ok = FALSE, msg = paste("No method finished:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
+          if (length(bad)) r$left_out <- c(r$left_out, stats::setNames(vapply(r$results[bad], function(x) paste0("stopped with an error (", gsub("^FAILED [^:]+: ", "", paste(x$messages, collapse = " ")), ")"), ""), bad))
           tryCatch(save_instrument_selection(rv$h$dir, r$pair_folder, inp$selection), error = function(e) NULL)
           tryCatch(save_eaf_check(rv$h$dir, r$pair_folder, inp$eaf_rows), error = function(e) NULL)   # Round 33
           pl <- ui_state_get(rv$h$con, "pairs") %||% list()
           pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
           pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), mv = mvp, med = a$med, exNames = if (mvp) as.list(inp$exposure_labels) else NULL, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
           ui_state_set(rv$h$con, "pairs", pl)
-          ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder))
+          ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder), left_out = if (length(r$left_out)) paste(sprintf("%s: %s.", names(r$left_out), r$left_out), collapse = " ") else "")
         },
         instruments = ev("instruments", folder = a$folder, rows = { it <- instrument_table(a$ex, a$out, as.numeric(a$pthr %||% 5e-8)); unname(lapply(seq_len(nrow(it)), function(i) as.list(it[i, , drop = FALSE]))) }),
         run_sens = {

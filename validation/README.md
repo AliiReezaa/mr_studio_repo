@@ -30,6 +30,7 @@ Two kinds of check are used:
 | `mounier2023_mrlap` | MRlap | Mounier and Kutalik 2023, Genet Epidemiol (PMID 37036286) | The package's Example A and its stored result | Reproduction, equivalence | Passed |
 | `darrous2021_lhcmr` | LHC-MR (adaptive, resumable runner) | Darrous et al. 2021, Nat Commun (PMID 34907193), Supplementary Data 2 | Neale lab UK Biobank BMI and height | Reproduction, equivalence | Passed (causal effects both ways and intercept within 1 SE of the paper) |
 | `hu2022_mrapss` | MR-APSS | Hu et al. 2022, PNAS (PMID 35787050) | Neale lab UK Biobank BMI and height; package example | Reproduction, equivalence | Passed (both directions within 2 SE of the paper) |
+| `morrison2020_cause` | CAUSE | Morrison et al. 2020, Nat Genet (PMID 32451458) | The package tutorial: LDL cholesterol and CAD, its stored inputs | Reproduction, equivalence | Passed (gamma identical; sharing vs causal ELPD within 1 Monte Carlo SD) |
 | `calibration` | Feasibility thresholds (instrument counts, strength, allele frequency, ancestry, outliers, IVW models) | Simulation and real data | Simulated and OpenGWAS data | Calibration | See README |
 
 Validation study numbers in the folder READMEs follow the order in which the studies were written; number 3 was not used.

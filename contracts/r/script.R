@@ -86,14 +86,21 @@ script_bundle <- function(method_script, packages, outputs, seed, data_file) {
 }
 
 #' Master script that runs every method script in order (00_run_all.R).
+#' Each method runs on its own (contracts v1.1, Round 70c): an error in one script is reported and recorded in
+#' 03_console/failed_scripts.txt, the other scripts still run, and the script ends with an error naming the failed ones.
 emit_master_script <- function(method_files) {
   paste0(paste(c(
     "# MR Studio: run all methods for this pair, in order. Run from the pair folder.",
+    "# Each method runs on its own: if one stops with an error, the error is shown and the others still run.",
     "if (!dir.exists(\"01_data\") || !dir.exists(\"02_scripts\"))",
     "  stop(\"Wrong working directory. To check these results in R, open VERIFY_IN_R.R in the pair folder and click Source.\")",
-    unlist(lapply(method_files, function(f) c(
+    "dir.create(\"03_console\", showWarnings = FALSE); unlink(file.path(\"03_console\", \"failed_scripts.txt\"))",
+    unlist(lapply(method_files, function(f) { q <- encodeString(f, quote = "\""); c(
       sprintf("cat(\"\\n=== %s ===\\n\")", f),
-      sprintf("source(file.path(\"02_scripts\", %s), echo = FALSE, print.eval = FALSE)", encodeString(f, quote = "\""))))),
+      sprintf("tryCatch(source(file.path(\"02_scripts\", %s), echo = FALSE, print.eval = FALSE),", q),
+      sprintf("  error = function(e) { message(\"FAILED %s: \", conditionMessage(e)); cat(%s, \"\\n\", sep = \"\", file = file.path(\"03_console\", \"failed_scripts.txt\"), append = TRUE) })", f, q)) })),
+    "if (file.exists(file.path(\"03_console\", \"failed_scripts.txt\")))",
+    "  stop(\"These method scripts stopped with an error (the others finished): \", paste(readLines(file.path(\"03_console\", \"failed_scripts.txt\")), collapse = \", \"), call. = FALSE)",
     ""), collapse = "\n"))
 }
 
@@ -347,7 +354,12 @@ replay_check <- function(pair_dir, method_ids, stored, rscript = default_rscript
   for (d in c("01_data", "02_scripts")) file.copy(file.path(pair_dir, d), tmp, recursive = TRUE)
   dir.create(file.path(tmp, "03_console")); dir.create(file.path(tmp, "04_tables"))   # outputs start empty
   run <- run_in_dir(tmp, run_pair_script(tmp, rscript, "replay_console.txt"))
-  if (run$status != 0L) return(list(status = "failed", checked_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+  # Round 70c: a method that failed in the run fails again in the replay; only the methods compared must have finished.
+  # A compared method fails the replay if its script is listed as failed (even when it wrote its tables first) or wrote nothing.
+  ff <- file.path(tmp, "03_console", "failed_scripts.txt")
+  failed_ids <- if (file.exists(ff)) sub("^[0-9]+_(.*)\\.R$", "\\1", trimws(readLines(ff, warn = FALSE))) else character()
+  have <- vapply(method_ids, function(id) all(file.exists(file.path(tmp, "04_tables", sprintf("%s_%s.csv", id, c("estimates", "diagnostics"))))), TRUE)
+  if (run$status != 0L && !(length(method_ids) && all(have) && file.exists(ff) && !any(method_ids %in% failed_ids))) return(list(status = "failed", checked_at = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
                                     r_version = paste(R.version$major, R.version$minor, sep = "."), os = os_family_id(),
                                     max_rel_diff = NA_real_, tolerance = 10^-(same_machine_digits - 1L),
                                     n_values_compared = 0L, console_tail = utils::tail(run$console, 15)))

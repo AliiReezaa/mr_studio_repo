@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "cause_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -1485,6 +1485,33 @@ local({
          which(grepl("loadNamespace(\"ieugwasr\")", sc, fixed = TRUE))[1] <= which(grepl("set.seed(seed)", sc, fixed = TRUE))[1])
   res <- data.frame(estimate = 0.216, se = 0.026, ci_lower = 0.165, ci_upper = 0.268, p = 1.9e-16, instruments = 1227L, pi0 = 0.23, sigma_sq = 2e-6, tau_sq = 5e-7, iv_threshold_corrected = 2.2e-5, c12 = 0.05); attr(res, "labels") <- c(x = "BMI", y = "T2D")
   expect("Round 69: the MR-APSS text gives the estimate, the instruments and what was corrected", { t <- mrapss_text(res); grepl("1227 instruments at P < 5e-5", t) && grepl("BMI on T2D 0.216", t) })
+})
+# ---- Round 70b: a method whose package is missing is locked before the run ----
+expect("Round 70b: a missing package is detected, an installed one is not", identical(.pkg_missing(c("stats", "NoSuchPackageMRS")), "NoSuchPackageMRS"))
+local({ fz <- feasibility(list()); b <- fz$methods$bwmr; hasB <- nzchar(system.file(package = "BWMR"))
+  expect("Round 70b: BWMR is locked with the reason exactly when its package is not installed",
+         if (hasB) is.null(b) || !identical(b$state, "locked") else identical(b$state, "locked") && grepl("Package BWMR is not installed", b$reasons[[1]]$msg)) })
+local({ uni <- list(data = data.frame(beta_x = 1, se_x = 1, beta_y = 1, se_y = 1)); mv <- list(data = data.frame(beta_x_1 = 1, se_x_1 = 1, beta_x_2 = 1, se_x_2 = 1, beta_y = 1, se_y = 1))
+  a <- runnable_methods(c("mvivw", "ivw_mre", "egger"), uni); b <- runnable_methods(c("mvivw", "ivw_mre"), mv)
+  expect("Round 70b: multivariable methods are left out of a one-exposure pair, and one-exposure methods out of a multivariable pair, with the reason",
+         identical(a$methods, c("ivw_mre", "egger")) && grepl("two or more exposures", a$left_out[["mvivw"]]) && identical(b$methods, "mvivw") && grepl("one-exposure method", b$left_out[["ivw_mre"]])) })
+# ---- Round 70: CAUSE ----
+local({
+  d <- data.frame(snp = c("rs1", "rs2", "rs3", "rs1", NA), ea = c("a", "C", "G", "a", "T"), oa = c("g", "T", "A", "g", "C"), beta = c(0.1, NA, 0.3, 0.1, 0.2), se = 0.05, stringsAsFactors = FALSE)
+  m <- cause_prepare(d)
+  expect("Round 70: CAUSE input has the columns gwas_merge() is told to read, upper-case alleles, no duplicate, missing or unusable rows",
+         identical(names(m), c("snp", "beta", "se", "ea", "oa")) && identical(m$snp, c("rs1", "rs3")) && identical(m$ea, c("A", "G")) && attr(m, "ledger")$kept == 2L)
+  sc <- cause_script("p1", c("02_datasets/cause/a.tsv.gz", "02_datasets/cause/b.tsv.gz"), c("A", "B"), "/panel/EUR", "/bin/plink", 9L)
+  expect("Round 70: the CAUSE script parses, pins cause, clumps locally with PLINK at P < 1e-3 and r2 < 0.01, and loads ieugwasr before the seed",
+         !inherits(tryCatch(parse(text = sc), error = function(e) e), "error") && any(grepl(PIN_CAUSE, sc)) && any(grepl("plink_bin = PLINK, bfile = BFILE", sc, fixed = TRUE)) &&
+         any(grepl("P_THRESHOLD <- 0.001; R2_THRESHOLD <- 0.01; N_SAMPLE <- 1000000", sc, fixed = TRUE)) &&
+         which(grepl("loadNamespace(\"ieugwasr\")", sc, fixed = TRUE))[1] < which(grepl("set.seed(seed)", sc, fixed = TRUE))[1])
+  res <- data.frame(gamma = 0.32, gamma_lower = 0.24, gamma_upper = 0.40, eta = -0.03, q = 0.03, sharing_eta = 0.39, sharing_q = 0.62, z = -4.337, p = 7.2e-6, instruments = 719L, rho = 0.065, delta_elpd = -7.075, se_delta_elpd = 1.631)
+  attr(res, "labels") <- c(x = "LDL cholesterol", y = "CAD")
+  expect("Round 70: the CAUSE text says whether the causal model fits better, with P and the posterior of gamma",
+         { t <- cause_text(res); grepl("719 variants", t) && grepl("fitted better than the sharing model (P = 7.2e-06)", t, fixed = TRUE) && grepl("LDL cholesterol on CAD gamma 0.32 (95% credible interval 0.24 to 0.40)", t, fixed = TRUE) })
+  res$p <- 0.4; expect("Round 70: a P value above 0.05 is reported as not fitting better", grepl("did not fit better than", cause_text(res)))
+  expect("Round 70: the CAUSE reference is in the reference list", identical(REFS$morrison2020$pmid, "32451458"))
 })
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })

@@ -37,6 +37,8 @@ Licences are given as each package's `DESCRIPTION` file states them. "GPL-2 | GP
 | mixtools | 2.0.0.1 | GPL (>= 2) | CRAN |
 | MRlap | commit 660f026 | GPL-2 | GitHub n-mounier/MRlap |
 | MRAPSS | commit 85c18ea | MIT (the repository's `LICENSE` file; its `DESCRIPTION` licence field is left unfilled) | GitHub YangLabHKUST/MR-APSS |
+| cause | commit 6257e6c (compiled; where a system cannot build it, the app says CAUSE is not installed) | GPL (>= 2) | GitHub jean997/cause |
+| loo | 2.8.0 (pinned for cause, see `prototype/ci/runtime.yml`) | GPL (>= 3) | CRAN |
 | boot | 1.3-32 | Unlimited | CRAN |
 | ieugwasr | conda-forge | MIT | CRAN |
 
@@ -44,23 +46,18 @@ Licences are given as each package's `DESCRIPTION` file states them. "GPL-2 | GP
 
 | Licence | Packages |
 |---|---|
-| MIT | cli, dplyr, ggplot2, gtable, jsonlite, later, magrittr, mgsub (1.7.3), nanoparquet, plotly, readr, scales, stringr, tidyr |
-| GPL-2 | cowplot, doParallel, glmnet, kernlab |
+| MIT | cli, dplyr, mixsqp, purrr, ggplot2, gtable, jsonlite, later, magrittr, mgsub (1.7.3), nanoparquet, plotly, readr, scales, stringr, tidyr |
+| GPL-2 | cowplot, doParallel, glmnet, kernlab, numDeriv |
 | GPL-3 | gdata, ggnewscale, rmarkdown, rslurm, shiny, splitstackshape, ggrepel |
 | GPL (>= 2) | digest, expm, gridExtra, httpuv, lattice, lavaan, nortest, pbapply, psych, Rcpp, rootSolve, sfsmisc |
-| GPL (>= 3) | pracma |
+| GPL (>= 3) | ashr, pracma, RcppParallel |
 | GPL (any version) | gridBase, knitr, segmented |
 | GPL-2 \| GPL-3 | e1071, MASS, png |
 | LGPL (>= 2) or (>= 2.1) | DBI, R.utils, RSQLite, survival |
 | MPL-2.0 | data.table |
 | Apache-2.0 | foreach, iterators |
 | BSD-3-Clause | colorspace |
-
-## Planned for version 1.0
-
-| Package | Version or commit | Licence | Source |
-|---|---|---|---|
-| cause | commit 6257e6c | GPL (>= 2) | GitHub jean997/cause |
+| Artistic-2.0 | intervals, matrixStats |
 
 ## Not bundled
 

@@ -375,19 +375,33 @@ METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" =
 
 param_adapters <- function() list(ivw_steiger = ADAPTER_IVW_STEIGER_V11, mvivw = ADAPTER_MVIVW_V11, mvegger = ADAPTER_MVEGGER_V11, mvmedian = ADAPTER_MVMEDIAN_V11, mvlasso = ADAPTER_MVLASSO_V11, mvqhet = ADAPTER_MVQHET_V11, mvcml = ADAPTER_MVCML_V11, mrmix = ADAPTER_MRMIX_V11, grip = ADAPTER_GRIP_V11, bwmr = ADAPTER_BWMR_V11, egger_boot = ADAPTER_EGGER_BOOT_V11, pwm = ADAPTER_PWM_V11, smode_nome = ADAPTER_SMODE_NOME_V11, wmode_nome = ADAPTER_WMODE_NOME_V11, rucker = ADAPTER_RUCKER_V11, sign = ADAPTER_SIGN_V11, maxlik = ADAPTER_MAXLIK_V11, mbe = ADAPTER_MBE_V11, cml = ADAPTER_CML_V11, robust_ivw = ADAPTER_ROBUST_V11, pivw = ADAPTER_PIVW_V11, ivw_mre = ADAPTER_IVW_MRE_V11, divw = ADAPTER_DIVW_V11, raps = ADAPTER_RAPS_V11, conmix = ADAPTER_CONMIX_V11, lasso = ADAPTER_LASSO_V11, egger_simex = ADAPTER_EGGER_SIMEX_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11, steiger = ADAPTER_STEIGER_V11, loo = ADAPTER_LOO_V11)
 
+#' Packages (by name) that are not installed in this runtime.
+.pkg_missing <- function(pk) pk[!nzchar(vapply(pk, function(p) system.file(package = p), ""))]
+#' Methods that cannot run on this input are left out before the scripts are written, with the reason, instead of failing the pair:
+#' multivariable methods on a one-exposure pair (and the reverse), and methods whose package is not in this runtime (Round 70b).
+runnable_methods <- function(methods, input, ad = param_adapters()) {
+  mvin <- any(grepl("^beta_x_[0-9]+$", names(input$data))); why <- character()
+  for (m in methods) { if (is.null(ad[[m]])) next
+    if (startsWith(m, "mv") != mvin) why[[m]] <- if (mvin) "left out, a one-exposure method on a multivariable pair" else "left out, a multivariable method needs two or more exposures"
+    else { miss <- .pkg_missing(names(ad[[m]]$packages %||% list())); if (length(miss)) why[[m]] <- sprintf("left out, package %s is not installed in this copy of MR Studio", paste(miss, collapse = ", ")) } }
+  list(methods = setdiff(methods, names(why)), left_out = why)
+}
+
 studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx = NULL, params = NULL, steiger_in = NULL) {
   params <- c(params[setdiff(names(params), "ci_level")], list(ci_level = if (!is.null(params$ci_level)) params$ci_level else ci_level))
   if (!length(methods)) stop("Choose at least one method.")
   exposure_label <- trimws(exposure_label); outcome_label <- trimws(outcome_label)
   if (!nzchar(exposure_label) || !nzchar(outcome_label)) stop("Give the exposure and the outcome a name.")
   ad <- param_adapters()
+  rm_ <- runnable_methods(methods, input, ad); methods <- rm_$methods
+  if (!length(methods)) stop("None of the chosen methods can run on this pair: ", paste(sprintf("%s (%s)", names(rm_$left_out), rm_$left_out), collapse = "; "), ".")
   if (is.null(steiger_in)) steiger_in <- input   # a continuous pair needs nothing extra; a binary one gets steiger_input()
   if ("steiger" %in% methods) { v <- ad$steiger$check(steiger_in, list()); if (identical(v$status, "block")) stop(paste(v$messages, collapse = " ")) }   # the script would stop on missing sample sizes but could not tell a binary outcome
   spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = if (m %in% c("steiger", "ivw_steiger")) steiger_in else input,
                                            params = params[intersect(names(params), names(ad[[m]]$params))]))
   if (is.null(idx)) idx <- studio_pair_index(h$dir, exposure_label, outcome_label)
   r <- run_script_task(h$con, h$dir, idx, exposure_label, outcome_label, spec)
-  r$pair_folder <- basename(r$pair_dir)
+  r$pair_folder <- basename(r$pair_dir); r$left_out <- rm_$left_out
   r
 }
 

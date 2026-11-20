@@ -79,3 +79,14 @@ dependencies:
   # MR-APSS (Round 69): imports of MRAPSS, which is installed from a pinned commit (prototype.yml).
   - r-ggnewscale
   - r-expm
+  # CAUSE (Round 70): imports of cause, which is installed from a pinned commit (prototype.yml) and compiled (Rcpp, RcppParallel).
+  # loo 2.8.0: from loo 2.10 loo_compare() returns a model-name column first, which cause reads as the ELPD difference
+  # ("non-numeric argument to binary operator" in in_sample_elpd_loo); 2.8.0 is the last version with the shape cause expects.
+  - r-loo=2.8.0
+  - r-rcppparallel
+  - r-mixsqp
+  - r-numderiv
+  - r-ashr
+  - r-purrr
+  - r-intervals
+  - r-matrixstats

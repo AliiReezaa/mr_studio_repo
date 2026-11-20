@@ -238,12 +238,18 @@ run_script_task <- function(con, study_dir, pair_index, exposure_label, outcome_
   console_rel <- file.path("03_console", "run_all_console.txt")
 
   results <- list()
+  # Round 70c: each method is judged on its own. The master script lists the scripts that stopped with an error; a method
+  # whose script finished and wrote its tables is "ok" even when another method of the pair failed.
+  ff <- file.path(pair_dir, "03_console", "failed_scripts.txt"); failed_files <- if (file.exists(ff)) trimws(readLines(ff, warn = FALSE)) else character()
   for (p in plans) {
     a <- p$adapter; codes <- character(); messages <- character()
-    out <- if (run$status == 0L) tryCatch(read_method_results(pair_dir, a$id), error = function(e) NULL) else NULL
-    if (is.null(out)) { codes <- "SCRIPT_RUN_FAILED"; messages <- paste(utils::tail(run$console, 8), collapse = "\n") }
+    script_name <- sprintf("%02d_%s.R", match(a$id, vapply(plans, function(q) q$adapter$id, "")), a$id)
+    out <- if (!(script_name %in% failed_files)) tryCatch(read_method_results(pair_dir, a$id), error = function(e) NULL) else NULL
+    if (is.null(out)) { codes <- "SCRIPT_RUN_FAILED"
+      own <- grep(paste0("FAILED ", script_name, ": "), run$console, fixed = TRUE, value = TRUE)
+      messages <- if (length(own)) paste(own, collapse = "\n") else paste(utils::tail(run$console, 8), collapse = "\n") }
     status <- if (is.null(out)) "failed" else "ok"
-    script_file <- file.path(pair_dir, "02_scripts", sprintf("%02d_%s.R", match(a$id, vapply(plans, function(q) q$adapter$id, "")), a$id))
+    script_file <- file.path(pair_dir, "02_scripts", script_name)
     res <- list(contract_version = CONTRACT_VERSION, task_id = p$task_id, fingerprint = p$fp, method_id = a$id,
                 adapter_version = a$adapter_version, status = status, codes = unique(codes), messages = messages,
                 estimates = if (is.null(out)) NULL else out$estimates,
@@ -271,11 +277,12 @@ run_script_task <- function(con, study_dir, pair_index, exposure_label, outcome_
 
   # 5. replay check (C6.5): automatic for final runs, optional for exploratory ones (D3)
   rp <- NULL
-  if (replay && run$status == 0L) {
-    stored <- lapply(plans, function(p) read_method_results(pair_dir, p$adapter$id)); names(stored) <- vapply(plans, function(p) p$adapter$id, "")
+  ok_ids <- names(Filter(function(r) identical(r$status, "ok"), results))
+  if (replay && length(ok_ids)) {   # Round 70c: the methods that finished are replayed and compared
+    stored <- lapply(ok_ids, function(id) read_method_results(pair_dir, id)); names(stored) <- ok_ids
     rp <- replay_check(pair_dir, names(stored), stored)
     atomic_write_text(file.path(pair_dir, "07_replay_check", "replay_check.json"), paste0(canonical_json(rp), "\n"))
-    for (p in plans) DBI::dbExecute(con, "UPDATE results SET replay_json=? WHERE task_id=?", params = list(canonical_json(rp), p$task_id))
+    for (p in plans) if (p$adapter$id %in% ok_ids) DBI::dbExecute(con, "UPDATE results SET replay_json=? WHERE task_id=?", params = list(canonical_json(rp), p$task_id))
   } else if (!replay) {
     rp <- list(status = "not_run")
     for (p in plans) DBI::dbExecute(con, "UPDATE results SET replay_json=? WHERE task_id=?", params = list(canonical_json(rp), p$task_id))

@@ -131,6 +131,20 @@ expect("a failing script gives status failed with SCRIPT_RUN_FAILED and no repla
        r6$results$ivw_mre$status == "failed" && "SCRIPT_RUN_FAILED" %in% r6$results$ivw_mre$codes && r6$run_status != 0L &&
        DBI::dbGetQuery(con, "SELECT state FROM tasks WHERE task_id = 'P03_Folate__to__CHD:ivw_mre'")$state == "failed")
 
+# ---- Round 70c: one failing method does not stop the others --------------------------------------
+brokenwm <- ADAPTER_WM_V11
+brokenwm$emit_script <- function(spec, params, seed) { b <- ADAPTER_WM_V11$emit_script(spec, params, seed); b$method_script <- paste0("stop(\"broken on purpose\")\n", b$method_script); b }
+r7 <- run_script_task(con, study, 4, "Folate", "Stroke", list(list(adapter = brokenwm, input = input, params = list()), list(adapter = ADAPTER_IVW_MRE_V11, input = input, params = list())))
+p7 <- r7$pair_dir
+expect("Round 70c: a method after a failing one still runs and saves its results; the failed one is named with its own error",
+       r7$results$wm$status == "failed" && "SCRIPT_RUN_FAILED" %in% r7$results$wm$codes && grepl("FAILED 01_wm.R: broken on purpose", r7$results$wm$messages, fixed = TRUE) &&
+       r7$results$ivw_mre$status == "ok" && nrow(r7$results$ivw_mre$estimates) > 0 && file.exists(file.path(p7, "04_tables", "ivw_mre_estimates.csv")) &&
+       r7$run_status != 0L && identical(readLines(file.path(p7, "03_console", "failed_scripts.txt")), "01_wm.R"))
+expect("Round 70c: the methods that finished are replayed and compared; the failed one is not",
+       r7$replay$status %in% c("identical", "within_tolerance") &&
+       DBI::dbGetQuery(con, "SELECT state FROM tasks WHERE task_id = 'P04_Folate__to__Stroke:ivw_mre'")$state == "done" &&
+       DBI::dbGetQuery(con, "SELECT state FROM tasks WHERE task_id = 'P04_Folate__to__Stroke:wm'")$state == "failed")
+
 # ---- the database survives a restart -----------------------------------------------------------
 DBI::dbDisconnect(con)
 con2 <- db_open(file.path(study, ".engine"))
