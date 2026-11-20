@@ -1390,7 +1390,8 @@ local({
     sf <- tempfile(fileext = ".json"); writeLines('{"state":"running"}', sf)
     old <- Sys.getenv("MRSTUDIO_GUARD_FLOOR"); Sys.setenv(MRSTUDIO_GUARD_FLOOR = "2")
     job <- parallel::mcparallel(Sys.sleep(60)); pid <- job$pid
-    mem_guard_start(pid, sf, every = 1, engine = if (exists("args_dir")) args_dir else getwd()); Sys.sleep(8); Sys.setenv(MRSTUDIO_GUARD_FLOOR = old)
+    mem_guard_start(pid, sf, every = 1, engine = if (exists("args_dir")) args_dir else getwd()); for (w in 1:60) { if (grepl("stopped", paste(readLines(sf, warn = FALSE), collapse = ""))) break; Sys.sleep(1) };   # up to 60 s: R starts slowly on CI runners
+    Sys.setenv(MRSTUDIO_GUARD_FLOOR = old)
     st <- tryCatch(jsonlite::fromJSON(sf), error = function(e) list())
     gone <- !is.null(suppressWarnings(parallel::mccollect(job, wait = TRUE, timeout = 3)))   # a stopped child is collected at once
     if (!gone) { tools::pskill(pid); invisible(suppressWarnings(parallel::mccollect(job))) }
