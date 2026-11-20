@@ -60,13 +60,23 @@ Choose **Find more on OpenGWAS**, search by trait name or dataset ID, and pick a
 - **Use as outcome** looks up the instruments of one exposure in the outcome GWAS. You choose that exposure. If an instrument is
   missing from the outcome, a proxy (a variant in strong linkage with it, r² at least 0.8 by default) is used instead.
 
-An outcome downloaded this way holds only the variants of the exposure you chose, so it can be paired only with that exposure. To
+- **Complete GWAS** downloads every variant of the dataset (its GWAS-VCF file, usually 0.2 to 1.5 GB). Before it starts, MR Studio
+  shows the file size, the space it needs (the download and the standard copy made from it), the free space on your disk and the
+  memory needed to read it. If the disk does not have enough space, the download cannot start; if little space would be left, you
+  are warned. The download continues in the background and is listed under **Complete GWAS downloads** with its progress; **Stop**
+  and **Resume** continue where it stopped, also after closing the app. A complete GWAS can be an outcome for any exposure, an
+  exposure (clumped on this computer), and the data of the analyses that need full summary statistics. Complete downloads count
+  against your OpenGWAS allowance.
+
+An outcome downloaded with **Use as outcome** holds only the variants of the exposure you chose, so it can be paired only with that exposure. To
 use the same outcome with another exposure, download it again for that exposure. The study's Check step tells you if a pair
 cannot be used for this reason.
 
 ### Importing your own file
 
-Choose **Import a GWAS file** and pick a text table (TSV, CSV or space separated, optionally `.gz`). MR Studio reads the columns,
+Choose **Import a GWAS file** and pick a text table (TSV, CSV or space separated, optionally `.gz`), or a GWAS-VCF file (`.vcf` or
+`.vcf.gz`, the format of OpenGWAS and the GWAS Catalog). A VCF is read directly: you give only its name, the ancestry and the type of
+trait (and the numbers of cases and controls if the file does not list them). MR Studio reads the columns,
 shows what it recognised (variant ID, alleles, effect, standard error, P value, allele frequency, sample size), and asks about
 anything unclear: for example whether effects are log odds ratios or odds ratios. It then saves the file in a standard layout.
 
@@ -101,9 +111,10 @@ Pick the exposures and outcomes from the Data library. In a two-sample or bidire
 outcome. If you want different outcomes for different exposures (for example an outcome downloaded for one exposure only), use one
 study per exposure.
 
-Multivariable studies, and the multivariable step of a mediation study, need the full summary statistics of every exposure,
-imported as files, because each instrument's effect on every exposure must be looked up. An OpenGWAS exposure download holds only
-its own instruments.
+Multivariable studies, and the multivariable step of a mediation study, look up each instrument's effect on every exposure. With
+OpenGWAS downloads MR Studio does this itself on OpenGWAS before the Check step (as TwoSampleMR's `mv_extract_exposures` does); with
+imported files, every exposure must be the full summary statistics. The outcome is looked up again at all joint instruments, so the
+exposure an outcome download was made for does not matter.
 
 ### 3. Check
 
@@ -188,7 +199,9 @@ These run from a pair's Results page, in the background at low priority, after a
 | MR-APSS | Allows for pleiotropy and sample structure, with more instruments | Full GWAS of both traits; European LD scores; 1000 Genomes panel |
 | CAUSE | Tests a causal effect against correlated pleiotropy (a shared heritable factor) | Full GWAS of both traits; 1000 Genomes panel |
 
-"Full GWAS" means genome-wide summary statistics with rsIDs and sample size, imported into the Data library.
+"Full GWAS" means genome-wide summary statistics with rsIDs and sample size in the Data library: downloaded with **Complete GWAS**
+from OpenGWAS, or imported (a table or a GWAS-VCF file). A pair made from OpenGWAS instrument downloads uses the complete GWAS of the
+same OpenGWAS datasets when you have downloaded them: the Results page offers the downloads it needs.
 
 ## Checking the results in R
 
@@ -217,9 +230,10 @@ replay check), and the report states its result.
 | "No token yet" or "token expired" | Paste a new token in Settings > Data and access (api.opengwas.io; tokens expire after a while). |
 | An outcome "cannot be paired" with an exposure | It was downloaded for another exposure. Download it again for this exposure, or use one study per exposure. |
 | A method is locked | The card gives the reason, for example too few instruments for that method. |
-| MVMR refuses an OpenGWAS exposure | MVMR needs the full summary statistics of every exposure, imported as files. |
 | A pair finished with some methods failed | The activity log names each failed method and its error; the others are saved. |
 | Clumping on this computer is not offered | Install the 1000 Genomes panel in Settings > Data and access. |
+| "Not enough free space" before a complete GWAS download | Free space on the disk shown, or choose another folder for studies and the Data library in Settings. |
+| A complete GWAS download stopped | Choose **Resume** under Complete GWAS downloads; it continues where it stopped and asks OpenGWAS for a new link. |
 | Slow or failing OpenGWAS requests | OpenGWAS may be busy. Try again later; finished downloads are kept. |
 
 Each method's reference, and how MR Studio was checked against it, is listed in `validation/README.md`.

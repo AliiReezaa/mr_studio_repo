@@ -46,7 +46,7 @@ mrapss_script <- function(folder, files, labels, ld, bfile, plink, seed, pthr = 
 
 mrapss_pair_prepare <- function(h, pair, root = studies_root(), ldsc = ldsc_ref_dir()) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("MR-APSS is for a pair with one exposure.")
-  ids <- c(pair$ex, pair$out); if (!all(startsWith(ids, "lib:"))) stop("MR-APSS needs the full summary statistics of both traits, imported into the Data library.")
+  ids <- full_gwas_ids(c(pair$ex, pair$out), root); if (!all(startsWith(ids, "lib:"))) stop("MR-APSS needs the full summary statistics of both traits, imported into the Data library.")
   if (!ldsc_ref_status(ldsc)$official) stop("MR-APSS uses the European LD scores of LDSC; install them first (LD score regression section).")
   if (is.na(plink_bin()) || !file.exists(file.path(ld_panel_dir(), "EUR.bed"))) stop("MR-APSS clumps its instruments with PLINK and the 1000 Genomes EUR panel; install the panel first (Data library).")
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))

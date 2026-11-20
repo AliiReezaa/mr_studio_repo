@@ -99,6 +99,11 @@ mr_server <- function(engine_dir) {
     observeEvent(input$impfile, {
       f <- input$impfile
       tryCatch({
+        if (grepl("\\.vcf(\\.b?gz)?$", f$name, ignore.case = TRUE)) {   # Round 75: a GWAS-VCF is read by its own reader, no column mapping
+          pk <- vcf_peek(f$datapath); rv$vcf <- list(path = f$datapath, name = f$name)
+          ev("vcf_head", name = f$name, size = file.size(f$datapath), meta = pk$meta, format = as.list(pk$format), samples = as.list(pk$samples), kind = pk$kind, ncase = pk$ncase, ncontrol = pk$ncontrol, variants = pk$variants, build = pk$build)
+          return()
+        }
         hd <- import_read_head(f$datapath, f$name)
         rv$imp <- list(path = f$datapath, name = f$name, sep = hd$sep, columns = hd$columns, fingerprint = hd$fingerprint)
         tm <- template_match(hd$fingerprint)
@@ -112,7 +117,7 @@ mr_server <- function(engine_dir) {
       tryCatch((function() switch(t,
         init = {
           s <- settings_read(); root <- studies_root()
-          ev("init", settings = s, library = library_list(), templates = template_list(), studies = studies_overview(root), catalogue = catalogue_all(), schemas = param_schemas(), root = root, diag = run_diagnostics(root), ld = ld_panel_status())
+          ev("init", settings = s, library = library_list(), templates = template_list(), studies = studies_overview(root), catalogue = catalogue_all(), schemas = param_schemas(), root = root, diag = run_diagnostics(root), ld = ld_panel_status(), fgjobs = fullgwas_jobs())
           ogw_ev()
         },
         study_folder = open_in_file_manager(file.path(studies_root(), basename(a$name))),
@@ -408,6 +413,26 @@ mr_server <- function(engine_dir) {
           r <- tryCatch(ogw_get_exposure(a$id, ogw_token_get(), as.numeric(a$p), as.numeric(a$r2), as.numeric(a$kb), a$pop, a$name, isTRUE(settings_read()$offline), where = if (isTRUE(a$where %in% c("local", "server_live"))) a$where else "server"), error = function(e) e)
           if (inherits(r, "error")) { ev("ogw_dl", ok = FALSE, msg = conditionMessage(r)); return() }
           ev("ogw_dl", ok = TRUE, rec = r, reused = isTRUE(r$reused), items = library_list(), templates = template_list(), catalogue = catalogue_all())
+        },
+        fullgwas_plan = {
+          r <- tryCatch(fullgwas_plan(a$id, ogw_token_get(), isTRUE(settings_read()$offline)), error = function(e) e)
+          if (inherits(r, "error")) ev("fullgwas_plan", ok = FALSE, id = a$id, msg = conditionMessage(r)) else ev("fullgwas_plan", ok = TRUE, id = a$id, plan = r)
+        },
+        fullgwas_start = {
+          r <- tryCatch(fullgwas_download_start(a$id, a$name, ogw_token_get(), !identical(a$keep, FALSE), isTRUE(settings_read()$offline)), error = function(e) e)
+          ev("fullgwas_jobs", jobs = fullgwas_jobs(), msg = if (inherits(r, "error")) conditionMessage(r) else "", started = !inherits(r, "error"), id = a$id)
+        },
+        fullgwas_status = ev("fullgwas_jobs", jobs = fullgwas_jobs(), items = library_list(), catalogue = catalogue_all()),
+        fullgwas_cancel = { fullgwas_cancel(a$key); ev("fullgwas_jobs", jobs = fullgwas_jobs()) },
+        fullgwas_discard = { fullgwas_discard(a$key); ev("fullgwas_jobs", jobs = fullgwas_jobs()) },
+        fullgwas_resume = {
+          r <- tryCatch(fullgwas_resume(a$key, ogw_token_get(), isTRUE(settings_read()$offline)), error = function(e) e)
+          ev("fullgwas_jobs", jobs = fullgwas_jobs(), msg = if (inherits(r, "error")) conditionMessage(r) else "")
+        },
+        vcf_import = {
+          if (is.null(rv$vcf)) { ev("fullgwas_jobs", jobs = fullgwas_jobs(), msg = "Choose the VCF file again."); return() }
+          r <- tryCatch(vcf_import_start(rv$vcf$path, a$name, list(ancestry = a$ancestry, kind = a$kind, ncase = a$ncase, ncontrol = a$ncontrol, n = a$n, file_name = rv$vcf$name)), error = function(e) e)
+          ev("fullgwas_jobs", jobs = fullgwas_jobs(), msg = if (inherits(r, "error")) conditionMessage(r) else "", vcf_started = !inherits(r, "error"))
         },
         ogw_dl_outcome = {
           r <- tryCatch(ogw_get_outcome(a$id, a$exposure, ogw_token_get(), !identical(a$proxies, FALSE), as.numeric(a$rsq), as.numeric(a$maf), a$name, isTRUE(settings_read()$offline)), error = function(e) e)

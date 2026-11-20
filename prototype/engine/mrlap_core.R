@@ -50,7 +50,7 @@ mrlap_script <- function(folder, files, labels, ld, hm3, seed, pthr = 5e-8) {
 #' Prepare both datasets and write the script (fast); the run itself is started in the background by mrlap_pair_start().
 mrlap_pair_prepare <- function(h, pair, root = studies_root(), ldsc = ldsc_ref_dir()) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("MRlap is for a pair with one exposure.")
-  ids <- c(pair$ex, pair$out); if (!all(startsWith(ids, "lib:"))) stop("MRlap needs the full summary statistics of both traits, imported into the Data library.")
+  ids <- full_gwas_ids(c(pair$ex, pair$out), root); if (!all(startsWith(ids, "lib:"))) stop("MRlap needs the full summary statistics of both traits, imported into the Data library.")
   if (!ldsc_ref_status(ldsc)$official) stop("MRlap uses the European LD scores of LDSC; install them first (section above).")
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
   if (!all(vapply(ds, function(x) toupper(x$recipe$facts$ancestry %||% "EUR"), "") == "EUR")) stop("MRlap uses European LD scores; both GWAS must be of European ancestry.")

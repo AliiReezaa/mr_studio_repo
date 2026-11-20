@@ -141,7 +141,7 @@ demo_catalogue <- function() {
 #' Datasets imported by the user, offered next to the simulated traits. An exposure must be marked as already independent, or set to be clumped on this computer (Round 19).
 library_catalogue <- function(root = studies_root()) {
   recs <- tryCatch(library_list(root), error = function(e) list())
-  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?")
+  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else if (identical(r$source$type, "opengwas_vcf")) "OpenGWAS, complete GWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?")
   list(exposures = lapply(Filter(function(r) isTRUE(r$usable_as_exposure), recs), mk, role = "exposure"),
        outcomes = lapply(Filter(function(r) isTRUE(r$usable_as_outcome), recs), mk, role = "outcome"))
 }
@@ -374,13 +374,20 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8, p = NULL) {   # p: an input 
 #' MRlap, MR-APSS, CAUSE and LHC-MR need. OpenGWAS downloads hold only instruments and their lookups.
 full_gwas_status <- function(exp_id, out_id, root = studies_root()) {
   ids <- c(exp_id, out_id); if (!all(startsWith(ids, "lib:"))) return(list(ok = FALSE, why = "simulated"))
-  rs <- lapply(ids, function(i) tryCatch(library_dataset(sub("^lib:", "", i), root)$recipe, error = function(e) NULL))
+  use <- if (exists("full_gwas_ids")) full_gwas_ids(ids, root) else ids   # Round 75: the complete GWAS of an OpenGWAS download, when downloaded
+  rs <- lapply(use, function(i) .lib_recipe0(sub("^lib:", "", i), root))
   full <- vapply(rs, function(r) !is.null(r) && !identical(r$source$type, "opengwas") && is.null(r$source$for_exposure) && isTRUE(r$usable_as_outcome) &&
                    as.numeric(r$rows_kept %||% 0) >= 200000, TRUE)
-  if (all(full)) return(list(ok = TRUE, why = ""))
+  linked <- lapply(which(use != ids), function(k) list(role = c("exposure", "outcome")[k], uses = sub("^lib:", "", use[k])))
+  if (all(full)) return(list(ok = TRUE, why = "", linked = linked))
   og <- vapply(rs, function(r) !is.null(r) && identical(r$source$type, "opengwas"), TRUE)
-  list(ok = FALSE, why = if (any(og)) "opengwas" else "instruments")
+  # Round 75: what can be downloaded inside the app, per trait: the OpenGWAS dataset behind each instrument download
+  need <- lapply(which(!full), function(k) { r <- rs[[k]]; list(role = c("exposure", "outcome")[k], name = sub("^lib:", "", ids[k]),
+    id = if (!is.null(r) && identical(r$source$type, "opengwas")) r$source$id else NULL, trait = r$source$trait %||% r$trait %||% "") })
+  list(ok = FALSE, why = if (any(og)) "opengwas" else "instruments", need = need, linked = linked)
 }
+.lib_recipe0 <- function(name, root) { f <- file.path(library_dir(root), basename(name), "recipe.json")
+  if (file.exists(f)) tryCatch(jsonlite::fromJSON(f, simplifyVector = FALSE), error = function(e) NULL) else NULL }
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "Debiased IVW (dIVW)" = "divw", "MR-RAPS (robust adjusted profile score)" = "raps", "Contamination mixture" = "conmix", "MR-Lasso" = "lasso", "MR-Egger with SIMEX correction" = "egger_simex", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger", "MR Steiger directionality" = "steiger")
 

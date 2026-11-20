@@ -159,7 +159,7 @@ ldsc_script <- function(folder, files, labels, ld, ld_what, sprev, pprev) {
 #' Prepare both datasets of a pair, write and run its LDSC script. `source` = "official" or a super-population of computed scores.
 ldsc_pair_run <- function(h, pair, source = NULL, pprev = c(NA_real_, NA_real_), root = studies_root(), dir = ldsc_ref_dir()) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("LD score regression is for a pair with one exposure.")
-  ids <- c(pair$ex, pair$out); if (!all(startsWith(ids, "lib:"))) stop("LD score regression needs the full summary statistics of both traits, imported into the Data library.")
+  ids <- full_gwas_ids(c(pair$ex, pair$out), root); if (!all(startsWith(ids, "lib:"))) stop("LD score regression needs the full summary statistics of both traits, imported into the Data library.")
   rows <- vapply(ids, function(i) tryCatch(as.numeric(library_dataset(sub("^lib:", "", i), root)$recipe$rows_kept %||% NA), error = function(e) NA_real_), 0)
   if (exists("mem_check")) { mc <- mem_check(ldsc_memory_gb(rows), "LD score regression"); if (!mc$ok) stop(mc$msg, call. = FALSE) }   # Round 66
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))

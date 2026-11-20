@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "cause_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "cause_core.R")); source(file.path(args_dir, "fullgwas_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -1640,5 +1640,64 @@ cl51 <- function(snp, p, pop) data.frame(variant_id = snp, status = "index", str
 f51 <- library_mv_input(c("lib:P1 forward", "lib:P2 forward"), "lib:PY forward", 1e-6, clump = cl51); u51 <- library_mv_input(c("lib:P1 unknown", "lib:P2 unknown"), "lib:PY unknown", 1e-6, clump = cl51)
 expect("Round 51: declared forward strand keeps the palindromic (A/T) instruments in MVMR; undeclared, they are dropped without allele frequencies",
        f51$ledger$mv$final == 80L && isTRUE(f51$ledger$mv$palindromic_kept) && u51$ledger$mv$final == 60L && !isTRUE(u51$ledger$mv$palindromic_kept))
+
+# ---- Round 75: complete GWAS inside the app (OpenGWAS GWAS-VCF downloads, VCF imports, free-space check) ----
+local({ root <- file.path(tempfile("fg75"), "MR Studio"); dir.create(library_dir(root), recursive = TRUE)
+  vf <- file.path(dirname(root), "t.vcf.gz"); con <- gzfile(vf, "w")
+  set.seed(75); nn <- 300; bb <- round(rnorm(nn, 0, .02), 5); ss <- round(runif(nn, .005, .02), 5); lp <- round(-log10(2 * pnorm(-abs(bb / ss))), 4)
+  body <- sprintf("%d\t%d\trs%d\t%s\t%s\t.\tPASS\t.\tES:SE:LP:AF:SS:ID\t%s:%s:%s:0.3:250000:rs%d", (seq_len(nn) %% 22) + 1L, seq_len(nn) * 1000L, seq_len(nn), "A", "G", bb, ss, lp, seq_len(nn))
+  writeLines(c("##fileformat=VCFv4.2", "##contig=<ID=1,length=249250621,assembly=HG19/GRCh37>", sprintf("##SAMPLE=<ID=ieu-a-300,TotalVariants=%d,StudyType=Continuous>", nn + 4),
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tieu-a-300", body,
+    "1\t9001\trs9001\tC\tT,G\t.\tPASS\t.\tES:SE:LP:AF:SS:ID\t0.1:0.02:5:0.2:250000:rs9001", "1\t9002\trs9002\tCT\tC\t.\tPASS\t.\tES:SE:LP:AF:SS:ID\t0.1:0.02:5:0.2:250000:rs9002",
+    "1\t9003\t.\tG\tC\t.\tPASS\t.\tSE:ES:SS\t0.01:-0.05:250000", "1\t9004\trs1\tA\tG\t.\tPASS\t.\tES:SE:LP:AF:SS:ID\t0.2:0.03:2:0.3:250000:rs1"), con); close(con)
+  r <- vcf_read_gwas(vf, chunk = 100L)
+  expect("Round 75: GWAS-VCF is read in chunks: effect of ALT (ea = ALT, oa = REF), P from LP, fields by FORMAT name in any order, with every row left out counted",
+         r$stats$rows_read == nn + 4 && r$stats$rows_kept == nn + 1 && identical(unlist(r$stats$dropped), c(not_snv = 1, multiallelic = 1, missing = 0, duplicate = 1)) &&
+         all(r$data$ea[1:nn] == "G") && all(r$data$oa[1:nn] == "A") && max(abs(r$data$p[1:nn] - 10^-lp)) < 1e-12 && r$data$beta[nn + 1] == -0.05 && r$data$snp[nn + 1] == "1:9003" && all(r$data$n == 250000))
+  g <- file.path(dirname(root), "geno.vcf"); writeLines(c("##fileformat=VCFv4.2", "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tNA12878", "1\t100\trs1\tA\tG\t.\tPASS\t.\tGT\t0|1"), g)
+  nf <- file.path(dirname(root), "x.txt"); writeLines("a\tb", nf)
+  expect("Round 75: a genotype VCF and a file that is not a VCF are refused with the reason", grepl("not a GWAS summary statistics", err_of(vcf_peek(g))) && grepl("not a VCF", err_of(vcf_peek(nf))))
+  fb <- disk_free_bytes(root); expect("Round 75: the free space of the disk that holds the Data library is measured", is.finite(fb) && fb > 0)
+  # the plan: size from the server, compared with the free space
+  B <- getOption("mrgui.ogw_backend"); B$files <- function(id, jwt) { chk(jwt); list(list(paste0("https://example.org/files/", id, ".vcf.gz?sig=1"), paste0("https://example.org/files/", id, ".vcf.gz.tbi?sig=1"))) }
+  pl <- function(free) fullgwas_plan("sim-exp-1", tok_ok, root = root, backend = B, size_fun = function(u) { if (!grepl("\\.vcf\\.gz\\?", u)) stop("wrong link"); 5e8 }, free_fun = function(p) free)
+  p1 <- pl(1e9); p2 <- pl(2.5e9); p3 <- pl(1e10)
+  expect("Round 75: before a download the space needed (download + standard copy) is compared with the free space: block, warn or ok, with the numbers",
+         identical(c(p1$level, p2$level, p3$level), c("block", "warn", "ok")) && abs(p1$need_bytes - (5e8 + max(2.2 * 5e8, 60 * 1e7))) < 1 && grepl("Not enough free space", p1$msg) && grepl("only about", p2$msg))
+  expect("Round 75: a download that does not fit cannot start", grepl("Not enough free space", err_of(fullgwas_download_start("sim-exp-1", "X", tok_ok, root = root, backend = B, plan = p1))))
+  expect("Round 75: a dataset without a complete GWAS file says so", grepl("no complete summary statistics", err_of(ogw_vcf_link("sim-exp-1", tok_ok, list(files = function(id, jwt) list())))))
+  # the job: download with resume (file:// link, half already downloaded), read, saved in the library; the original kept
+  spec <- list(key = "ieu-a-300", mode = "opengwas", url = paste0("file://", normalizePath(vf)), bytes = file.size(vf), name = "LDL complete", keep_vcf = TRUE,
+               facts = list(role = "either", kind = "continuous", ancestry = "EUR", independent = "clump", clump_pop = "EUR", scope = "genomewide"), source = list(type = "opengwas_vcf", id = "ieu-a-300", trait = "LDL cholesterol"),
+               library = normalizePath(library_dir(root)))
+  dir <- .fg_dl_dir("ieu-a-300", root); dir.create(dir, recursive = TRUE); writeLines(jsonlite::toJSON(spec, auto_unbox = TRUE, digits = NA), file.path(dir, "spec.json"))
+  raw <- readBin(vf, "raw", file.size(vf)); writeBin(raw[seq_len(length(raw) %/% 2)], file.path(dir, "gwas.vcf.gz.part"))
+  fullgwas_job_run(dir); js <- fullgwas_job_read("ieu-a-300", root); ds <- library_dataset("LDL complete", root)
+  expect("Round 75: a download resumes from the part already downloaded, is checked by size, read and saved as a complete GWAS; the original VCF is kept with its SHA-256",
+         identical(js$state, "done") && nrow(ds$data) == nn + 1 && isTRUE(ds$recipe$complete_gwas) && isTRUE(ds$recipe$usable_as_outcome) && isTRUE(ds$recipe$usable_as_exposure) &&
+         identical(ds$recipe$source$sha256, digest::digest(file = vf, algo = "sha256")) && file.exists(file.path(ds$dir, "ieu-a-300.vcf.gz")) && !file.exists(file.path(dir, "gwas.vcf.gz.part")))
+  expect("Round 75: the GWAS-VCF dataset is offered as an exposure (clumped on this computer) and as an outcome", identical(ds$recipe$facts$independent, "clump") && any(vapply(library_catalogue(root)$outcomes, function(x) x$name == "LDL complete", TRUE)))
+  expect("Round 75: a finished dataset name cannot be downloaded again over it", grepl("already exists", err_of(fullgwas_job_start(spec, root))))
+  # linking: the OpenGWAS instrument download of the same dataset uses the complete GWAS for the complete-GWAS analyses
+  mk <- function(name, rec) { dd <- file.path(library_dir(root), name); dir.create(dd); lib_table_write(data.frame(snp = "rs1", ea = "A", oa = "G", beta = 0.1, se = 0.01), dd, "standardised")
+    atomic_write_text(file.path(dd, "recipe.json"), jsonlite::toJSON(c(list(trait = name), rec), auto_unbox = TRUE)) }
+  mk("LDL", list(usable_as_exposure = TRUE, usable_as_outcome = FALSE, rows_kept = 79, source = list(type = "opengwas", id = "ieu-a-300", trait = "LDL cholesterol")))
+  mk("CHD", list(usable_as_exposure = FALSE, usable_as_outcome = TRUE, rows_kept = 77, source = list(type = "opengwas", id = "ieu-a-7", trait = "Coronary heart disease", for_exposure = "LDL")))
+  mk("CHD complete", list(usable_as_exposure = TRUE, usable_as_outcome = TRUE, rows_kept = 9e6, complete_gwas = TRUE, source = list(type = "opengwas_vcf", id = "ieu-a-7")))
+  rj <- jsonlite::fromJSON(file.path(ds$dir, "recipe.json"), simplifyVector = FALSE); rj$rows_kept <- 2.4e6; writeLines(jsonlite::toJSON(rj, auto_unbox = TRUE, null = "null", digits = NA), file.path(ds$dir, "recipe.json"))
+  s1 <- full_gwas_status("lib:LDL", "lib:CHD", root)
+  expect("Round 75: a pair of OpenGWAS downloads uses the complete GWAS of the same OpenGWAS datasets when they are downloaded, and says so",
+         isTRUE(s1$ok) && identical(full_gwas_ids(c("lib:LDL", "lib:CHD"), root), c("lib:LDL complete", "lib:CHD complete")) && length(s1$linked) == 2L)
+  unlink(file.path(library_dir(root), "CHD complete"), recursive = TRUE); s2 <- full_gwas_status("lib:LDL", "lib:CHD", root)
+  expect("Round 75: without it, the pair names the OpenGWAS dataset to download", !isTRUE(s2$ok) && identical(s2$why, "opengwas") && length(s2$need) == 1L && identical(s2$need[[1]]$id, "ieu-a-7"))
+  # a job whose process has gone is reported as stopped, ready to resume; discarding removes only the download folder
+  d2 <- .fg_dl_dir("ieu-a-7", root); dir.create(d2, recursive = TRUE); .fg_write_status(d2, state = "running", step = "downloading", pid = 999999L, mode = "opengwas")
+  expect("Round 75: a download whose process has gone (app or computer closed) is shown as stopped, to resume", identical(fullgwas_job_read("ieu-a-7", root)$state, "cancelled"))
+  fullgwas_discard("ieu-a-300", root); expect("Round 75: removing a finished download clears it from the list and keeps the dataset", !dir.exists(dir) && dir.exists(ds$dir))
+  # a VCF the user has, imported in the background (the separate R process)
+  j <- vcf_import_start(vf, "My VCF", list(ancestry = "EUR"), root); t0 <- Sys.time()
+  repeat { Sys.sleep(1); s <- fullgwas_job_read(j$key, root); if (!identical(s$state, "running") || difftime(Sys.time(), t0, units = "secs") > 90) break }
+  expect("Round 75: a GWAS-VCF file is imported in a background R process, and the user's file is not changed or moved",
+         identical(s$state, "done") && nrow(library_dataset("My VCF", root)$data) == nn + 1 && file.exists(vf) && identical(library_dataset("My VCF", root)$recipe$source$type, "vcf_file")) })
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

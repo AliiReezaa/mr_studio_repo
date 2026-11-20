@@ -103,5 +103,7 @@ method in a fresh R session and confirms that the numbers are the same.
 ## Next steps
 
 - Add more outcomes or exposures (download each outcome for its exposure, as in step 3).
-- For multivariable MR, for example LDL cholesterol and triglycerides together, import the full summary statistics of both
-  exposures and of the outcome, and choose **Which of several factors really matters?**
+- For multivariable MR, for example LDL cholesterol and triglycerides together, download each exposure from OpenGWAS and choose
+  **Which of several factors really matters?**; MR Studio looks up every instrument in every exposure and the outcome itself.
+- For LD score regression, CAUSE, MRlap, MR-APSS and LHC-MR, choose **Complete GWAS** for `ieu-a-300` and `ieu-a-7` (or use the buttons
+  on the Results page). MR Studio checks the free disk space first; the pair then uses the complete files for these analyses.

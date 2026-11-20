@@ -92,7 +92,7 @@ lhcmr_cores <- function() { e <- suppressWarnings(as.integer(Sys.getenv("MRSTUDI
 #' Prepare both datasets, write and run the LHC-MR script of a pair (long: one to several hours on the default 2 workers).
 lhcmr_pair_run <- function(h, pair, root = studies_root(), dir = lhcmr_ref_dir(), ldsc = ldsc_ref_dir(), cores = lhcmr_cores(), sp_pair = 50L, nblock = 200L) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("LHC-MR is for a pair with one exposure.")
-  ids <- c(pair$ex, pair$out); if (!all(startsWith(ids, "lib:"))) stop("LHC-MR needs the full summary statistics of both traits, imported into the Data library.")
+  ids <- full_gwas_ids(c(pair$ex, pair$out), root); if (!all(startsWith(ids, "lib:"))) stop("LHC-MR needs the full summary statistics of both traits, imported into the Data library.")
   st <- lhcmr_ref_status(dir); if (!st$ld || !st$rho) stop("The LD files of the LHC-MR authors are not installed yet.")
   if (!ldsc_ref_status(ldsc)$official) stop("LHC-MR uses the European LD scores of LDSC for the cross-trait intercept; install them first.")
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
@@ -140,7 +140,7 @@ lhcmr_job_read <- function(h, pair) { f <- .lhcmr_status_file(h$dir, pair$folder
 .pid_alive <- function(pid) if (.Platform$OS.type == "windows") any(grepl(paste0(" ", pid, " "), tryCatch(system2("tasklist", c("/FI", shQuote(paste("PID eq", pid))), stdout = TRUE), error = function(e) ""))) else isTRUE(tryCatch(tools::pskill(as.integer(pid), 0L), error = function(e) FALSE))
 #' Upper bound of the variants LHC-MR will use for a pair (the smaller dataset, capped at the authors' LD file), read from the recipes.
 lhcmr_variants_bound <- function(pair, root = studies_root()) {
-  r <- vapply(c(pair$ex, pair$out), function(i) tryCatch(as.numeric(library_dataset(sub("^lib:", "", i), root)$recipe$rows_kept %||% NA), error = function(e) NA_real_), 0)
+  r <- vapply(full_gwas_ids(c(pair$ex, pair$out), root), function(i) tryCatch(as.numeric(library_dataset(sub("^lib:", "", i), root)$recipe$rows_kept %||% NA), error = function(e) NA_real_), 0)
   min(c(r[is.finite(r)], 4.65e6))
 }
 #' The settings offered for a pair now (only safe ones), with the memory read.

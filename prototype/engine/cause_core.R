@@ -56,7 +56,7 @@ cause_script <- function(folder, files, labels, bfile, plink, seed, pthr = 1e-3,
 
 cause_pair_prepare <- function(h, pair, root = studies_root()) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("CAUSE is for a pair with one exposure.")
-  ids <- c(pair$ex, pair$out); if (!all(startsWith(ids, "lib:"))) stop("CAUSE needs the full summary statistics of both traits, imported into the Data library.")
+  ids <- full_gwas_ids(c(pair$ex, pair$out), root); if (!all(startsWith(ids, "lib:"))) stop("CAUSE needs the full summary statistics of both traits, imported into the Data library.")
   if (is.na(plink_bin()) || !file.exists(file.path(ld_panel_dir(), "EUR.bed"))) stop("CAUSE clumps its variants with PLINK and the 1000 Genomes EUR panel; install the panel first (Data library).")
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
   if (!all(vapply(ds, function(x) toupper(x$recipe$facts$ancestry %||% "EUR"), "") == "EUR")) stop("CAUSE clumps against the European panel here; both GWAS must be of European ancestry.")

@@ -107,6 +107,7 @@ ogw_ca_next <- function() {
   # Round 72c: joint clumping on the OpenGWAS server (multivariable sets when no 1000 Genomes panel is installed); returns the kept rsIDs
   clump = function(snps, p, r2, kb, pop, jwt) as.character(ieugwasr::ld_clump(data.frame(rsid = snps, pval = p, stringsAsFactors = FALSE), clump_kb = kb, clump_r2 = r2, pop = pop, opengwas_jwt = jwt)$rsid),
   # Round 49 (FR-106, FR-112): other-trait associations of flagged variants, and their nearest gene from Ensembl VEP (GRCh37, the build of OpenGWAS).
+  files = function(id, jwt) ieugwasr::gwasinfo_files(id, opengwas_jwt = jwt),
   phewas = function(snps, p, jwt) as.data.frame(ieugwasr::phewas(snps, pval = p, opengwas_jwt = jwt), stringsAsFactors = FALSE),
   genes = function(rsids) { r <- httr::POST("https://grch37.rest.ensembl.org/vep/human/id", body = list(ids = as.list(rsids)), encode = "json", query = list(nearest = "symbol", pick = 1),
       httr::add_headers(Accept = "application/json"), httr::timeout(60)); httr::stop_for_status(r)
