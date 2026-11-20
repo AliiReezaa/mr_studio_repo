@@ -337,6 +337,9 @@ mr_server <- function(engine_dir) {
         },
         open_package = { req(rv$h); open_in_file_manager(file.path(rv$h$dir, "05_publication", a$folder)) },
         open_folder = { req(rv$h); open_in_file_manager(rv$h$dir) },
+        open_guide = {   # Round 72: the user guide and tutorial, in the default browser (a fixed address, never one from the page)
+          r <- tryCatch({ .with_user_env(utils::browseURL(GUIDE_URL)); TRUE }, error = function(e) e)
+          if (inherits(r, "error")) ev("error", msg = paste("The browser could not be opened. The guide is at", GUIDE_URL)) },
         open_rstudio = { req(rv$h); r <- open_in_rstudio(rv$h$dir, a$folder); ev("rstudio", opened = isTRUE(r$opened), script = r$script, pair = r$pair) },
         open_script = { req(rv$h); sp <- verify_script_path(rv$h$dir, a$folder)$script; open_in_text_editor(sp) },
         compare_default = {

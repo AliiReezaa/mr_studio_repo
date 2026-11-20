@@ -2,10 +2,13 @@
 
 Free, local, point-and-click desktop app for Mendelian randomization with public GWAS summary data, for macOS and Windows.
 
+**Getting started:** the [user guide](docs/USER_GUIDE.md) explains every step of a study, and the [tutorial](docs/TUTORIAL_LDL_CHD.md) runs LDL cholesterol on coronary heart disease from OpenGWAS, start to finish.
+
 Designed and developed by Ali Reza Soleymani Taloubaghi (all code and MR methodology). Methods and validation review: Dr. Danial Habibi (Babol University of Medical Sciences).
 
 | Path | What it is |
 |---|---|
+| `docs/` | User guide and tutorial |
 | `requirements_spec.md` | Requirements specification |
 | `project_plan.md` | Phased plan, milestones, effort estimate |
 | `contracts_v1.md`, `contracts/` | Engineering contracts v1.0.0 (frozen) and reference code (data formats, adapters, results, resume, security) |

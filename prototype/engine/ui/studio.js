@@ -1248,7 +1248,8 @@ function vSettings() {
     ldPanelCtl() +
     '<div style="display:flex;align-items:center;gap:12px"><span style="flex-grow:1"><span style="display:block;font-weight:550">Local data library</span><span style="display:block;font-size:12px;color:var(--mute)">Size of your studies folder</span></span><span class="mono" style="font-size:12px">' + (S.info ? S.info.size : '…') + '</span></div></div>' +
     '<div style="flex:1 1 380px;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;gap:18px"><h2 style="margin:0;font-size:16px;font-weight:600">Behaviour</h2>' + tg + '<div style="border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:12px"><div style="display:flex;align-items:center;gap:12px"><span style="flex-grow:1"><span style="display:block;font-weight:550">Something not working?</span><span style="display:block;font-size:12px;color:var(--mute)">Runs a self-check of the engine, the packages and your studies folder.</span></span><button type="button" data-a="diag" style="flex:none;white-space:nowrap;height:40px;padding:0 18px;border-radius:10px;border:1px solid var(--accent);background:transparent;color:var(--text);font-weight:550">Run diagnostics</button></div>' + diag + '</div></div></section>';
-  return frame('global', 'settings', main);
+  const help = '<section style="box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line);display:flex;flex-wrap:wrap;gap:12px;align-items:center"><span style="flex:1 1 300px"><span style="display:block;font-weight:600">Help</span><span style="font-size:12px;color:var(--mute)">The user guide explains every step of a study; the tutorial runs LDL cholesterol on coronary heart disease from OpenGWAS, start to finish. Opens in your browser.</span></span><button type="button" data-a="open_guide" style="height:40px;padding:0 16px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-weight:550;font-size:13px">Open the user guide</button></section>';
+  return frame('global', 'settings', main + help);
 }
 
 // ---- dialogs and engine-lost state ----------------------------------------------------------------------------------------
@@ -1455,6 +1456,7 @@ function onClick(e) {
     case 'out_choose': { const p = curPair(); send('outlier_choose', { folder: p.folder, set: v }); break; }
     case 'run_sens': { const p = curPair(); S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, remove: S.sel, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && m !== 'steiger')), params: S.params }); break; }
     case 'build_package': S.pkgBusy = true; S.pkg = null; render(); send('build_package', { items: S.xsel.filter((x) => (EXPORT_ITEMS.find((d) => d[0] === x) || [])[4]), width_mm: widthMm(), pub: S.pub }); break;
+    case 'open_guide': send('open_guide', {}); break;
     case 'open_package': if (S.pkg && S.pkg.folder) send('open_package', { folder: S.pkg.folder }); break;
     case 'xpick': S.xsel = S.xsel.indexOf(v) >= 0 ? S.xsel.filter((x) => x !== v) : S.xsel.concat([v]); render(); break;
     case 'size': S.size = v; render(); break;

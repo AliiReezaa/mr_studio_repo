@@ -478,6 +478,7 @@ study_files <- function(study) {
 
 #' Run a program that belongs to the user (an editor, RStudio) without the engine's own R settings. The bundled R sets R_HOME and
 #' library paths; a program started from here would otherwise inherit them and could pick up the bundled R instead of its own.
+GUIDE_URL <- "https://github.com/AliiReezaa/mr_studio_repo/blob/main/docs/USER_GUIDE.md"   # Round 72: user guide and tutorial (docs/)
 .with_user_env <- function(expr) {
   nm <- c("R_HOME", "R_SHARE_DIR", "R_INCLUDE_DIR", "R_DOC_DIR", "R_LIBS", "R_LIBS_SITE", "R_LIBS_USER", "R_ARCH", "R_PLATFORM", "R_PAPERSIZE", "R_ENVIRON", "R_PROFILE")
   old <- Sys.getenv(nm, unset = NA); on.exit({ for (n in nm) if (!is.na(old[[n]])) do.call(Sys.setenv, stats::setNames(list(old[[n]]), n)) }, add = TRUE)
