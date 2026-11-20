@@ -261,7 +261,8 @@ mr_server <- function(engine_dir) {
         mv_review = {   # Round 72e: per-variant contributions to the MVMR-IVW heterogeneity, and MVMR-Lasso's flags
           req(rv$h); r <- tryCatch(mv_review(rv$h, a$folder), error = function(e) e)
           if (inherits(r, "error")) ev("mv_review", folder = a$folder, error = conditionMessage(r))
-          else ev("mv_review", folder = a$folder, q_total = r$q_total, df = r$df, n = r$n, lasso = as.list(r$lasso), rows = lapply(seq_len(min(nrow(r$rows), 15L)), function(i) as.list(r$rows[i, ]))) },
+          else ev("mv_review", folder = a$folder, q_total = r$q_total, df = r$df, n = r$n, lasso = as.list(r$lasso), rows = lapply(seq_len(nrow(r$rows)), function(i) as.list(r$rows[i, ])))   # Round 75c: every variant, to tick any of them
+ },
         run_sens = {
           req(rv$h)
           rem <- sort(unlist(a$remove)); parent <- a$folder

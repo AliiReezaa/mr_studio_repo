@@ -1161,18 +1161,42 @@ function mvReview(pair, pay, ids, nm, lor) {
   const box = (inner) => '<section id="mvrev" style="box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;gap:12px"><h2 style="margin:0;font-size:16px;font-weight:600">Which variants drive the heterogeneity?</h2>' + inner + '</section>';
   if (!R) return box('<div style="font-size:13px;color:var(--mute)">Working out each variant\'s contribution…</div>');
   if (R.error) return box('<div style="font-size:13px;color:var(--warn)">' + esc(R.error) + '</div>');
-  const rows = (R.rows || []).slice(0, 10).map((r) => '<tr style="border-top:1px solid var(--line)"><td class="mono" style="padding:6px 12px 6px 0">' + esc(r.variant_id) + '</td><td class="mono" style="padding:6px 12px 6px 0;text-align:right">' + fx(r.q, 1) + '</td><td class="mono" style="padding:6px 12px 6px 0;text-align:right">' + fx(100 * r.share, 1) + '%</td><td style="padding:6px 0">' + (r.lasso ? 'yes' : '') + '</td></tr>').join('');
-  const top = (R.rows || []).filter((r) => r.share >= 0.03).map((r) => r.variant_id), lasso = R.lasso || [];
-  const btn = (lab, kind) => '<button type="button" data-a="mv_sens" data-v="' + kind + '" style="height:36px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:550;font-size:12px"' + (S.sensBusy ? ' disabled' : '') + '>' + esc(lab) + '</button>';
-  const sens = (S.sens || []).filter((x) => x.parent === pair.folder).map((x) => { const p2 = S.payloads[x.folder]; if (!p2) return '';
-    const e2 = (p2.estimates || []).filter((e) => e.estimand === 'direct_effect' && e.method === 'mvivw'), q2 = (p2.diagnostics || []).find((d) => d.method === 'mvivw' && d.name === 'mv_q');
-    return '<div style="padding:12px 14px;border-radius:12px;background:var(--panel2);display:flex;flex-direction:column;gap:6px"><div style="font-weight:550">Without ' + x.remove.length + ' variant' + (x.remove.length === 1 ? '' : 's') + (x.why ? ' (' + esc(x.why) + ')' : '') + '</div>' +
-      e2.map((e) => '<div class="mono" style="font-size:12px">' + esc(nm(e.exposure_id)) + ': direct effect ' + (e.scale === 'log_or' ? 'log OR ' : 'β ') + fx(e.estimate, 3) + ' (' + ciL(e.ci_level) + ' ' + fx(e.ci_lower, 3) + ' to ' + fx(e.ci_upper, 3) + ') · P ' + fp(e.p) + '</div>').join('') +
-      '<div style="font-size:12px;color:var(--mute)">MVMR-IVW, ' + (e2[0] ? e2[0].n_ivs_used : '') + ' variants' + (q2 ? "; Cochran's Q P " + fp(q2.p) : '') + '</div></div>'; }).join('');
-  return box('<div style="font-size:13px;color:var(--mute)">Cochran\'s Q of MVMR-IVW is ' + fx(R.q_total, 1) + ' on ' + R.df + ' degrees of freedom. These are the variants that contribute most, and whether MVMR-Lasso left them out as pleiotropic. Heterogeneity is reported, not removed: rerunning without such variants is a sensitivity analysis, shown next to the main result, never in its place.</div>' +
-    '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;width:100%"><tr style="color:var(--mute);text-align:left"><th style="padding:6px 12px 6px 0;font-weight:500">Variant</th><th style="padding:6px 12px 6px 0;font-weight:500;text-align:right">Contribution to Q' + KEY("Cochran's Q of the variant") + '</th><th style="padding:6px 12px 6px 0;font-weight:500;text-align:right">Share' + KEY('% of the total Q') + '</th><th style="padding:6px 0;font-weight:500">Flagged by MVMR-Lasso' + KEY('left out as pleiotropic') + '</th></tr>' + rows + '</table></div>' +
-    '<div style="display:flex;flex-wrap:wrap;gap:8px">' + (lasso.length ? btn('Rerun without the ' + lasso.length + ' variants MVMR-Lasso flags', 'lasso') : '') + (top.length ? btn('Rerun without the ' + top.length + ' variant' + (top.length === 1 ? '' : 's') + ' contributing 3% or more of Q', 'top') : '') + '</div>' +
-    (S.sensBusy ? '<div style="font-size:12px;color:var(--mute)">Running the sensitivity analysis…</div>' : '') + sens);
+  // Round 75c: tick any variants and rerun without them; every rerun is compared with the main analysis in one table
+  S.mvsel = S.mvsel || {}; const sel = S.mvsel[pair.folder] = S.mvsel[pair.folder] || [];
+  const all = R.rows || [], shown = S.mvAll ? all : all.slice(0, 10), top = all.filter((r) => r.share >= 0.03).map((r) => r.variant_id), lasso = R.lasso || [];
+  const ck = (id) => '<input type="checkbox" data-a="mv_tick" data-v="' + esc(id) + '" aria-label="Leave out ' + esc(id) + '"' + (sel.indexOf(id) >= 0 ? ' checked' : '') + (S.sensBusy ? ' disabled' : '') + ' style="width:18px;height:18px;accent-color:var(--accent);cursor:pointer">';
+  const th = (t, k, r) => '<th style="padding:6px 12px 6px 0;font-weight:500;vertical-align:bottom' + (r ? ';text-align:right' : '') + '">' + t + (k ? KEY(k) : '') + '</th>';
+  const rows = shown.map((r) => '<tr style="border-top:1px solid var(--line);background:' + (sel.indexOf(r.variant_id) >= 0 ? 'var(--panel2)' : 'transparent') + '"><td style="padding:6px 12px 6px 0;width:28px">' + ck(r.variant_id) + '</td><td class="mono" style="padding:6px 12px 6px 0">' + esc(r.variant_id) + '</td><td class="mono" style="padding:6px 12px 6px 0;text-align:right">' + fx(r.q, 1) + '</td><td class="mono" style="padding:6px 12px 6px 0;text-align:right">' + fx(100 * r.share, 1) + '%</td><td style="padding:6px 0">' + (r.lasso ? 'yes' : '') + '</td></tr>').join('');
+  const sm = (lab, v, on) => '<button type="button" data-a="mv_pick" data-v="' + v + '"' + (S.sensBusy || !on ? ' disabled' : '') + ' style="height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--text);font-size:12px;font-weight:550;opacity:' + (on ? 1 : .5) + '">' + esc(lab) + '</button>';
+  const picks = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span style="font-size:12px;color:var(--mute)">Tick:</span>' + sm('the ' + lasso.length + ' MVMR-Lasso flags', 'lasso', lasso.length) + sm('the ' + top.length + ' contributing 3% or more of Q', 'top', top.length) + sm('none', 'none', sel.length) +
+    (all.length > 10 ? '<button type="button" data-a="mv_all" style="margin-left:auto;border:0;background:transparent;color:var(--accent);font-weight:550;font-size:12px">' + (S.mvAll ? 'Show the 10 largest' : 'Show all ' + all.length + ' variants') + '</button>' : '') + '</div>';
+  const hidden = sel.filter((id) => !shown.some((r) => r.variant_id === id)).length;
+  const run = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px">' + cta(S.sensBusy ? 'Running…' : 'Rerun without the ' + sel.length + ' ticked variant' + (sel.length === 1 ? '' : 's'), 'mv_sens', 'ticked', 'height:40px;padding:0 18px;font-size:13px' + (sel.length && !S.sensBusy ? '' : ';opacity:.5;pointer-events:none')) +
+    '<span style="font-size:12px;color:var(--mute)">' + (sel.length ? sel.length + ' ticked' + (hidden ? ' (' + hidden + ' not in the rows shown)' : '') + '. Every method of the main analysis is rerun without them.' : 'Tick the variants to leave out, then rerun.') + '</span></div>';
+  return box('<div style="font-size:13px;color:var(--mute)">Cochran\'s Q of MVMR-IVW is ' + fx(R.q_total, 1) + ' on ' + R.df + ' degrees of freedom. Each variant\'s contribution is listed, largest first, with whether MVMR-Lasso left it out as pleiotropic. Heterogeneity is reported, not removed: rerunning without chosen variants is a sensitivity analysis, compared with the main result below, never in its place.</div>' +
+    picks + '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;width:100%"><tr style="color:var(--mute);text-align:left">' + th('Leave out') + th('Variant', 'rsID') + th('Contribution to Q', "Cochran's Q of the variant", 1) + th('Share', '% of the total Q', 1) + th('Flagged by MVMR-Lasso', 'left out as pleiotropic') + '</tr>' + rows + '</table></div>' + run + mvCompare(pair, pay, ids, nm, lor));
+}
+// Round 75c: the main analysis and every rerun without chosen variants, side by side, for one method at a time
+function mvCompare(pair, pay, ids, nm, lor) {
+  const sens = (S.sens || []).filter((x) => x.parent === pair.folder && S.payloads[x.folder]); if (!sens.length) return '';
+  const avail = Array.from(new Set((pay.estimates || []).filter((e) => e.estimand === 'direct_effect').map((e) => e.method)));
+  const m = avail.indexOf(S.mvcmpM) >= 0 ? S.mvcmpM : (avail.indexOf('mvivw') >= 0 ? 'mvivw' : avail[0]);
+  const qOf = (p) => (p.diagnostics || []).find((d) => d.method === 'mvivw' && d.name === 'mv_q'), lev = ((pay.estimates || [])[0] || {}).ci_level;
+  const b = lor ? 'log OR' : 'β', base = {};
+  (pay.estimates || []).filter((e) => e.estimand === 'direct_effect' && e.method === m).forEach((e) => { base[e.exposure_id] = e; });
+  const cell = (e, ref) => { if (!e) return '<td style="padding:8px 12px 8px 0;color:var(--mute)">not run</td>';
+    const d = ref && ref !== e ? e.estimate - ref.estimate : null;
+    return '<td style="padding:8px 12px 8px 0;vertical-align:top"><span class="mono" style="color:' + (e.p < 0.05 ? 'var(--text)' : 'var(--mute)') + '">' + fx(e.estimate, 3) + '</span><div class="mono" style="font-size:11px;color:var(--mute);white-space:nowrap">' + ciL(e.ci_level) + ' ' + fx(e.ci_lower, 3) + ' to ' + fx(e.ci_upper, 3) + ' · P ' + fp(e.p) + '</div>' +
+      (d != null ? '<div class="mono" style="font-size:11px;white-space:nowrap;color:' + (Math.sign(e.estimate) !== Math.sign(ref.estimate) ? 'var(--warn)' : 'var(--mute)') + '">change ' + (d > 0 ? '+' : '') + fx(d, 3) + '</div>' : '') + '</td>'; };
+  const row = (lab, note, p, ref) => { const est = (p.estimates || []).filter((e) => e.estimand === 'direct_effect' && e.method === m), q = qOf(p), n = (est[0] || {}).n_ivs_used;
+    return '<tr style="border-top:1px solid var(--line)"><td style="padding:8px 12px 8px 0;vertical-align:top"><div style="font-weight:550">' + lab + '</div><div style="font-size:11px;color:var(--mute);max-width:260px">' + note + '</div></td><td class="mono" style="padding:8px 12px 8px 0;vertical-align:top;text-align:right">' + (n == null ? '' : n) + '</td>' +
+      ids.map((id) => cell(est.find((e) => e.exposure_id === id), ref ? base[id] : null)).join('') + '<td class="mono" style="padding:8px 0;vertical-align:top;text-align:right;white-space:nowrap">' + (q ? fx(q.value, 1) + '<div style="font-size:11px;color:var(--mute)">P ' + fp(q.p) + '</div>' : '') + '</td></tr>'; };
+  const rows = row('Main analysis', 'all instruments', pay, false) + sens.map((x) => row('Without ' + x.remove.length + ' variant' + (x.remove.length === 1 ? '' : 's'), esc(x.why ? x.why + ': ' : '') + '<span class="mono">' + esc(x.remove.slice(0, 6).join(', ') + (x.remove.length > 6 ? ', …' : '')) + '</span>', S.payloads[x.folder], true)).join('');
+  const msel = avail.length > 1 ? '<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--mute)">Method <select data-a="mv_cmp_m" id="mv_cmp_m" style="' + selStyle + ';height:34px">' + avail.map((k) => '<option value="' + k + '"' + (k === m ? ' selected' : '') + '>' + esc(MSHORT(k)) + '</option>').join('') + '</select></label>' : '';
+  const th = (t, k, r) => '<th style="padding:6px 12px 6px 0;font-weight:500;vertical-align:bottom' + (r ? ';text-align:right' : '') + '">' + t + (k ? KEY(k) : '') + '</th>';
+  return '<div style="display:flex;flex-direction:column;gap:10px;margin-top:8px;padding-top:16px;border-top:1px solid var(--line)"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px"><h3 style="margin:0;font-size:15px;font-weight:600">Comparison with the main analysis</h3>' + msel + '</div>' +
+    '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;width:100%;min-width:' + (300 + 170 * ids.length) + 'px"><tr style="color:var(--mute);text-align:left">' + th('Analysis', 'variants left out') + th('Variants', 'instruments used', 1) + ids.map((id) => th(esc(nm(id)), 'direct effect ' + b + ' · ' + ciL(lev) + ' · P')).join('') + th("Cochran's Q", 'MVMR-IVW, P', 1) + '</tr>' + rows + '</table></div>' +
+    '<div style="font-size:12px;color:var(--mute)">Change: the difference from the main analysis (amber when the sign flips). Q and P values after leaving variants out are descriptive only, because choosing the variants after seeing them makes them optimistic. Report the main analysis, and these as sensitivity analyses with the reason each variant was left out.</div></div>';
 }
 // ---- Round 57: mediation summary, read from the mediation script's results table ----
 function medSection() {
@@ -1656,9 +1680,16 @@ function onClick(e) {
     case 'out_lookup': { const p = curPair(); S.lkBusy = true; render(); send('outlier_lookup', { folder: p.folder, ex: p.ex, out: p.out }); break; }
     case 'out_choose': { const p = curPair(); send('outlier_choose', { folder: p.folder, set: v }); break; }
     case 'scroll_mvrev': { const el = document.getElementById('mvrev'); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); break; }
-    case 'mv_sens': { const p = curPair(), R = (S.mvrev || {})[p.folder]; if (!R) break;   // Round 72e: MVMR sensitivity analyses
-      const rem = v === 'lasso' ? R.lasso : (R.rows || []).filter((r) => r.share >= 0.03).map((r) => r.variant_id); if (!rem.length) break;
-      S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, remove: rem, why: v === 'lasso' ? 'flagged by MVMR-Lasso' : 'contributing 3% or more of Q',
+    case 'mv_tick': { const p = curPair(); S.mvsel = S.mvsel || {}; const L = S.mvsel[p.folder] = S.mvsel[p.folder] || []; const k = L.indexOf(v); if (k >= 0) L.splice(k, 1); else L.push(v); render(); break; }   // Round 75c
+    case 'mv_pick': { const p = curPair(), R = (S.mvrev || {})[p.folder]; if (!R) break; S.mvsel = S.mvsel || {};
+      S.mvsel[p.folder] = v === 'lasso' ? [].concat(R.lasso || []) : v === 'top' ? (R.rows || []).filter((r) => r.share >= 0.03).map((r) => r.variant_id) : []; S.mvWhy = v; render(); break; }
+    case 'mv_all': S.mvAll = !S.mvAll; render(); break;
+    case 'mv_cmp_m': break;
+    case 'mv_sens': { const p = curPair(), R = (S.mvrev || {})[p.folder]; if (!R) break;   // Round 72e: MVMR sensitivity analyses; Round 75c: the ticked variants
+      const rem = [].concat((S.mvsel || {})[p.folder] || []); if (!rem.length) break;
+      const same = (a2, b2) => a2.length === b2.length && a2.every((x) => b2.indexOf(x) >= 0);
+      const why = same(rem, R.lasso || []) ? 'flagged by MVMR-Lasso' : same(rem, (R.rows || []).filter((r) => r.share >= 0.03).map((r) => r.variant_id)) ? 'contributing 3% or more of Q' : 'chosen by you';
+      S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, remove: rem, why: why,
         methods: [].concat(p.methods || S.methods).filter((m) => METHODS.find((x) => x.id === m && x.built && x.mv)), params: S.params }); break; }
     case 'run_sens': { const p = curPair(); S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, remove: S.sel, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && m !== 'steiger')), params: S.params }); break; }
     case 'build_package': S.pkgBusy = true; S.pkg = null; render(); send('build_package', { items: S.xsel.filter((x) => (EXPORT_ITEMS.find((d) => d[0] === x) || [])[4]), width_mm: widthMm(), pub: S.pub }); break;
@@ -1828,6 +1859,7 @@ function handle(m) {
 document.addEventListener('DOMContentLoaded', function () {
   const r = $root(); r.addEventListener('click', onClick); r.addEventListener('input', onInput); r.addEventListener('change', onChange);
   document.addEventListener('change', function (e) { if (e.target && e.target.id === 'impfile' && S.imp) { S.imp.busy = true; S.notice = null; render(); } });
+  document.addEventListener('change', function (e) { if (e.target && e.target.id === 'mv_cmp_m') { S.mvcmpM = e.target.value; render(); } });   // Round 75c
   document.addEventListener('keydown', function (e) {
     if (e.key === 'Escape' && S.themeMenu) { S.themeMenu = false; render(); const b = $root().querySelector('[data-a="theme_menu"]'); if (b) b.focus(); e.preventDefault(); return; }
     const modal = $root().querySelector('[aria-modal="true"]');
