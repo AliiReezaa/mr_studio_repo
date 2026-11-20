@@ -186,17 +186,22 @@ jobs:
           fi
           if [[ "$RUNNER_OS" == "Windows" ]]; then
             RT="$PWD/prototype/runtime"
-            # Round 70d: R passes its compile and link settings to make in single quotes, which only an MSYS-based make reads.
-            # The runtime has no make, so R found the runner's native one, which kept the quotes: run 44724590284, cause
-            # "No rule to make target '$(CXX11STD)''" and MRCD "x86_64-w64-mingw32-g++ -std=gnu++17 : command not found".
-            # The MSYS2 make from conda-forge is installed into the runtime and named in MAKE, which R's installer uses.
-            micromamba install -y -p "$RT" -c conda-forge m2-make
+            # Round 70d-f: R passes its compile and link settings to make in single quotes, which only an MSYS-based make reads, and its
+            # link rule builds the export list with sed and other POSIX tools. The runtime has none of these (run 44724590284: native make
+            # kept the quotes). Installing m2-make into the runtime itself (run 44733842418) put a partial MSYS2 system (bash, /etc/profile)
+            # into the activated environment, and every later shell step lost cp, mkdir and python (exit 127). The MSYS2 tools therefore go
+            # into a separate folder of the runner, outside the runtime that is shipped, and are on the PATH only for this step.
+            BT="$RUNNER_TEMP/msys-tools"
+            micromamba create -y -p "$BT" -c conda-forge m2-make m2-bash m2-coreutils m2-sed m2-grep m2-gawk
             export PATH="$RT:$RT/Library/bin:$RT/Library/mingw-w64/bin:$RT/Library/usr/bin:$(dirname "$RBIN"):$PATH"
-            MK="$RT/Library/usr/bin/make.exe"; [ -f "$MK" ] || MK="$(find "$RT" -name make.exe | head -1)"
-            [ -n "$MK" ] || { echo "m2-make did not install make.exe"; exit 1; }
-            export MAKE="$(cygpath -m "$MK")"; "$MAKE" --version | head -1
+            MK="$BT/Library/usr/bin/make.exe"; [ -f "$MK" ] || { echo "m2-make did not install make.exe"; exit 1; }
+            export MAKE="$(cygpath -m "$MK")"; echo "MAKE=$MAKE"
+            # The tools come first on the PATH of the R process only (MSYS_FIRST below), so make and the shell and sed it starts all use
+            # the same MSYS2 runtime; this shell keeps Git's tools (two MSYS2 runtimes must not start each other).
+            MSYS_FIRST="$BT/Library/usr/bin"
+            [ ! -f "$RT/Library/usr/bin/bash.exe" ] || { echo "the runtime must not contain an MSYS2 bash"; exit 1; }
           fi
-          "$RBIN" --no-echo --no-restore --vanilla -e '
+          PATH="${MSYS_FIRST:+$MSYS_FIRST:}$PATH" "$RBIN" --no-echo --no-restore --vanilla -e '
             # simex 1.8 (Round 41, MR-Egger with SIMEX correction): CRAN source file, checked by SHA-256 before installing
             sx <- Sys.getenv("PK_SIMEX")
             if (!file.exists(sx) || !identical(digest::digest(file = sx, algo = "sha256"), "80c7841196b9377a9367eb6960ad80ca0bf8de511b8b18a0031bfbe7bde289a0"))

@@ -1423,18 +1423,18 @@ ADAPTER_GRIP_V11 <- .mrpkg_adapter("grip", "MR-GRIP", 3L,
 # where the package stops earlier (about 1e-6); see the validation README for the size of that difference.
 BWMR_MRS_SRC <- strsplit(r"---(# BWMR (Zhao et al. 2020, Bioinformatics 36:1501-1508), written for MR Studio from the equations of the paper and its supplement
 # (arXiv 1811.10223v2: Methods 2.1-2.3; Supplement S1.1 E-step and M-step, S1.2 linear response variance). MIT licence (MR Studio).
-# Model: gammahat_j ~ N(gamma_j, sx_j^2); Gammahat_j ~ N(beta gamma_j, sy_j^2 + tau^2)^w_j; gamma_j ~ N(0, sigma^2); beta ~ N(0, sigma0^2);
+# Model (bx_j, by_j the observed variant-exposure and variant-outcome effects): bx_j ~ N(gamma_j, se_x_j^2); by_j ~ N(beta gamma_j, se_y_j^2 + tau^2)^w_j; gamma_j ~ N(0, sigma^2); beta ~ N(0, sigma0^2);
 # w_j ~ Bernoulli(pi1), pi1 ~ Beta(a0, 1). Variational EM (mean field) for beta, gamma, w, pi1; M-step for sigma^2 and tau^2; the posterior
 # variance of beta corrected by linear response variational Bayes, computed as -[(V H1 - I)^-1 V]_11 (supplement, reparameterised form).
 # Starting values and the stopping rule are not given in the paper; they only affect how fast the iterations reach the same solution.
-bwmr_mrs <- function(gammahat, Gammahat, sigmaX, sigmaY, a0 = 100, sigma0 = 1e6, tol = 1e-12, max_iter = 100000L, init = NULL) {
-  N <- length(gammahat); sx2 <- sigmaX^2; sy2 <- sigmaY^2; G <- Gammahat; g <- gammahat
+bwmr_mrs <- function(bx, by, se_x, se_y, a0 = 100, sigma0 = 1e6, tol = 1e-12, max_iter = 100000L, init = NULL) {
+  N <- length(bx); sx2 <- se_x^2; sy2 <- se_y^2; G <- by; g <- bx   # g, G: variant-exposure and variant-outcome effects
   xlx <- function(p) ifelse(p > 0, p * log(p), 0)
   # starting values: IVW for beta, the observed effects for gamma, every variant weighted 1
   mu_b <- sum(g * G / sy2) / sum(g^2 / sy2); s2_b <- 1 / sum(g^2 / sy2)
   mu_g <- g; s2_g <- sx2; pw <- rep(1, N); sigma2 <- mean(g^2)
   tau2 <- max(mean((G - mu_b * g)^2) - mean(sy2), mean(sy2) / 10)
-  if (!is.null(init)) { mu_b <- init$beta; pw <- init$weights; tau2 <- init$tau2 }
+  if (!is.null(init)) { mu_b <- init$estimate; pw <- init$weights; tau2 <- init$tau2 }
   elbo <- -Inf; it <- 0L
   repeat {
     it <- it + 1L; v <- sy2 + tau2
@@ -1444,7 +1444,7 @@ bwmr_mrs <- function(gammahat, Gammahat, sigmaX, sigmaY, a0 = 100, sigma0 = 1e6,
     s2_g <- 1 / (1 / sx2 + pw * (mu_b^2 + s2_b) / v + 1 / sigma2)
     mu_g <- (g / sx2 + pw * mu_b * G / v) * s2_g
     a <- a0 + sum(pw); b <- N + 1 - sum(pw)
-    q <- (mu_b^2 + s2_b) * (mu_g^2 + s2_g) - 2 * mu_b * mu_g * G + G^2   # E[(Gammahat_j - beta gamma_j)^2]
+    q <- (mu_b^2 + s2_b) * (mu_g^2 + s2_g) - 2 * mu_b * mu_g * G + G^2   # E[(by_j - beta gamma_j)^2]
     l1 <- -0.5 * log(2 * pi) - 0.5 * log(v) - q / (2 * v) + digamma(a) - digamma(a + b)
     l0 <- digamma(b) - digamma(a + b)
     pw <- 1 / (1 + exp(l0 - l1))                                          # q_j1 / (q_j0 + q_j1), on the log scale
@@ -1479,15 +1479,15 @@ bwmr_mrs <- function(gammahat, Gammahat, sigmaX, sigmaY, a0 = 100, sigma0 = 1e6,
   x <- if (ok) tryCatch(solve(S, c(VG[1, 1], VG[2, 1], 0, 0)), error = function(e) NULL) else NULL
   var_b <- if (is.null(x)) NA_real_ else -x[1]
   se <- sqrt(var_b)
-  list(beta = mu_b, se_beta = se, P_value = 2 * stats::pnorm(-abs(mu_b / se)), weights = pw, tau2 = tau2, sigma2 = sigma2,
+  list(estimate = mu_b, se = se, p = 2 * stats::pnorm(-abs(mu_b / se)), weights = pw, tau2 = tau2, sigma2 = sigma2,
        se_mfvb = sqrt(s2_b), mu_gamma = mu_g, s2_gamma = s2_g, a = a, b = b, iterations = it, converged = it < max_iter, elbo = elbo)
 })---", "\n")[[1]]
 ADAPTER_BWMR_V11 <- .mrpkg_adapter("bwmr", "BWMR", 3L, list(), FALSE, c(
   "z <- stats::qnorm(1 - (1 - ci_level) / 2)",
   BWMR_MRS_SRC,
-  "f <- bwmr_mrs(gammahat = dat$beta_x, Gammahat = dat$beta_y, sigmaX = dat$se_x, sigmaY = dat$se_y)",
-  "if (!f$converged || !is.finite(f$se_beta)) stop(\"BWMR did not converge on these data (the variance correction could not be computed).\")",
-  "estimates <- est1(f$beta, f$se_beta, f$beta - z * f$se_beta, f$beta + z * f$se_beta, f$P_value, nrow(dat))",
+  "f <- bwmr_mrs(bx = dat$beta_x, by = dat$beta_y, se_x = dat$se_x, se_y = dat$se_y)",
+  "if (!f$converged || !is.finite(f$se)) stop(\"BWMR did not converge on these data (the variance correction could not be computed).\")",
+  "estimates <- est1(f$estimate, f$se, f$estimate - z * f$se, f$estimate + z * f$se, f$p, nrow(dat))",
   "diagnostics <- rbind(drow(\"bwmr_downweighted\", sum(f$weights < 0.5), note = \"variants with posterior weight below 0.5 (likely outliers)\"),",
   "  drow(\"bwmr_tau2\", f$tau2, note = \"variance of the polygenic (pleiotropic) effects\"),",
   "  drow(\"bwmr_iterations\", f$iterations, note = \"variational EM iterations to convergence of the evidence lower bound\"))"), pkg = "stats")

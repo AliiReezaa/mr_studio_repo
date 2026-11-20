@@ -40,7 +40,7 @@ for (s in 1:20) { set.seed(s); n <- 60; sx <- runif(n, 0.01, 0.03); bx <- rnorm(
 
 # B. dense linear-response formula of the supplement, -[(V H1 - I)^-1 V]_11, at MR Studio's converged solution
 dense_var <- function(g, G, sx, sy, f) {
-  N <- length(g); K <- 3 * N + 4; v <- sy^2 + f$tau2; mb <- f$beta; sb <- f$se_mfvb^2; pw <- f$weights; a <- f$a; b <- f$b
+  N <- length(g); K <- 3 * N + 4; v <- sy^2 + f$tau2; mb <- f$estimate; sb <- f$se_mfvb^2; pw <- f$weights; a <- f$a; b <- f$b
   s2g <- f$s2_gamma; mg <- f$mu_gamma   # the same variational state as the arrow solve
   V <- H1 <- matrix(0, K, K); V[1:2, 1:2] <- c(sb, 2 * mb * sb, 2 * mb * sb, 2 * sb^2 + 4 * mb^2 * sb)
   for (j in seq_len(N)) { k <- 3 + 3 * (j - 1)
@@ -51,7 +51,7 @@ dense_var <- function(g, G, sx, sy, f) {
     H1[K - 1, k + 2] <- H1[k + 2, K - 1] <- 1; H1[K, k + 2] <- H1[k + 2, K] <- -1 }
   V[(K - 1):K, (K - 1):K] <- c(trigamma(a) - trigamma(a + b), -trigamma(a + b), -trigamma(a + b), trigamma(b) - trigamma(a + b))
   -(solve(V %*% H1 - diag(K)) %*% V)[1, 1] }
-dB <- max(vapply(sets, function(s) { f <- bwmr_mrs(s$bx, s$by, s$sx, s$sy); abs(dense_var(s$bx, s$by, s$sx, s$sy, f) / f$se_beta^2 - 1) }, 0))
+dB <- max(vapply(sets, function(s) { f <- bwmr_mrs(s$bx, s$by, s$sx, s$sy); abs(dense_var(s$bx, s$by, s$sx, s$sy, f) / f$se^2 - 1) }, 0))
 add("B", "variance: full linear-response formula vs the arrow solve, largest relative difference (22 data sets)", "0", sprintf("%.1e", dB), "< 1e-8", dB < 1e-8)
 
 # C. against the package
@@ -61,12 +61,12 @@ bw <- eval(parse(text = src)); environment(bw) <- asNamespace("BWMR")
 cmp <- do.call(rbind, lapply(names(sets), function(k) { s <- sets[[k]]
   invisible(utils::capture.output(p <- suppressWarnings(bw(s$bx, s$by, s$sx, s$sy))))
   f <- bwmr_mrs(s$bx, s$by, s$sx, s$sy); f6 <- bwmr_mrs(s$bx, s$by, s$sx, s$sy, tol = 1e-6)
-  fp <- bwmr_mrs(s$bx, s$by, s$sx, s$sy, init = list(beta = p$beta, weights = p$weights, tau2 = p$tau^2))   # from the package's answer
-  same <- abs(fp$beta - f$beta) / f$se_beta < 0.01
-  data.frame(data = k, variants = nrow(s), package_beta = p$beta, package_se = p$se_beta, mrstudio_beta = f$beta, mrstudio_se = f$se_beta, iterations = f$iterations,
+  fp <- bwmr_mrs(s$bx, s$by, s$sx, s$sy, init = list(estimate = p$beta, weights = p$weights, tau2 = p$tau^2))   # from the package's answer
+  same <- abs(fp$estimate - f$estimate) / f$se < 0.01
+  data.frame(data = k, variants = nrow(s), package_beta = p$beta, package_se = p$se_beta, mrstudio_beta = f$estimate, mrstudio_se = f$se, iterations = f$iterations,
              same_optimum = same, elbo_mrstudio = f$elbo, elbo_from_package_answer = fp$elbo,
-             stop1e6_dbeta_in_se = abs(f6$beta - p$beta) / p$se_beta, stop1e6_rel_se = abs(f6$se_beta / p$se_beta - 1),
-             full_dbeta_in_se = abs(f$beta - p$beta) / p$se_beta, full_rel_se = abs(f$se_beta / p$se_beta - 1)) }))
+             stop1e6_dbeta_in_se = abs(f6$estimate - p$beta) / p$se_beta, stop1e6_rel_se = abs(f6$se / p$se_beta - 1),
+             full_dbeta_in_se = abs(f$estimate - p$beta) / p$se_beta, full_rel_se = abs(f$se / p$se_beta - 1)) }))
 utils::write.csv(cmp, file.path(vdir, "package_comparison.csv"), row.names = FALSE)
 so <- cmp[cmp$same_optimum, ]; dif <- cmp[!cmp$same_optimum, ]
 add("C", sprintf("package's stopping rule: largest effect difference, %d of %d data sets with the same optimum", nrow(so), nrow(cmp)), "0", sprintf("%.4f SE", max(so$stop1e6_dbeta_in_se)), "< 0.01 SE", max(so$stop1e6_dbeta_in_se) < 0.01)

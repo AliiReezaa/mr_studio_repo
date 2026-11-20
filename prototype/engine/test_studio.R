@@ -1334,7 +1334,7 @@ expect("Round 70e: BWMR runs as a script that contains the whole algorithm and n
 local({ eval(parse(text = BWMR_MRS_SRC)); set.seed(62); n <- 30; sx <- runif(n, .01, .03); g <- rnorm(n, .08, .04); sy <- runif(n, .01, .04); G <- .3 * g + rnorm(n, 0, sy); G[3] <- G[3] + .4
   f <- bwmr_mrs(g, G, sx, sy)
   expect("Round 70e: BWMR converges, down-weights the planted outlier and gives a variance larger than the mean-field one",
-         isTRUE(f$converged) && f$weights[3] < 0.5 && all(f$weights[-3] > 0.5) && f$se_beta > f$se_mfvb) })
+         isTRUE(f$converged) && f$weights[3] < 0.5 && all(f$weights[-3] > 0.5) && f$se > f$se_mfvb) })
 
 # ---- Round 63: bidirectional cML ----
 if (requireNamespace("BiDirectCausal", quietly = TRUE)) {
