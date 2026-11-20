@@ -293,6 +293,7 @@ PIN_RADIALMR <- "7ca35c052489001890347871e38998ca53a02b03"
 
 .script_lines_head_pk <- function(a, spec) {
   h <- .script_lines_head(a, spec)
+  if (!length(a$packages)) { h[grepl("^# Package  :", h)] <- "# Package  : none beyond base R (MR Studio's own implementation of the published algorithm, below)"; return(h) }
   pins <- unlist(a$packages); kind <- ifelse(grepl("^[0-9]+([.-][0-9]+)+$", pins), "version", "commit")   # CRAN versions may contain a hyphen (boot 1.3-32)   # Round 37: CRAN packages are pinned by version
   h[grepl("^# Package  :", h)] <- sprintf("# Package  : %s", paste(sprintf("%s %s %s", names(a$packages), kind, pins), collapse = "; "))
   h
@@ -1226,7 +1227,7 @@ ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param
   a <- NULL
   a <- mrgui_adapter(id = id, adapter_version = "1.1.0", label = label, input_kind = "pair_iv", estimands = estimands,
     requires = list(min_ivs = min_ivs, needs_ld = "none", needs_eaf = FALSE, needs_n = needs_n, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
-    packages = switch(pkg, TwoSampleMR = list(TwoSampleMR = PIN_TWOSAMPLEMR_V11), MRMix = list(MRMix = PIN_MRMIX_V11), BWMR = list(BWMR = PIN_BWMR_V11), list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION)), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
+    packages = switch(pkg, stats = stats::setNames(list(), character(0)), TwoSampleMR = list(TwoSampleMR = PIN_TWOSAMPLEMR_V11), MRMix = list(MRMix = PIN_MRMIX_V11), list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION)), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
     params = c(.ci_param_v11, params, .minf_param_v11),
     check = function(input, params) {
       d <- .usable(input$data)
@@ -1413,22 +1414,83 @@ ADAPTER_GRIP_V11 <- .mrpkg_adapter("grip", "MR-GRIP", 3L,
   "estimates <- rbind(est1(b, se, b - z * se, b + z * se, p, f$nsnp), transform(est1(f$b_i, f$se_i, f$b_i - z * f$se_i, f$b_i + z * f$se_i, f$pval_i, f$nsnp), estimand = \"pleiotropy_intercept\"))",
   "diagnostics <- drow(\"grip_variant\", NA, note = grip_variant)"), pkg = "TwoSampleMR", estimands = c("causal_effect", "pleiotropy_intercept"))
 
-# ---- Round 62: BWMR (Zhao et al. 2020, Bioinformatics 36:1501-1508, PMID 31593215) --------------------------------------------------
-# Bayesian weighted MR: variational Bayes with weights that down-weight outlying variants. BWMR 0.1.1 from GitHub (jiazhao97/BWMR), pinned.
-# The released function fails on R 4.2 and later (a class() comparison of length 2) and calls ggplot2 without importing it; the authors
-# give the fix in updates/BWMR_updated.R. The script applies that one-line fix to the installed function at run time (the package code is
-# not copied here, as it carries no licence) and attaches ggplot2.
-PIN_BWMR_V11 <- "c00e8186f12ed25899aaf85b7ac5c98c6d86c24c"
+# ---- Round 62, rewritten in Round 70e: BWMR (Zhao et al. 2020, Bioinformatics 36:1501-1508, PMID 31593215) ------------------------
+# Bayesian weighted MR: variational EM with weights that down-weight outlying variants and a linear-response correction of the
+# posterior variance. The authors' package (GitHub jiazhao97/BWMR) carries no licence, so it cannot be distributed with MR Studio;
+# this is MR Studio's own implementation of the published algorithm, written from the equations of the paper and its supplement
+# (arXiv 1811.10223v2), and validated against the package (validation/zhao2020_bwmr). It needs no package beyond base R, and every
+# study script contains the whole function. It iterates to convergence of the evidence lower bound (relative change below 1e-12),
+# where the package stops earlier (about 1e-6); see the validation README for the size of that difference.
+BWMR_MRS_SRC <- strsplit(r"---(# BWMR (Zhao et al. 2020, Bioinformatics 36:1501-1508), written for MR Studio from the equations of the paper and its supplement
+# (arXiv 1811.10223v2: Methods 2.1-2.3; Supplement S1.1 E-step and M-step, S1.2 linear response variance). MIT licence (MR Studio).
+# Model: gammahat_j ~ N(gamma_j, sx_j^2); Gammahat_j ~ N(beta gamma_j, sy_j^2 + tau^2)^w_j; gamma_j ~ N(0, sigma^2); beta ~ N(0, sigma0^2);
+# w_j ~ Bernoulli(pi1), pi1 ~ Beta(a0, 1). Variational EM (mean field) for beta, gamma, w, pi1; M-step for sigma^2 and tau^2; the posterior
+# variance of beta corrected by linear response variational Bayes, computed as -[(V H1 - I)^-1 V]_11 (supplement, reparameterised form).
+# Starting values and the stopping rule are not given in the paper; they only affect how fast the iterations reach the same solution.
+bwmr_mrs <- function(gammahat, Gammahat, sigmaX, sigmaY, a0 = 100, sigma0 = 1e6, tol = 1e-12, max_iter = 100000L, init = NULL) {
+  N <- length(gammahat); sx2 <- sigmaX^2; sy2 <- sigmaY^2; G <- Gammahat; g <- gammahat
+  xlx <- function(p) ifelse(p > 0, p * log(p), 0)
+  # starting values: IVW for beta, the observed effects for gamma, every variant weighted 1
+  mu_b <- sum(g * G / sy2) / sum(g^2 / sy2); s2_b <- 1 / sum(g^2 / sy2)
+  mu_g <- g; s2_g <- sx2; pw <- rep(1, N); sigma2 <- mean(g^2)
+  tau2 <- max(mean((G - mu_b * g)^2) - mean(sy2), mean(sy2) / 10)
+  if (!is.null(init)) { mu_b <- init$beta; pw <- init$weights; tau2 <- init$tau2 }
+  elbo <- -Inf; it <- 0L
+  repeat {
+    it <- it + 1L; v <- sy2 + tau2
+    # E-step (supplement S1.1), in the order of the paper: beta, gamma_j, pi1, w_j
+    s2_b <- 1 / (1 / sigma0^2 + sum(pw * (mu_g^2 + s2_g) / v))
+    mu_b <- sum(pw * mu_g * G / v) * s2_b
+    s2_g <- 1 / (1 / sx2 + pw * (mu_b^2 + s2_b) / v + 1 / sigma2)
+    mu_g <- (g / sx2 + pw * mu_b * G / v) * s2_g
+    a <- a0 + sum(pw); b <- N + 1 - sum(pw)
+    q <- (mu_b^2 + s2_b) * (mu_g^2 + s2_g) - 2 * mu_b * mu_g * G + G^2   # E[(Gammahat_j - beta gamma_j)^2]
+    l1 <- -0.5 * log(2 * pi) - 0.5 * log(v) - q / (2 * v) + digamma(a) - digamma(a + b)
+    l0 <- digamma(b) - digamma(a + b)
+    pw <- 1 / (1 + exp(l0 - l1))                                          # q_j1 / (q_j0 + q_j1), on the log scale
+    # M-step (supplement S1.1): sigma^2 in closed form, tau^2 by the bound of the paper
+    sigma2 <- mean(mu_g^2 + s2_g)
+    tau2 <- sqrt(sum(pw * q * tau2^2 / v^2) / sum(pw / v))
+    # evidence lower bound, to decide convergence
+    v <- sy2 + tau2; da <- digamma(a) - digamma(a + b); db <- digamma(b) - digamma(a + b)
+    e_new <- sum(-0.5 * log(sx2) - ((g - mu_g)^2 + s2_g) / (2 * sx2)) + sum(pw * (-0.5 * log(2 * pi) - 0.5 * log(v) - q / (2 * v))) -
+      (mu_b^2 + s2_b) / (2 * sigma0^2) - N / 2 * log(sigma2) - sum(mu_g^2 + s2_g) / (2 * sigma2) + sum(pw * da + (1 - pw) * db) + (a0 - 1) * da +
+      0.5 * log(s2_b) + 0.5 * sum(log(s2_g)) - sum(xlx(pw) + xlx(1 - pw)) - ((a - 1) * da + (b - 1) * db - lbeta(a, b))
+    done <- is.finite(elbo) && abs(e_new - elbo) <= tol * abs(e_new); elbo <- e_new
+    if (done || it >= max_iter) break
+  }
+  # linear response variance of beta (supplement S1.2): m = (E beta, E beta^2, [E gamma_j, E gamma_j^2, E w_j]_j, E log pi1, E log(1 - pi1)).
+  # Var(beta) = -[(V H1 - I)^-1 V]_11. V is block diagonal and H1 links each variant's block only to the global blocks (beta, pi1), so
+  # A = V H1 - I has an arrow shape and is solved exactly through the 4 x 4 Schur complement of the global block (time linear in N).
+  v <- sy2 + tau2; a <- a0 + sum(pw); b <- N + 1 - sum(pw)          # q(pi1) consistent with the final weights
+  VG <- matrix(0, 4, 4); VG[1:2, 1:2] <- c(s2_b, 2 * mu_b * s2_b, 2 * mu_b * s2_b, 2 * s2_b^2 + 4 * mu_b^2 * s2_b)
+  VG[3:4, 3:4] <- c(trigamma(a) - trigamma(a + b), -trigamma(a + b), -trigamma(a + b), trigamma(b) - trigamma(a + b))
+  S <- -diag(4)                                                       # A_GG = VG H1_GG - I, and H1_GG = 0
+  ok <- TRUE
+  for (j in seq_len(N)) {
+    Vj <- matrix(c(s2_g[j], 2 * mu_g[j] * s2_g[j], 0, 2 * mu_g[j] * s2_g[j], 2 * s2_g[j]^2 + 4 * mu_g[j]^2 * s2_g[j], 0, 0, 0, pw[j] * (1 - pw[j])), 3, 3)
+    Hjj <- matrix(0, 3, 3); Hjj[1, 3] <- Hjj[3, 1] <- mu_b * G[j] / v[j]; Hjj[2, 3] <- Hjj[3, 2] <- -(mu_b^2 + s2_b) / (2 * v[j])
+    HjG <- matrix(0, 3, 4)                                            # rows gamma_j, gamma_j^2, w_j; columns beta, beta^2, log pi1, log(1 - pi1)
+    HjG[1, 1] <- pw[j] * G[j] / v[j]; HjG[2, 2] <- -pw[j] / (2 * v[j])
+    HjG[3, 1] <- mu_g[j] * G[j] / v[j]; HjG[3, 2] <- -(mu_g[j]^2 + s2_g[j]) / (2 * v[j]); HjG[3, 3] <- 1; HjG[3, 4] <- -1
+    Ajj <- Vj %*% Hjj - diag(3); AjG <- Vj %*% HjG; AGj <- VG %*% t(HjG)
+    Z <- tryCatch(solve(Ajj, AjG), error = function(e) NULL); if (is.null(Z)) { ok <- FALSE; break }
+    S <- S - AGj %*% Z }
+  x <- if (ok) tryCatch(solve(S, c(VG[1, 1], VG[2, 1], 0, 0)), error = function(e) NULL) else NULL
+  var_b <- if (is.null(x)) NA_real_ else -x[1]
+  se <- sqrt(var_b)
+  list(beta = mu_b, se_beta = se, P_value = 2 * stats::pnorm(-abs(mu_b / se)), weights = pw, tau2 = tau2, sigma2 = sigma2,
+       se_mfvb = sqrt(s2_b), mu_gamma = mu_g, s2_gamma = s2_g, a = a, b = b, iterations = it, converged = it < max_iter, elbo = elbo)
+})---", "\n")[[1]]
 ADAPTER_BWMR_V11 <- .mrpkg_adapter("bwmr", "BWMR", 3L, list(), FALSE, c(
   "z <- stats::qnorm(1 - (1 - ci_level) / 2)",
-  "suppressPackageStartupMessages(library(ggplot2))   # BWMR draws its plots with ggplot2 functions it does not import",
-  "src <- deparse(BWMR::BWMR)",
-  "src <- sub('class(Sigma_hat) == \"try-error\"', 'inherits(Sigma_hat, \"try-error\")', src, fixed = TRUE)   # the authors' fix for R >= 4.2 (updates/BWMR_updated.R)",
-  "bwmr <- eval(parse(text = src)); environment(bwmr) <- asNamespace(\"BWMR\")",
-  "f <- suppressWarnings(bwmr(gammahat = dat$beta_x, Gammahat = dat$beta_y, sigmaX = dat$se_x, sigmaY = dat$se_y))",
+  BWMR_MRS_SRC,
+  "f <- bwmr_mrs(gammahat = dat$beta_x, Gammahat = dat$beta_y, sigmaX = dat$se_x, sigmaY = dat$se_y)",
+  "if (!f$converged || !is.finite(f$se_beta)) stop(\"BWMR did not converge on these data (the variance correction could not be computed).\")",
   "estimates <- est1(f$beta, f$se_beta, f$beta - z * f$se_beta, f$beta + z * f$se_beta, f$P_value, nrow(dat))",
   "diagnostics <- rbind(drow(\"bwmr_downweighted\", sum(f$weights < 0.5), note = \"variants with posterior weight below 0.5 (likely outliers)\"),",
-  "  drow(\"bwmr_tau2\", f$tau^2, note = \"variance of the polygenic (pleiotropic) effects\"))"), pkg = "BWMR")
+  "  drow(\"bwmr_tau2\", f$tau2, note = \"variance of the polygenic (pleiotropic) effects\"),",
+  "  drow(\"bwmr_iterations\", f$iterations, note = \"variational EM iterations to convergence of the evidence lower bound\"))"), pkg = "stats")
 
 # ---- Round 68b: IVW after Steiger filtering (Hemani, Tilling and Davey Smith 2017, PLoS Genet 13:e1007081) ------------------
 # A sensitivity analysis, never the primary result: variants that explain more variance in the outcome than in the exposure are left

@@ -1,4 +1,11 @@
-"quantity","vignette","mr_studio","match"
-"effect",0.6177372,0.61773717048908,TRUE
-"standard error",0.0256347,0.0256347010896582,TRUE
-"p-value",2.642837e-128,2.6428372899354e-128,TRUE
+"part","quantity","reference","mr_studio","criterion","pass"
+"A","effect (vignette)","0.6177372","0.6179045","within 0.01 SE",TRUE
+"A","standard error (vignette)","0.0256347","0.0255741","within 1%",TRUE
+"A (reported)","P value (vignette)","2.642837e-128","5.66916e-129","reported",TRUE
+"A","replay of the study script","identical","identical","identical",TRUE
+"B","variance: full linear-response formula vs the arrow solve, largest relative difference (22 data sets)","0","4.4e-15","< 1e-8",TRUE
+"C","package's stopping rule: largest effect difference, 21 of 22 data sets with the same optimum","0","0.0069 SE","< 0.01 SE",TRUE
+"C","package's stopping rule: largest SE difference, same data sets","0","0.51%","< 1%",TRUE
+"C (reported)","full convergence (MR Studio's default): largest effect difference, same data sets","0","0.0572 SE (simulated_10)","reported",TRUE
+"C (reported)","full convergence: largest SE difference, same data sets","0","2.03% (simulated_10)","reported",TRUE
+"C (reported)","different optimum: simulated_07","package's answer","simulated_07: MR Studio 0.3466 (SE 0.0488), evidence lower bound 188.176; package 0.3686 (SE 0.0564), lower bound at its optimum 187.640","MR Studio's optimum has the higher evidence lower bound",TRUE

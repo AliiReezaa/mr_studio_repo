@@ -61,7 +61,7 @@ Licences are given as each package's `DESCRIPTION` file states them. "GPL-2 | GP
 
 ## Not bundled
 
-- **BWMR** (Zhao et al. 2020): its repository states no licence, so it may not be redistributed. MR Studio runs BWMR only when the
-  user has installed the package themselves.
+- **BWMR** (Zhao et al. 2020): its repository states no licence, so it may not be redistributed. MR Studio runs its own implementation
+  of the published algorithm instead (MIT, part of MR Studio), validated against the package in `validation/zhao2020_bwmr`.
 - **Reference data** (1000 Genomes European LD panel, the LDSC authors' LD scores, OpenGWAS summary statistics) are not in the
   installer. MR Studio downloads them on request from their original sources, under those sources' terms, and checks each file.

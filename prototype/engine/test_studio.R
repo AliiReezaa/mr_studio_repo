@@ -1325,12 +1325,17 @@ expect("Round 68b: IVW after Steiger filtering equals TwoSampleMR::steiger_filte
   dg <- pl68b$diagnostics; gv <- function(n) dg[vapply(dg, function(g) identical(g$name, n), TRUE)][[1]]
   identical(pl68b$replay$status, "identical") && abs(e68b$estimate - f$b) < 1e-10 && abs(e68b$se - f$se) < 1e-10 && gv("steiger_kept")$value == nrow(k) &&
     gv("steiger_removed")$value == 3 && setequal(strsplit(gv("steiger_removed")$note, " ")[[1]], sf$SNP[!sf$steiger_dir]) })
-# ---- Round 62: BWMR ----
-if (requireNamespace("BWMR", quietly = TRUE)) {
+# ---- Round 62, Round 70e: BWMR, MR Studio's own implementation of the published algorithm ----
 r62 <- studio_run(h58, p58$exposure_label, p58$outcome_label, p58$input, "bwmr", idx = 5L, params = list(ci_level = 0.95)); pl62 <- pair_payload(h58$dir, r62$pair_folder); e62 <- .est_df(pl62)
-expect("Round 62: BWMR runs as a script with the authors' R 4 fix, replays identically and covers the simulated effect 0.30", identical(pl62$replay$status, "identical") && nrow(e62) == 1L && e62$ci_lower <= 0.3 && 0.3 <= e62$ci_upper &&
-  any(grepl("inherits(Sigma_hat", readLines(Sys.glob(file.path(h58$dir, "03_pairs", r62$pair_folder, "02_scripts", "*_bwmr.R"))), fixed = TRUE)))
-} else cat("SKIP  Round 62 (BWMR): package BWMR is not installed in this runtime\n")
+sc62 <- readLines(Sys.glob(file.path(h58$dir, "03_pairs", r62$pair_folder, "02_scripts", "*_bwmr.R")))
+expect("Round 70e: BWMR runs as a script that contains the whole algorithm and needs no package, replays identically and covers the simulated effect 0.30",
+       identical(pl62$replay$status, "identical") && nrow(e62) == 1L && e62$ci_lower <= 0.3 && 0.3 <= e62$ci_upper &&
+       any(grepl("^bwmr_mrs <- function", sc62)) && !any(grepl("BWMR::", sc62, fixed = TRUE)) && any(grepl("none beyond base R", sc62, fixed = TRUE)))
+local({ eval(parse(text = BWMR_MRS_SRC)); set.seed(62); n <- 30; sx <- runif(n, .01, .03); g <- rnorm(n, .08, .04); sy <- runif(n, .01, .04); G <- .3 * g + rnorm(n, 0, sy); G[3] <- G[3] + .4
+  f <- bwmr_mrs(g, G, sx, sy)
+  expect("Round 70e: BWMR converges, down-weights the planted outlier and gives a variance larger than the mean-field one",
+         isTRUE(f$converged) && f$weights[3] < 0.5 && all(f$weights[-3] > 0.5) && f$se_beta > f$se_mfvb) })
+
 # ---- Round 63: bidirectional cML ----
 if (requireNamespace("BiDirectCausal", quietly = TRUE)) {
 h63 <- studio_new("BiDir cML"); a63 <- pair_input("expB", "outB"); b63 <- pair_input("outB", "expB")
@@ -1488,9 +1493,7 @@ local({
 })
 # ---- Round 70b: a method whose package is missing is locked before the run ----
 expect("Round 70b: a missing package is detected, an installed one is not", identical(.pkg_missing(c("stats", "NoSuchPackageMRS")), "NoSuchPackageMRS"))
-local({ fz <- feasibility(list()); b <- fz$methods$bwmr; hasB <- nzchar(system.file(package = "BWMR"))
-  expect("Round 70b: BWMR is locked with the reason exactly when its package is not installed",
-         if (hasB) is.null(b) || !identical(b$state, "locked") else identical(b$state, "locked") && grepl("Package BWMR is not installed", b$reasons[[1]]$msg)) })
+expect("Round 70e: BWMR needs no package, so it is never locked for a missing one", { b <- feasibility(list())$methods$bwmr; is.null(b) || !identical(b$state, "locked") })
 local({ uni <- list(data = data.frame(beta_x = 1, se_x = 1, beta_y = 1, se_y = 1)); mv <- list(data = data.frame(beta_x_1 = 1, se_x_1 = 1, beta_x_2 = 1, se_x_2 = 1, beta_y = 1, se_y = 1))
   a <- runnable_methods(c("mvivw", "ivw_mre", "egger"), uni); b <- runnable_methods(c("mvivw", "ivw_mre"), mv)
   expect("Round 70b: multivariable methods are left out of a one-exposure pair, and one-exposure methods out of a multivariable pair, with the reason",

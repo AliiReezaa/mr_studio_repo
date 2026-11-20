@@ -24,7 +24,7 @@ Two kinds of check are used:
 | `twosamplemr_methods` | Bootstrap MR-Egger, penalised weighted median, NOME modes, Rucker selection, sign test | TwoSampleMR | Waterworth et al. lipid example | Equivalence | Passed (every difference 0) |
 | `mrmix` | MRMix | Qi and Chatterjee 2019, Nat Commun (PMID 31028273) | Education on BMI and on CHD, OpenGWAS | Equivalence | Passed |
 | `dudbridge2025_grip` | MR-GRIP | Dudbridge et al. 2025, PLoS Genet (PMID 41468517), Tables 5 and 6 | The paper's S1 Data (CC BY) | Reproduction, equivalence | Passed (every printed digit) |
-| `zhao2020_bwmr` | BWMR | Zhao et al. 2020, Bioinformatics (PMID 31593215) | Package example data | Reproduction | Passed (vignette values exactly) |
+| `zhao2020_bwmr` | BWMR (MR Studio's own implementation of the published algorithm) | Zhao et al. 2020, Bioinformatics (PMID 31593215), and its supplement | Package example data, Waterworth et al. lipid example, 20 simulated data sets | Reproduction, equivalence with the package | Passed (within 0.007 SE of the package with its stopping rule; criteria set after a first comparison) |
 | `xue2022_bidir_cml` | BiDirMRcML, BiDirCDcML | Xue and Pan 2022, PLoS Genet (PMID 35576237) | Simulated bidirectional data | Equivalence, recovery of known effects | Passed |
 | `ldsc_neale_ukb` | LD scores (computed from 1000 Genomes), cross-trait LDSC | Bulik-Sullivan et al. 2015, Nat Genet (PMIDs 25642630, 26414676) | Neale lab UK Biobank height and BMI | Reproduction, equivalence | Passed (16 of 16 checks) |
 | `mounier2023_mrlap` | MRlap | Mounier and Kutalik 2023, Genet Epidemiol (PMID 37036286) | The package's Example A and its stored result | Reproduction, equivalence | Passed |
@@ -46,4 +46,4 @@ names the cause (a different instrument set, a newer package version, a smaller 
     for s in bowden2016 burgess2015_mvmr rees2017_mvmr patel2023_mr_methods twosamplemr_methods dudbridge2025_grip zhao2020_bwmr xue2022_bidir_cml; do
       Rscript --vanilla validation/$s/run_validation.R; done
 
-The others need downloads (UK Biobank summary statistics, LD scores) or an OpenGWAS token; their READMEs give the command.
+`zhao2020_bwmr` also needs the authors' BWMR package installed, as the reference that MR Studio's own implementation is compared with. The others need downloads (UK Biobank summary statistics, LD scores) or an OpenGWAS token; their READMEs give the command.

@@ -85,7 +85,7 @@ feasibility <- function(facts, params = list(), overlap = list(), methods = FEAS
     lv <- vapply(reasons, `[[`, "", "level")
     out[[m]] <- list(state = if (any(lv == "BLOCK")) "locked" else if (any(lv == "WARN")) "check" else "ok", reasons = reasons)
   }
-  # A method whose package is not in this runtime (BWMR is not bundled: its repository states no licence) is locked with the reason,
+  # A method whose package is not in this runtime (for example a compiled package that could not be built on this system) is locked with the reason,
   # instead of failing the pair at run time. Checked for every adapter, not only the methods with feasibility rules.
   for (m in names(ad)) { pk <- names(ad[[m]]$packages %||% list()); miss <- .pkg_missing(pk)
     if (!length(miss)) next
