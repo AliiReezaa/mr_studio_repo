@@ -160,6 +160,8 @@ ldsc_script <- function(folder, files, labels, ld, ld_what, sprev, pprev) {
 ldsc_pair_run <- function(h, pair, source = NULL, pprev = c(NA_real_, NA_real_), root = studies_root(), dir = ldsc_ref_dir()) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("LD score regression is for a pair with one exposure.")
   ids <- c(pair$ex, pair$out); if (!all(startsWith(ids, "lib:"))) stop("LD score regression needs the full summary statistics of both traits, imported into the Data library.")
+  rows <- vapply(ids, function(i) tryCatch(as.numeric(library_dataset(sub("^lib:", "", i), root)$recipe$rows_kept %||% NA), error = function(e) NA_real_), 0)
+  if (exists("mem_check")) { mc <- mem_check(ldsc_memory_gb(rows), "LD score regression"); if (!mc$ok) stop(mc$msg, call. = FALSE) }   # Round 66
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
   anc <- vapply(ds, function(x) toupper(x$recipe$facts$ancestry %||% "EUR"), "")
   if (!identical(anc[1], anc[2])) stop(sprintf("The two GWAS are from different ancestries (%s and %s); LD score regression needs one LD reference for both.", anc[1], anc[2]))
@@ -208,6 +210,7 @@ ldsc_official_cm <- function(dir = ldsc_ref_dir()) { d <- ldsc_ld_folder("offici
   unlist(lapply(1:22, function(c) { o <- utils::read.table(gzfile(file.path(d, paste0(c, ".l2.ldscore.gz"))), header = TRUE, stringsAsFactors = FALSE); stats::setNames(o$CM, o$SNP) })) }
 ldsc_compute_start <- function(pop = "EUR", dir = ldsc_ref_dir(), engine = getOption("mrgui.engine_dir", "")) {
   j <- ldsc_job_read(dir); if (!is.null(j) && identical(j$state, "running")) stop("LD scores are already being computed.")
+  if (exists("mem_check")) { mc <- mem_check(LDSCORE_MEMORY_GB, "Computing LD scores"); if (!mc$ok) stop(mc$msg, call. = FALSE) }   # Round 66
   if (!file.exists(file.path(dir, "w_hm3.snplist"))) ldsc_ref_fetch("hm3", dir)
   job <- file.path(dir, "compute_job.R")
   writeLines(c("a <- commandArgs(TRUE); engine <- a[1]; dir <- a[2]; pop <- a[3]",

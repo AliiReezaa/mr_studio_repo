@@ -1,0 +1,5 @@
+"check","result","detail"
+"starting-point fit table (FullRes)",TRUE,"identical"
+"jackknife fit table (FullRes_4blockJK)",TRUE,"identical"
+"SummarisedResults (estimates, SE, P)",TRUE,"largest difference 0"
+"resume from checkpoints",TRUE,"0.15 s, no fit recomputed"

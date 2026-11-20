@@ -41,7 +41,7 @@ lhcmr_prepare <- function(d, ldpos) {
 }
 
 #' Script for one pair. `cores` > 1 uses parallel::mclapply (not on Windows).
-lhcmr_script <- function(folder, files, labels, ldf, rhof, ldsc_dir, hm3, seed, cores, sp_pair = 50L, nblock = 200L, bfile = "", plink = "") {
+lhcmr_script <- function(folder, files, labels, ldf, rhof, ldsc_dir, hm3, seed, cores, sp_pair = 50L, nblock = 200L, bfile = "", plink = "", per_worker_gb = 1) {
   q <- function(s) encodeString(s, quote = "\"")
   c("# MR Studio: LHC-MR, latent heritable confounder Mendelian randomisation (Darrous et al. 2021, Nat Commun 12:7274).",
     sprintf("# Package: lhcMR commit %s (GitHub LizaDarrous/lhcMR); cross-trait intercept with GenomicSEM commit %s.", PIN_LHCMR, PIN_GENOMICSEM),
@@ -59,11 +59,18 @@ lhcmr_script <- function(folder, files, labels, ldf, rhof, ldsc_dir, hm3, seed, 
     "if (nzchar(BFILE) && nzchar(PLINK)) { cd <- TwoSampleMR::clump_data; utils::assignInNamespace(\"clump_data\", function(dat, ...) cd(dat, ..., bfile = BFILE, plink_bin = PLINK), \"TwoSampleMR\") }",
     "od <- normalizePath(file.path(\"04_across_pairs\", \"lhcmr\", PAIR), mustWork = FALSE); dir.create(od, recursive = TRUE, showWarnings = FALSE)",
     "inp <- lapply(TRAITS, function(f) as.data.frame(data.table::fread(f)))",
-    "old <- setwd(od); on.exit(setwd(old), add = TRUE)   # lhcMR writes its tables into the working directory",
+    "old <- setwd(od)   # lhcMR writes its tables into the working directory (restored at the end; on.exit would fire at once under sys.source)",
     "RNGkind(\"L'Ecuyer-CMRG\", \"Inversion\", \"Rejection\"); set.seed(seed)   # also reproducible with parallel::mclapply",
     "df <- merge_sumstats(inp, c(\"X\", \"Y\"), LD_FILE, RHO_FILE)",
     "sp <- calculate_SP(df, c(\"X\", \"Y\"), run_ldsc = TRUE, run_MR = TRUE, saveRFiles = TRUE, hm3 = HM3, ld = LDSC_LD, nStep = 2, SP_single = 3, SP_pair = SP_PAIR, SNP_filter = 10, nCores = CORES)",
-    "lhc_mr(sp, c(\"X\", \"Y\"), paral_method = \"lapply\", nCores = CORES, nBlock = N_BLOCK)",
+    "# Adaptive, resumable runner (MR Studio Round 67): the statements of the installed lhc_mr(), in order, with its two parallel steps",
+    "# (50 starting-point fits, 200 jackknife fits) scheduled a batch at a time by the memory free now (at most CORES workers), each",
+    "# finished fit saved in units/, so a stopped run resumes. Results equal lhc_mr()'s exactly (validation/darrous2021_lhcmr).",
+    paste(".num1 <-", paste(deparse(.num1), collapse = "\n")), paste("mem_info <-", paste(deparse(mem_info), collapse = "\n")),
+    strsplit(LHCMR_RUNNER_SRC, "\n", fixed = TRUE)[[1]],
+    sprintf("PER_WORKER_GB <- %s   # estimated memory of one worker for these data", format(signif(per_worker_gb, 3))),
+    "STATUS <- normalizePath(file.path(old, \"04_across_pairs\", \"lhcmr\", paste0(PAIR, \"_status.json\")), mustWork = FALSE)",
+    "lhcmr_adaptive(sp, c(\"X\", \"Y\"), nBlock = N_BLOCK, ck = \"units\", max_workers = CORES, per_worker_gb = PER_WORKER_GB, status = STATUS, mem = mem_info, seed = seed)",
     "s <- utils::read.csv(\"SummarisedResults_X-Y.csv\", row.names = 1, check.names = FALSE)",
     "out <- data.frame(parameter = colnames(s), estimate = as.numeric(s[1, ]), se = as.numeric(s[2, ]), p = as.numeric(s[3, ]), stringsAsFactors = FALSE)",
     "out$ci_lower <- out$estimate - 1.96 * out$se; out$ci_upper <- out$estimate + 1.96 * out$se; out$variants <- nrow(df); out$variants_used <- nrow(sp$input.df_filtered)",
@@ -97,7 +104,7 @@ lhcmr_pair_run <- function(h, pair, root = studies_root(), dir = lhcmr_ref_dir()
       manifest_register(h$dir, c(f, jf), role = "lhcmr_input") } }
   rd <- file.path("04_across_pairs", "lhcmr"); dir.create(file.path(h$dir, rd), recursive = TRUE, showWarnings = FALSE); sf <- file.path(h$dir, rd, paste0(pair$folder, ".R"))
   writeLines(lhcmr_script(pair$folder, files, c(pair$exName, pair$outName), normalizePath(file.path(dir, LHCMR_REF$ld$file), winslash = "/"), normalizePath(file.path(dir, LHCMR_REF$rho$file), winslash = "/"),
-                          normalizePath(ldsc_ld_folder("official", ldsc), winslash = "/"), normalizePath(file.path(ldsc, "w_hm3.snplist"), winslash = "/"), .seed_of(paste("lhcmr", pair$folder)), cores, sp_pair, nblock,
+                          normalizePath(ldsc_ld_folder("official", ldsc), winslash = "/"), normalizePath(file.path(ldsc, "w_hm3.snplist"), winslash = "/"), .seed_of(paste("lhcmr", pair$folder)), cores, sp_pair, nblock, per_worker_gb = LHCMR_CAL$per_worker_gb_per_mvar * lhcmr_variants_bound(pair, root) / 1e6,
                           bfile = if (file.exists(file.path(ld_panel_dir(), "EUR.bed"))) normalizePath(file.path(ld_panel_dir(), "EUR"), winslash = "/", mustWork = FALSE) else "", plink = if (is.na(plink_bin())) "" else plink_bin()), sf)
   old <- setwd(h$dir); res <- tryCatch({ utils::capture.output(sys.source(sf, envir = new.env(parent = globalenv()), keep.source = FALSE))
     utils::read.csv(file.path(rd, paste0(pair$folder, "_results.csv")), stringsAsFactors = FALSE) }, finally = setwd(old))
@@ -121,17 +128,36 @@ lhcmr_text <- function(res) {
 
 # ---- Background run (one to two hours): separate R process, status in 04_across_pairs/lhcmr/<pair>_status.json ----------------------
 .lhcmr_status_file <- function(dir, folder) file.path(dir, "04_across_pairs", "lhcmr", paste0(folder, "_status.json"))
-lhcmr_job_read <- function(h, pair) { f <- .lhcmr_status_file(h$dir, pair$folder); if (!file.exists(f)) return(NULL); tryCatch(jsonlite::fromJSON(f), error = function(e) NULL) }
-lhcmr_pair_start <- function(h, pair, root = studies_root(), engine = getOption("mrgui.engine_dir", ""), cores = lhcmr_cores()) {
+lhcmr_job_read <- function(h, pair) { f <- .lhcmr_status_file(h$dir, pair$folder); if (!file.exists(f)) return(NULL); j <- tryCatch(jsonlite::fromJSON(f), error = function(e) NULL)
+  # a run whose process is gone (app or computer closed) is reported as stopped: starting it again continues from the saved fits
+  if (!is.null(j) && j$state %in% c("running", "paused") && !is.null(j$pid) && !.pid_alive(j$pid))
+    j <- list(state = "stopped", msg = "The run stopped (the app or the computer was closed). Run it again to continue from the fits already saved.", time = j$time)
+  j }
+.pid_alive <- function(pid) if (.Platform$OS.type == "windows") any(grepl(paste0(" ", pid, " "), tryCatch(system2("tasklist", c("/FI", shQuote(paste("PID eq", pid))), stdout = TRUE), error = function(e) ""))) else isTRUE(tryCatch(tools::pskill(as.integer(pid), 0L), error = function(e) FALSE))
+#' Upper bound of the variants LHC-MR will use for a pair (the smaller dataset, capped at the authors' LD file), read from the recipes.
+lhcmr_variants_bound <- function(pair, root = studies_root()) {
+  r <- vapply(c(pair$ex, pair$out), function(i) tryCatch(as.numeric(library_dataset(sub("^lib:", "", i), root)$recipe$rows_kept %||% NA), error = function(e) NA_real_), 0)
+  min(c(r[is.finite(r)], 4.65e6))
+}
+#' The settings offered for a pair now (only safe ones), with the memory read.
+lhcmr_pair_options <- function(pair, root = studies_root()) { v <- lhcmr_variants_bound(pair, root); o <- lhcmr_options(v); attr(o, "variants") <- v; o }
+
+lhcmr_pair_start <- function(h, pair, root = studies_root(), engine = getOption("mrgui.engine_dir", ""), cores = NULL) {
+  if (is.null(cores)) cores <- lhcmr_cores()
+  ok <- lhcmr_pair_options(pair, root); if (!(as.integer(cores) %in% ok$workers)) {
+    mi <- attr(ok, "memory"); stop(if (!nrow(ok)) sprintf("Not enough free memory for LHC-MR now (%.1f GB free of %.0f GB; one worker needs about %.1f GB free). Close other programs, then try again.", mi$available_gb, mi$total_gb, lhcmr_estimate(attr(ok, "variants"), 1L)$memory_gb / RES_SAFE_SHARE)
+         else sprintf("%d workers would not fit safely in the memory free now; choose one of the settings offered (%s).", as.integer(cores), paste(ok$workers, collapse = ", ")), call. = FALSE) }
   j <- lhcmr_job_read(h, pair); if (!is.null(j) && identical(j$state, "running")) stop("LHC-MR is already running for this pair.")
   sf <- .lhcmr_status_file(h$dir, pair$folder); dir.create(dirname(sf), recursive = TRUE, showWarnings = FALSE)
   pj <- file.path(dirname(sf), paste0(pair$folder, "_job.json")); writeLines(jsonlite::toJSON(pair[c("folder", "ex", "out", "exName", "outName")], auto_unbox = TRUE), pj)
   job <- file.path(dirname(sf), paste0(pair$folder, "_job.R"))
   writeLines(c("a <- commandArgs(TRUE); engine <- a[1]; sdir <- a[2]; root <- a[3]; pj <- a[4]; sf <- a[5]; cores <- as.integer(a[6])",
-    "st <- function(state, msg = '') writeLines(jsonlite::toJSON(list(state = state, msg = msg, time = format(Sys.time(), '%Y-%m-%d %H:%M:%S')), auto_unbox = TRUE), sf)",
+    "st <- function(state, msg = '') writeLines(jsonlite::toJSON(list(state = state, msg = msg, pid = Sys.getpid(), time = format(Sys.time(), '%Y-%m-%d %H:%M:%S')), auto_unbox = TRUE), sf)",
     "invisible(tools::psnice(value = 15L))   # low priority, so the computer stays responsive during the one to two hours",
     "tryCatch({ options(mrgui.engine_dir = engine); source(file.path(engine, 'studio_core.R')); load_contracts(find_contracts_dir(engine))",
-    "  for (f in c('import_core.R', 'ld_core.R', 'ldsc_core.R', 'lhcmr_core.R')) source(file.path(engine, f))",
+    "  for (f in c('resource_core.R', 'import_core.R', 'ld_core.R', 'ldsc_core.R', 'lhcmr_runner.R', 'lhcmr_core.R')) source(file.path(engine, f))",
+    "  mem_guard_start(Sys.getpid(), sf)   # a separate process stops the run if free memory falls too low",
+    "  st('running', 'Preparing the data and the starting points.')   # records this process, so a closed app is noticed later",
     "  pair <- jsonlite::fromJSON(pj); lhcmr_pair_run(list(dir = sdir), pair, root = root, cores = cores); st('done')",
     "}, error = function(e) st('error', conditionMessage(e)))"), job)
   writeLines(jsonlite::toJSON(list(state = "running", msg = "", time = format(Sys.time(), "%Y-%m-%d %H:%M:%S")), auto_unbox = TRUE), sf)

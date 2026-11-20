@@ -54,7 +54,7 @@ add("B", "mean computed / mean official LD score", sprintf("%.3f (variants in th
 lib <- library_dir(root); set.seed(1); mk <- function(f, trait) { x <- utils::read.table(gzfile(f), header = TRUE, stringsAsFactors = FALSE); sw <- stats::runif(nrow(x)) < 0.5
   d <- data.frame(snp = x$SNP, ea = ifelse(sw, x$A2, x$A1), oa = ifelse(sw, x$A1, x$A2), beta = ifelse(sw, -x$Z, x$Z), se = 1, n = x$N, stringsAsFactors = FALSE)
   dd <- file.path(lib, trait); dir.create(dd, recursive = TRUE); lib_table_write(d, dd, "standardised")
-  atomic_write_text(file.path(dd, "recipe.json"), jsonlite::toJSON(list(trait = trait, role = "either", facts = list(ancestry = "EUR", kind = "continuous", name = trait), original = list(file = basename(f), sha256 = sha256_file(f)), usable_as_exposure = FALSE, usable_as_outcome = TRUE, usable_in_runs = TRUE), auto_unbox = TRUE)) }
+  atomic_write_text(file.path(dd, "recipe.json"), jsonlite::toJSON(list(trait = trait, role = "either", facts = list(ancestry = "EUR", kind = "continuous", name = trait), original = list(file = basename(f), sha256 = sha256_file(f)), rows_kept = nrow(d), usable_as_exposure = FALSE, usable_as_outcome = TRUE, usable_in_runs = TRUE), auto_unbox = TRUE)) }
 mk(nf$height, "Height"); mk(nf$bmi, "BMI")
 h <- studio_new("LDSC validation"); pair <- list(folder = "01_height_bmi", ex = "lib:Height", out = "lib:BMI", exName = "Height", outName = "BMI")
 app <- ldsc_pair_run(h, pair, "official")

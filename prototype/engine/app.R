@@ -190,9 +190,10 @@ mr_server <- function(engine_dir) {
         },
         lhcmr_get = , lhcmr_fetch = , lhcmr_start = {   # Round 65: LHC-MR, run in a separate process (one to two hours)
           req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
-          r <- tryCatch(switch(t, lhcmr_fetch = lhcmr_fetch_start(), lhcmr_start = { if (!requireNamespace("lhcMR", quietly = TRUE)) stop("lhcMR is not installed in this runtime.", call. = FALSE); lhcmr_pair_start(rv$h, p) }, NULL), error = function(e) e)
+          r <- tryCatch(switch(t, lhcmr_fetch = lhcmr_fetch_start(), lhcmr_start = { if (!requireNamespace("lhcMR", quietly = TRUE)) stop("lhcMR is not installed in this runtime.", call. = FALSE); w <- suppressWarnings(as.integer(a$workers %||% NA)); lhcmr_pair_start(rv$h, p, cores = if (is.na(w)) NULL else w) }, NULL), error = function(e) e)
           res <- lhcmr_pair_read(rv$h, p)
-          ev("lhcmr", folder = a$folder, status = lhcmr_status(rv$h, p), msg = if (inherits(r, "error")) conditionMessage(r) else "",
+          op <- tryCatch(lhcmr_pair_options(p), error = function(e) NULL); mi <- if (is.null(op)) mem_info() else attr(op, "memory")   # Round 66: only safe settings
+          ev("lhcmr", folder = a$folder, status = lhcmr_status(rv$h, p), memory = mi, options = if (is.null(op) || !nrow(op)) list() else lapply(seq_len(nrow(op)), function(i) as.list(op[i, c("workers", "label", "memory_gb", "hours")])), msg = if (inherits(r, "error")) conditionMessage(r) else "",
              rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else lhcmr_text(res))
         },
         mvcov_compute = {   # Round 55: covariances from the chosen individual-level file, for these exposures in model order

@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -1373,6 +1373,61 @@ local({
   res <- data.frame(parameter = c("axy", "ayx", "tX", "tY", "h2X", "h2Y", "iXY"), estimate = c(-0.128, -0.128, 0.032, -0.124, 0.256, 0.546, -0.103), se = 0.02, p = 1e-5, ci_lower = -0.2, ci_upper = 0, variants = 1e6, variants_used = 1e5, bimodal = c(FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE), stringsAsFactors = FALSE); attr(res, "labels") <- c(x = "BMI", y = "Height")
   expect("Round 65: the LHC-MR text gives both directions, the confounder effects and the bimodality caution", { t <- lhcmr_text(res); grepl("BMI on Height -0.128", t) && grepl("confounder effects 0.032 on BMI", t) && grepl("bimodal", t) })
   expect("Round 65: with nothing installed the LHC-MR status says so", { st <- lhcmr_ref_status(file.path(tempdir(), "nolhc")); !st$ld && !st$rho })
+})
+# ---- Round 66: memory-aware heavy analyses ----
+local({
+  mi <- mem_info()
+  expect("Round 66: the computer's total and free memory are read (macOS, Linux and Windows readers)", is.finite(mi$total_gb) && mi$total_gb > 0 && is.finite(mi$available_gb) && mi$available_gb > 0 && mi$available_gb <= mi$total_gb * 1.01)
+  fake <- list(total_gb = 16, available_gb = 6)
+  expect("Round 66: a run starts only when its peak fits in half of the free memory, and the refusal gives the numbers", mem_check(2.9, "X", fake)$ok && !mem_check(3.1, "X", fake)$ok && grepl("6.0 GB is free now", mem_check(3.1, "X", fake)$msg))
+  cal <- list(base_gb = 1, main_gb_per_mvar = 1, per_worker_gb_per_mvar = 1, minutes_per_fit = 40, fits = 250L)
+  o <- lhcmr_options(1e6, list(total_gb = 16, available_gb = 10), cal, max_workers = 8L); o2 <- lhcmr_options(1e6, list(total_gb = 16, available_gb = 5), cal, max_workers = 8L)
+  expect("Round 66: LHC-MR offers only the worker counts whose estimated peak fits safely (none when even one does not)",
+         (if (.Platform$OS.type == "windows") identical(o$workers, 1L) else identical(o$workers, c(1L, 2L))) && all(o$memory_gb <= 5) && nrow(o2) == 0L)
+  expect("Round 66: the LHC-MR estimate grows with workers and variants, and time falls with workers", { a <- lhcmr_estimate(1e6, 1L, cal); b <- lhcmr_estimate(2e6, 2L, cal); b$memory_gb > a$memory_gb && lhcmr_estimate(1e6, 2L, cal)$hours < a$hours })
+  expect("Round 66: LDSC and LD score computation have memory needs that grow with the data", ldsc_memory_gb(1e7) > ldsc_memory_gb(1e6) && LDSCORE_MEMORY_GB > 0)
+  if (.Platform$OS.type != "windows") {
+    sf <- tempfile(fileext = ".json"); writeLines('{"state":"running"}', sf)
+    old <- Sys.getenv("MRSTUDIO_GUARD_FLOOR"); Sys.setenv(MRSTUDIO_GUARD_FLOOR = "2")
+    job <- parallel::mcparallel(Sys.sleep(60)); pid <- job$pid
+    mem_guard_start(pid, sf, every = 1, engine = if (exists("args_dir")) args_dir else getwd()); Sys.sleep(8); Sys.setenv(MRSTUDIO_GUARD_FLOOR = old)
+    st <- tryCatch(jsonlite::fromJSON(sf), error = function(e) list())
+    gone <- !is.null(suppressWarnings(parallel::mccollect(job, wait = TRUE, timeout = 3)))   # a stopped child is collected at once
+    if (!gone) { tools::pskill(pid); invisible(suppressWarnings(parallel::mccollect(job))) }
+    expect("Round 66: the memory guard stops the running analysis and writes why when free memory falls below its floor", identical(st$state, "stopped") && grepl("Stopped to protect the computer", st$msg) && gone)
+  }
+})
+# ---- Round 67: adaptive, resumable LHC-MR runner ----
+local({
+  re <- new.env(); eval(parse(text = LHCMR_RUNNER_SRC), re)
+  X <- as.list(1:7); FUN <- function(x) { Sys.sleep(0.2); x^2 }; ck <- file.path(tempfile("ck67"), "units"); big <- function() list(total_gb = 16, available_gb = 12)
+  r1 <- re$lhcmr_schedule(X, FUN, 1L, ck, max_workers = 3L, per_worker_gb = 1, poll = 0.2, mem = big)
+  expect("Round 67: the scheduler returns what lapply returns, in order, and saves one checkpoint per unit", identical(r1, lapply(X, function(x) x^2)) && length(list.files(ck)) == 7L)
+  t0 <- Sys.time(); r2 <- re$lhcmr_schedule(X, function(x) stop("must not be computed again"), 1L, ck, mem = big)
+  expect("Round 67: a second run reads the checkpoints instead of computing (resume after a stop)", identical(r2, r1) && as.numeric(difftime(Sys.time(), t0, units = "secs")) < 5)
+  r3 <- re$lhcmr_schedule(list(1, 2), FUN, 1L, ck, mem = big)
+  expect("Round 67: a checkpoint is used only for the same input (inputs are keyed by hash)", identical(r3, list(1, 4)))
+  sf <- tempfile(fileext = ".json"); calls <- 0L; seen <- character()
+  lowfirst <- function() { calls <<- calls + 1L; if (calls <= 2L) list(total_gb = 16, available_gb = 0.4) else list(total_gb = 16, available_gb = 12) }
+  ck2 <- file.path(tempfile("ck67"), "units"); r4 <- re$lhcmr_schedule(X[1:3], FUN, 1L, ck2, max_workers = 2L, per_worker_gb = 1, status = sf, poll = 0.2, pause = 0.2,
+    mem = function() { m <- lowfirst(); seen <<- c(seen, tryCatch(jsonlite::fromJSON(sf)$state, error = function(e) "")); m })
+  expect("Round 67: with too little memory for one worker the run pauses, then continues by itself and completes", identical(r4, list(1, 4, 9)) && "paused" %in% seen)
+  if (.Platform$OS.type != "windows") {
+    n <- 0L; dip <- function() { n <<- n + 1L; if (n %in% 3:4) list(total_gb = 16, available_gb = 1.5) else list(total_gb = 16, available_gb = 12) }   # memory falls during a batch
+    ck3 <- file.path(tempfile("ck67"), "units"); st <- new.env(); slow <- function(x) { Sys.sleep(1); x + 100 }
+    sf5 <- tempfile(fileext = ".json"); msgs <- character()
+    r5 <- re$lhcmr_schedule(as.list(1:4), slow, 2L, ck3, max_workers = 3L, per_worker_gb = 1, floor_share = 0.15, status = sf5, poll = 0.2, pause = 0.2, state = st,
+      mem = function() { msgs <<- c(msgs, tryCatch(jsonlite::fromJSON(sf5)$msg, error = function(e) "")); dip() })
+    expect("Round 67: when free memory falls during a batch, the batch is stopped and redone with fewer workers, and the results are unchanged", isTRUE(all.equal(unlist(r5), 101:104)) && any(grepl("Free memory fell", msgs)))
+  }
+  hj <- list(dir = tempfile("h67")); pj <- list(folder = "p1"); dir.create(file.path(hj$dir, "04_across_pairs", "lhcmr"), recursive = TRUE)
+  writeLines(jsonlite::toJSON(list(state = "running", msg = "", pid = 999999L, time = "x"), auto_unbox = TRUE), .lhcmr_status_file(hj$dir, "p1"))
+  j1 <- lhcmr_job_read(hj, pj)
+  writeLines(jsonlite::toJSON(list(state = "running", msg = "", pid = Sys.getpid(), time = "x"), auto_unbox = TRUE), .lhcmr_status_file(hj$dir, "p1"))
+  expect("Round 67: a run whose process is gone is reported as stopped (resumable), a live one as running", identical(j1$state, "stopped") && grepl("continue from the fits already saved", j1$msg) && identical(lhcmr_job_read(hj, pj)$state, "running"))
+  sc <- lhcmr_script("p1", c("a", "b"), c("A", "B"), "/ld", "/rho", "/ldsc", "/hm3", 7L, 2L)
+  expect("Round 67: the study script embeds the runner and the memory reader, and no longer calls lhc_mr() directly", !inherits(tryCatch(parse(text = sc), error = function(e) e), "error") &&
+         any(grepl("^lhcmr_adaptive\\(sp", sc)) && any(grepl("^mem_info <-", sc)) && !any(grepl("^lhc_mr\\(", sc)) && !any(grepl("on.exit(", sc, fixed = TRUE)))
 })
 expect("Round 50: the demo recovers the simulated direct effects (A on outcome A 0.30, B none) with MVMR-IVW", { iv <- d50[d50$method == "mvivw", ]; a <- iv[iv$exposure_id == "demo:expA", ]; b <- iv[iv$exposure_id == "demo:expB", ]; a$ci_lower <= 0.3 && 0.3 <= a$ci_upper && b$ci_lower <= 0 && 0 <= b$ci_upper })
 expect("Round 50: too few variants for the number of exposures are blocked with the reason", { q <- p50$input; q$data <- q$data[1:3, ]; v <- ADAPTER_MVEGGER_V11$check(q, list()); identical(v$status, "block") && grepl("needs at least 4 variants", paste(v$messages, collapse = " ")) })

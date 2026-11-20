@@ -871,12 +871,20 @@ function lhcmrSection(pair) {
       '<div style="font-size:12px;color:' + (bi ? 'var(--warn)' : 'var(--mute)') + '">' + (bi ? 'At least one parameter had a bimodal jackknife distribution, which the authors read as two competing solutions; interpret with care. ' : '') + 'Effects are per standard deviation, from ' + rows[0].variants + ' variants (every tenth used in the fit); 95% intervals from a 200-block jackknife.</div>');
   }
   const job = st.job || {}, run = job.state === 'running', fetch = st.fetch && st.fetch.state === 'running', have = st.ld && st.rho;
-  const msg = (R && R.msg) || (job.state === 'error' ? job.msg : '') || (st.fetch && st.fetch.state === 'error' ? st.fetch.msg : '');
+  const msg = (R && R.msg) || (job.state === 'error' || job.state === 'stopped' ? job.msg : '') || (st.fetch && st.fetch.state === 'error' ? st.fetch.msg : '');
   const state = !R ? 'Checking…' : run ? 'Running since ' + esc(job.time) + '. This takes one to two hours; you can keep working and come back.' : fetch ? 'Downloading the LD files of the LHC-MR authors: ' + (st.fetched_mb || 0) + ' of about 524 MB.' :
     (have ? 'LD files of the LHC-MR authors installed. ' : 'Needs the LD files of the LHC-MR authors (UK10K, about 524 MB). ') + (st.ldsc_official ? '' : 'Also needs the European LD scores of LDSC (section above).');
+  // Round 66: only settings that fit safely in the memory free now are offered; the engine checks again when the run starts.
+  const ops = (R && R.options) || [], mem = (R && R.memory) || {}; S.lhcW = S.lhcW || {};
+  if (ops.length && !ops.some((o) => o.workers === S.lhcW[pair.folder])) S.lhcW[pair.folder] = (ops.find((o) => o.workers === 2) || ops[0]).workers;
+  const hrs = (h) => h == null || isNaN(h) ? '' : h < 1 ? 'under 1 hour' : h < 36 ? 'about ' + Math.round(h) + ' hour' + (Math.round(h) === 1 ? '' : 's') : 'about ' + Math.max(2, Math.round(h / 24)) + ' days';
+  const choose = have && st.ldsc_official && !run ? (ops.length ? '<div style="display:flex;flex-direction:column;gap:6px"><div style="font-size:12px;color:var(--mute)">This computer: ' + fx(mem.available_gb, 1) + ' GB of memory free of ' + fx(mem.total_gb, 0) + ' GB. Settings that fit safely now (each worker holds a copy of the data):</div><div style="display:flex;flex-wrap:wrap;gap:8px">' +
+      ops.map((o) => { const on = S.lhcW[pair.folder] === o.workers; return '<button type="button" data-a="lhcmr_workers" data-v="' + o.workers + '" aria-pressed="' + on + '" style="padding:8px 12px;border-radius:10px;border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + ';background:' + (on ? 'var(--panel2)' : 'transparent') + ';color:var(--text);text-align:left;font-size:12px"><b>' + esc(o.label) + '</b> · ' + o.workers + ' worker' + (o.workers === 1 ? '' : 's') + '<br><span style="color:var(--mute)">about ' + fx(o.memory_gb, 1) + ' GB · ' + hrs(o.hours) + '</span></button>'; }).join('') +
+      '</div><div style="font-size:12px;color:var(--mute)">It runs at low priority, and stops by itself if free memory gets too low.</div></div>'
+    : '<div style="font-size:13px;color:var(--warn)">Not enough free memory to run LHC-MR safely now (' + fx(mem.available_gb, 1) + ' GB free of ' + fx(mem.total_gb, 0) + ' GB). Close other programs, then check again.</div>' + btn('Check again', 'lhcmr_recheck')) : '';
   return box('<div style="font-size:13px">Estimates the effect in both directions while modelling a confounder with its own genetic basis, using all variants rather than instruments only. Needs the full summary statistics of both traits (European ancestry, with rsIDs and sample size) in the Data library.</div>' +
     (msg ? '<div style="font-size:13px;color:var(--warn)">' + esc(msg) + '</div>' : '') + '<div style="font-size:12px;color:var(--mute)">' + state + '</div>' +
-    '<div style="display:flex;flex-wrap:wrap;gap:10px">' + (have && st.ldsc_official && !run ? btn('Run LHC-MR', 'lhcmr_start') : '') + (R && !have && !fetch ? btn('Download the LHC-MR LD files (524 MB)', 'lhcmr_fetch') : '') + '</div>');
+    choose + '<div style="display:flex;flex-wrap:wrap;gap:10px">' + (have && st.ldsc_official && !run && ops.length ? btn('Run LHC-MR', 'lhcmr_start') : '') + (R && !have && !fetch ? btn('Download the LHC-MR LD files (524 MB)', 'lhcmr_fetch') : '') + '</div>');
 }
 function lhcPoll(folder) { clearTimeout(S._lhcT); const R = S.lhc && S.lhc[folder], st = R && R.status; if (st && ((st.job && st.job.state === 'running') || (st.fetch && st.fetch.state === 'running'))) S._lhcT = setTimeout(() => send('lhcmr_get', { folder: folder }), 30000); }
 function ldscPoll() { clearTimeout(S._ldscT); const j = S.ldscRef && S.ldscRef.job; if (j && j.state === 'running') S._ldscT = setTimeout(() => send('ldsc_status', {}), 5000); }
@@ -1354,7 +1362,9 @@ function onClick(e) {
     case 'ldsc_run': { const pr = S.pairs[S.rp], val = (id) => { const e = document.getElementById(id); const x = e && e.value.trim() ? Number(e.value) : null; return x > 0 && x < 1 ? x : null; };
       S.ldsc[pr.folder] = { rows: [], busy: true }; render(); send('ldsc', { folder: pr.folder, prev: [val('ldsc_prev_x'), val('ldsc_prev_y')] }); break; }
     case 'ldsc_fetch': send('ldsc_fetch', {}); break;
-    case 'lhcmr_start': case 'lhcmr_fetch': { const pr = S.pairs[S.rp]; send(a, { folder: pr.folder }); break; }
+    case 'lhcmr_start': case 'lhcmr_fetch': { const pr = S.pairs[S.rp]; send(a, { folder: pr.folder, workers: (S.lhcW || {})[pr.folder] }); break; }
+    case 'lhcmr_workers': { const pr = S.pairs[S.rp]; S.lhcW = S.lhcW || {}; S.lhcW[pr.folder] = Number(v); render(); break; }
+    case 'lhcmr_recheck': { const pr = S.pairs[S.rp]; send('lhcmr_get', { folder: pr.folder }); break; }
     case 'ldsc_compute': { const pr = S.pairs[S.rp]; send('ldsc_compute', { folder: pr && pr.folder }); break; }
     case 'to_pair': { const k = S.pairs.findIndex((p) => p.folder === v); if (k >= 0) { S.rp = k; render(); window.scrollTo(0, 0); } break; }
     case 'run_outliers': { const p = curPair(); S.outBusy = true; render(); send('run_outliers', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, params: S.params }); break; }
@@ -1460,7 +1470,7 @@ function handle(m) {
     case 'bidir_cml': S.bcml = m.rows || []; render(); break;
     case 'ldsc': S.ldsc = S.ldsc || {}; S.ldsc[m.folder] = { rows: m.rows || [], msg: m.msg || '', text: m.text || '' }; render(); break;
     case 'ldsc_ref': S.ldscRef = m.status; ldscPoll(); render(); break;
-    case 'lhcmr': S.lhc = S.lhc || {}; S.lhc[m.folder] = { rows: m.rows || [], msg: m.msg || '', status: m.status || {}, text: m.text || '' }; lhcPoll(m.folder); render(); break;
+    case 'lhcmr': S.lhc = S.lhc || {}; S.lhc[m.folder] = { rows: m.rows || [], msg: m.msg || '', status: m.status || {}, text: m.text || '', options: m.options || [], memory: m.memory || {} }; lhcPoll(m.folder); render(); break;
     case 'mediation': S.medRes = (m.rows && m.rows.length) ? { rows: m.rows, spec: m.spec } : null; render(); break;
     case 'mvcov_head': { const cols = m.columns || [], lc = (x) => String(x).toLowerCase(); S.mvc = { name: m.name, columns: cols, busy: false,
       cols: S.ex.map((e) => { const n = lc((((S.cat && S.cat.exposures) || []).find((x) => x.id === e) || {}).name || e); return cols.find((c) => lc(c) === n || lc(c) === lc(e)) || ''; }) }; S.notice = null; render(); break; }
