@@ -54,16 +54,15 @@ rscript_background <- function(args, log = NULL, vars = list()) {
 # Peak memory grows with the variants and the workers; time falls with the workers, which share the 250 fits.
 # Peak memory = base + main process data + one data copy per worker (forked workers' resident memory, counted in full: conservative).
 # Time does not depend on the number of variants: one likelihood evaluation takes about 1 to 2 s on 3,000 to 100,000 variants
-# (it works on binned distributions; measured 2026-11-20 on a 2019 Intel Mac), and each fit needs a few hundred to 5,000 of them
-# (Nelder-Mead, maxit 5000), so about 20 to 100 minutes per fit. A run is 50 starting-point fits and 200 jackknife fits.
-# Measured 2026-11-20 (2019 Intel Mac, 16 GB): the package fit on the 1-million-variant validation pair peaked at 4.46 GB with 2 workers
-# (main process 2.2 GB, about 1.1 GB per worker; 188 samples); fits took about 22 minutes each (run_equivalence.R). The time per fit is
-# confirmed on the full validation run (validation/darrous2021_lhcmr/README.md).
-LHCMR_CAL <- list(base_gb = 1.2, main_gb_per_mvar = 1.0, per_worker_gb_per_mvar = 1.1, minutes_per_fit = 22, fits = 250L, provisional = TRUE)
+# (it works on binned distributions). Measured on the BMI and height validation run (2026-11-20, 2019 Intel Mac, 16 GB): the 50
+# starting-point fits took 7.6 worker-minutes each, the 200 jackknife fits 2.0 (they start from the best solution), so a run is about
+# 13 worker-hours (6.5 hours on 2 workers, 3.3 on 4), plus about 10 minutes of preparation. Memory: peak 4.46 GB with 2 workers
+# (main process 2.2 GB, about 1.1 GB per worker) and 6.0 GB with 4, on about 1 million variants.
+LHCMR_CAL <- list(base_gb = 1.2, main_gb_per_mvar = 1.0, per_worker_gb_per_mvar = 1.1, sp_fits = 50L, sp_minutes = 7.6, jk_fits = 200L, jk_minutes = 2.0, prep_hours = 0.2, provisional = FALSE)
 
 lhcmr_estimate <- function(variants, workers, cal = LHCMR_CAL) {
   mv <- variants / 1e6
-  list(workers = as.integer(workers), memory_gb = cal$base_gb + cal$main_gb_per_mvar * mv + workers * cal$per_worker_gb_per_mvar * mv, hours = cal$fits * cal$minutes_per_fit / 60 / workers)
+  list(workers = as.integer(workers), memory_gb = cal$base_gb + cal$main_gb_per_mvar * mv + workers * cal$per_worker_gb_per_mvar * mv, hours = cal$prep_hours + (cal$sp_fits * cal$sp_minutes + cal$jk_fits * cal$jk_minutes) / 60 / workers)
 }
 
 #' Settings offered for LHC-MR on this computer: worker counts whose estimated peak fits in the safe share of free memory.

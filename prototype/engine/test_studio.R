@@ -1369,7 +1369,7 @@ local({
          identical(m$SNP, c("rs1", "rs2", "rs3", "rs5")) && identical(m$POS, c(1000, 2000, 28.4e6, 33.6e6)) && led$in_ld_file == 5L && led$hla_removed == 1L && isTRUE(all.equal(m$TSTAT, m$BETA / m$SE)) && isTRUE(all.equal(m$MAF[2], 0.4)))
   expect("Round 65: LHC-MR preparation refuses a dataset without sample size", inherits(tryCatch(lhcmr_prepare(d[, names(d) != "n"], ldpos), error = function(e) e), "error"))
   sc <- lhcmr_script("p1", c("02_datasets/lhcmr/a.tsv.gz", "02_datasets/lhcmr/b.tsv.gz"), c("A", "B"), "/ld.csv", "/rho.csv", "/ldsc", "/hm3", 7L, 1L, bfile = "/panel/EUR", plink = "/bin/plink")
-  expect("Round 65: the LHC-MR script parses, pins lhcMR and GenomicSEM, sets the seed and clumps locally", !inherits(tryCatch(parse(text = sc), error = function(e) e), "error") && any(grepl(PIN_LHCMR, sc)) && any(grepl(PIN_GENOMICSEM, sc)) && any(grepl("set.seed(seed)", sc, fixed = TRUE)) && any(grepl("assignInNamespace(\"clump_data\"", sc, fixed = TRUE)))
+  expect("Round 65: the LHC-MR script parses, pins lhcMR and GenomicSEM, sets the seed and clumps locally", !inherits(tryCatch(parse(text = sc), error = function(e) e), "error") && any(grepl(PIN_LHCMR, sc)) && any(grepl(PIN_GENOMICSEM, sc)) && any(grepl("set.seed(seed)", sc, fixed = TRUE)) && any(grepl("assignInNamespace(\"clump_data\"", sc, fixed = TRUE)) && any(grepl("mrstudio_local", sc, fixed = TRUE)) && which(grepl("loadNamespace(\"ieugwasr\")", sc, fixed = TRUE))[1] < which(grepl("set.seed(seed)", sc, fixed = TRUE))[1])
   res <- data.frame(parameter = c("axy", "ayx", "tX", "tY", "h2X", "h2Y", "iXY"), estimate = c(-0.128, -0.128, 0.032, -0.124, 0.256, 0.546, -0.103), se = 0.02, p = 1e-5, ci_lower = -0.2, ci_upper = 0, variants = 1e6, variants_used = 1e5, bimodal = c(FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, FALSE), stringsAsFactors = FALSE); attr(res, "labels") <- c(x = "BMI", y = "Height")
   expect("Round 65: the LHC-MR text gives both directions, the confounder effects and the bimodality caution", { t <- lhcmr_text(res); grepl("BMI on Height -0.128", t) && grepl("confounder effects 0.032 on BMI", t) && grepl("bimodal", t) })
   expect("Round 65: with nothing installed the LHC-MR status says so", { st <- lhcmr_ref_status(file.path(tempdir(), "nolhc")); !st$ld && !st$rho })
@@ -1380,7 +1380,7 @@ local({
   expect("Round 66: the computer's total and free memory are read (macOS, Linux and Windows readers)", is.finite(mi$total_gb) && mi$total_gb > 0 && is.finite(mi$available_gb) && mi$available_gb > 0 && mi$available_gb <= mi$total_gb * 1.01)
   fake <- list(total_gb = 16, available_gb = 6)
   expect("Round 66: a run starts only when its peak fits in half of the free memory, and the refusal gives the numbers", mem_check(2.9, "X", fake)$ok && !mem_check(3.1, "X", fake)$ok && grepl("6.0 GB is free now", mem_check(3.1, "X", fake)$msg))
-  cal <- list(base_gb = 1, main_gb_per_mvar = 1, per_worker_gb_per_mvar = 1, minutes_per_fit = 40, fits = 250L)
+  cal <- list(base_gb = 1, main_gb_per_mvar = 1, per_worker_gb_per_mvar = 1, sp_fits = 50L, sp_minutes = 8, jk_fits = 200L, jk_minutes = 2, prep_hours = 0.2)
   o <- lhcmr_options(1e6, list(total_gb = 16, available_gb = 10), cal, max_workers = 8L); o2 <- lhcmr_options(1e6, list(total_gb = 16, available_gb = 5), cal, max_workers = 8L)
   expect("Round 66: LHC-MR offers only the worker counts whose estimated peak fits safely (none when even one does not)",
          (if (.Platform$OS.type == "windows") identical(o$workers, 1L) else identical(o$workers, c(1L, 2L))) && all(o$memory_gb <= 5) && nrow(o2) == 0L)
@@ -1388,7 +1388,10 @@ local({
   expect("Round 66: LDSC and LD score computation have memory needs that grow with the data", ldsc_memory_gb(1e7) > ldsc_memory_gb(1e6) && LDSCORE_MEMORY_GB > 0)
   bl <- tempfile(fileext = ".log"); rscript_background(c("--vanilla", "-e", shQuote("cat(Sys.getenv('RHOME'), '|', Sys.getenv('MRGUI_T66'))")), log = bl, vars = list(MRGUI_T66 = "MR Studio test"))
   for (w in 1:30) { if (file.exists(bl) && length(readLines(bl, warn = FALSE))) break; Sys.sleep(1) }
-  expect("Round 66: background R jobs get RHOME (needed by a moved runtime) and variables with spaces intact", { x <- paste(readLines(bl, warn = FALSE), collapse = ""); grepl(R.home(), x, fixed = TRUE) && grepl("| MR Studio test", x, fixed = TRUE) && is.na(Sys.getenv("MRGUI_T66", unset = NA)) })
+  bx <- if (file.exists(bl)) paste(tryCatch(readLines(bl, warn = FALSE), error = function(e) ""), collapse = "") else ""
+  ok66b <- grepl(R.home(), bx, fixed = TRUE) && grepl("| MR Studio test", bx, fixed = TRUE) && is.na(Sys.getenv("MRGUI_T66", unset = NA))
+  if (!ok66b) cat("  background diagnostics: log exists =", file.exists(bl), "| log =", bx, "| R.home =", R.home(), "| Rscript =", default_rscript(), "\n")
+  expect("Round 66: background R jobs get RHOME (needed by a moved runtime) and variables with spaces intact", ok66b)
   if (.Platform$OS.type != "windows") {
     sf <- tempfile(fileext = ".json"); writeLines('{"state":"running"}', sf)
     old <- Sys.getenv("MRSTUDIO_GUARD_FLOOR"); Sys.setenv(MRSTUDIO_GUARD_FLOOR = "2")

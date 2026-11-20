@@ -56,10 +56,14 @@ lhcmr_script <- function(folder, files, labels, ldf, rhof, ldsc_dir, hm3, seed, 
     sprintf("BFILE <- %s; PLINK <- %s   # 1000 Genomes EUR panel and PLINK of MR Studio", q(bfile), q(plink)),
     "# The IVW starting points clump instruments with TwoSampleMR::clump_data, which by default asks the OpenGWAS server (a token is",
     "# needed). Here the same function clumps locally with PLINK against the same 1000 Genomes EUR panel (its bfile and plink_bin arguments).",
-    "if (nzchar(BFILE) && nzchar(PLINK)) { cd <- TwoSampleMR::clump_data; utils::assignInNamespace(\"clump_data\", function(dat, ...) cd(dat, ..., bfile = BFILE, plink_bin = PLINK), \"TwoSampleMR\") }",
+    "options(mrstudio.bfile = BFILE, mrstudio.plink = PLINK)   # read at call time, so a second run in the same session uses its own paths",
+    "if (nzchar(BFILE) && nzchar(PLINK) && !isTRUE(attr(TwoSampleMR::clump_data, \"mrstudio_local\"))) {   # wrapped once per session",
+    "  cd <- TwoSampleMR::clump_data; f <- function(dat, ...) cd(dat, ..., bfile = getOption(\"mrstudio.bfile\"), plink_bin = getOption(\"mrstudio.plink\"))",
+    "  attr(f, \"mrstudio_local\") <- TRUE; utils::assignInNamespace(\"clump_data\", f, \"TwoSampleMR\") }",
     "od <- normalizePath(file.path(\"04_across_pairs\", \"lhcmr\", PAIR), mustWork = FALSE); dir.create(od, recursive = TRUE, showWarnings = FALSE)",
     "inp <- lapply(TRAITS, function(f) as.data.frame(data.table::fread(f)))",
     "old <- setwd(od)   # lhcMR writes its tables into the working directory (restored at the end; on.exit would fire at once under sys.source)",
+    "invisible(loadNamespace(\"ieugwasr\"))   # it draws a random number when it first loads; loaded before the seed, every run (also a second one in the same session) gets the same starting points",
     "RNGkind(\"L'Ecuyer-CMRG\", \"Inversion\", \"Rejection\"); set.seed(seed)   # also reproducible with parallel::mclapply",
     "df <- merge_sumstats(inp, c(\"X\", \"Y\"), LD_FILE, RHO_FILE)",
     "sp <- calculate_SP(df, c(\"X\", \"Y\"), run_ldsc = TRUE, run_MR = TRUE, saveRFiles = TRUE, hm3 = HM3, ld = LDSC_LD, nStep = 2, SP_single = 3, SP_pair = SP_PAIR, SNP_filter = 10, nCores = CORES)",
@@ -108,7 +112,7 @@ lhcmr_pair_run <- function(h, pair, root = studies_root(), dir = lhcmr_ref_dir()
                           bfile = if (file.exists(file.path(ld_panel_dir(), "EUR.bed"))) normalizePath(file.path(ld_panel_dir(), "EUR"), winslash = "/", mustWork = FALSE) else "", plink = if (is.na(plink_bin())) "" else plink_bin()), sf)
   old <- setwd(h$dir); res <- tryCatch({ utils::capture.output(sys.source(sf, envir = new.env(parent = globalenv()), keep.source = FALSE))
     utils::read.csv(file.path(rd, paste0(pair$folder, "_results.csv")), stringsAsFactors = FALSE) }, finally = setwd(old))
-  manifest_register(h$dir, c(file.path(rd, paste0(pair$folder, c(".R", "_results.csv"))), file.path(rd, pair$folder, list.files(file.path(h$dir, rd, pair$folder)))), role = "lhcmr")
+  manifest_register(h$dir, c(file.path(rd, paste0(pair$folder, c(".R", "_results.csv"))), file.path(rd, pair$folder, setdiff(list.files(file.path(h$dir, rd, pair$folder), recursive = TRUE), list.files(file.path(h$dir, rd, pair$folder), recursive = TRUE, pattern = "^stage[0-9]+_[0-9]+\\.rds$")))), role = "lhcmr")
   attr(res, "labels") <- c(x = pair$exName, y = pair$outName); res
 }
 
