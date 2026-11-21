@@ -314,10 +314,37 @@ run_pair_script <- function(pair_dir, rscript = default_rscript(), console_name 
   old <- Sys.getenv(c("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "RHOME"), unset = NA)
   Sys.setenv(OMP_NUM_THREADS = "1", OPENBLAS_NUM_THREADS = "1", RHOME = R.home())
   on.exit(for (n in names(old)) if (is.na(old[[n]])) Sys.unsetenv(n) else do.call(Sys.setenv, setNames(list(old[[n]]), n)), add = TRUE)
+  progress <- getOption("mrstudio.script_progress")
+  if (is.function(progress)) return(.run_pair_script_watched(pair_dir, rscript, console_name, progress))
   out <- suppressWarnings(system2(rscript, c("--vanilla", shQuote(file.path("02_scripts", "00_run_all.R"))),
                                   stdout = TRUE, stderr = TRUE, wait = TRUE))
   status <- attr(out, "status"); if (is.null(status)) status <- 0L
   writeLines(out, file.path(pair_dir, "03_console", console_name))
+  list(status = status, console = out)
+}
+
+# Round 75e: the same run, watched. The scripts run in a small wrapper R process that writes the console and the exit status to
+# files, while this process calls progress(pair_dir, console_name) once a second (the app narrates which method is running). The
+# result is the same as the blocking run: the same scripts, the same console, the same status.
+.run_pair_script_watched <- function(pair_dir, rscript, console_name, progress) {
+  cdir <- file.path(pair_dir, "03_console"); dir.create(cdir, showWarnings = FALSE)
+  cf <- file.path(cdir, console_name); stf <- paste0(cf, ".status"); pidf <- paste0(cf, ".pid"); unlink(c(stf, pidf))
+  code <- sprintf("writeLines(as.character(Sys.getpid()), %s); o <- suppressWarnings(system2(%s, c('--vanilla', %s), stdout = TRUE, stderr = TRUE)); writeLines(o, %s); writeLines(as.character(if (is.null(attr(o, 'status'))) 0L else attr(o, 'status')), %s)",
+                  deparse(pidf), deparse(rscript), deparse(shQuote(file.path("02_scripts", "00_run_all.R"))), deparse(cf), deparse(stf))
+  system2(rscript, c("--vanilla", "-e", shQuote(code)), stdout = FALSE, stderr = FALSE, wait = FALSE)
+  alive <- function(pid) if (.Platform$OS.type == "windows") any(grepl(paste0(" ", pid, " "), suppressWarnings(system2("tasklist", c("/FI", shQuote(paste("PID eq", pid))), stdout = TRUE, stderr = FALSE)))) else isTRUE(tools::pskill(pid, 0L))
+  t0 <- Sys.time(); gone <- 0L
+  repeat {
+    Sys.sleep(1); tryCatch(progress(pair_dir, console_name), error = function(e) NULL)
+    if (file.exists(stf)) break
+    pid <- if (file.exists(pidf)) suppressWarnings(as.integer(readLines(pidf, warn = FALSE)[1])) else NA_integer_
+    if (is.na(pid)) { if (difftime(Sys.time(), t0, units = "secs") > 60) { gone <- 99L; break } else next }
+    if (!alive(pid)) { gone <- gone + 1L; if (gone >= 3L) break } else gone <- 0L
+  }
+  Sys.sleep(0.2)
+  if (!file.exists(stf)) { out <- c(if (file.exists(cf)) readLines(cf, warn = FALSE), "The R process running the scripts ended unexpectedly."); writeLines(out, cf); unlink(pidf); return(list(status = 1L, console = out)) }
+  status <- suppressWarnings(as.integer(readLines(stf, warn = FALSE)[1])); if (is.na(status)) status <- 1L
+  out <- readLines(cf, warn = FALSE); unlink(c(stf, pidf))
   list(status = status, console = out)
 }
 

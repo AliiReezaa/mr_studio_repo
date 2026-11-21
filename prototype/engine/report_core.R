@@ -550,6 +550,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   used <- unique(c("hemani2018", "burgess2023", "skrivankova2021", if (length(bcm)) "xue2022", if (length(lds)) c("bulik2015a", "bulik2015b", "grotzinger2019"), if (length(lhc)) "darrous2021", if (length(mlp)) "mounier2023", if (length(aps)) "hu2022", if (length(cau)) "morrison2020", if (!is.null(med)) c("carter2021", "carter2019", "sanderson2019"), unlist(METHOD_REFS[unlist(lapply(ctxs, function(x) x$methods))]), if (steiger_any_binary(ctxs)) "lee2012", if (any(vapply(ctxs, function(cx) !is.null(cx$ledger$clump), TRUE))) c("chang2015", "kgp2015")))
   figs <- list(); wmm <- as.numeric(width_mm); wmm <- if (is.finite(wmm) && wmm >= 60) wmm else 180
   if (any(c("figs", "report", "text") %in% items)) {
+    .say("Drawing the figures: forest and scatter plots of every pair, at the column width you chose", "Figures are written as PDF, SVG and PNG, so they can go straight into a manuscript.")
     dir.create(file.path(pk, "figures"), showWarnings = FALSE)
     for (i in seq_along(ctxs)) { cx <- ctxs[[i]]; ce <- cx$ce; if (!nrow(ce)) next; tag <- sprintf("P%d", i)
       est <- transform(ce, label = .short[method], col = .MCOL[method], unit = if (ce$scale[1] == "log_or") "log odds ratio" else "effect on outcome per unit of exposure", ratio = FALSE)
@@ -587,13 +588,14 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   }
   if ("scripts" %in% items) { dst <- file.path(pk, "scripts_and_tables"); dir.create(dst); for (p in pairs) { file.copy(file.path(h$dir, "03_pairs", p$folder), dst, recursive = TRUE) }; add(dst) }
   if ("tables" %in% items) {
+    .say("Building the supplement workbook: estimates, settings and the instruments of every pair", "A supplement with every instrument and setting lets reviewers check the analysis.")
     est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { e <- ctxs[[i]]$est; data.frame(pair = i, exposure = ctxs[[i]]$p$exName, outcome = ctxs[[i]]$p$outName, e, check.names = FALSE, stringsAsFactors = FALSE) }))
     sheets <- list(Estimates = est, Settings = do.call(rbind, lapply(seq_along(ctxs), function(i) { s <- ctxs[[i]]$settings; data.frame(pair = i, setting = names(s), value = vapply(s, function(v) paste(v, collapse = ","), ""), stringsAsFactors = FALSE) })))
     for (i in seq_along(ctxs)) sheets[[sprintf("Pair %d variants", i)]] <- if (isTRUE(ctxs[[i]]$mv)) { f <- Sys.glob(file.path(h$dir, "03_pairs", ctxs[[i]]$p$folder, "01_data", "analysis_data_*.csv")); if (length(f)) utils::read.csv(f[1], stringsAsFactors = FALSE) else data.frame() } else transform(ctxs[[i]]$vars, ratio = by / bx, F = (bx / sx)^2)
     for (i in seq_along(ctxs)) { lf <- loo_facts(ctxs[[i]]); if (!is.null(lf)) sheets[[sprintf("Pair %d leave-one-out", i)]] <- stats::setNames(lf, c("variant_left_out", "ivw_estimate_without", "ivw_se_without", "ivw_p_without", "wald_ratio", "wald_ratio_se", "wald_ratio_p")) }
     f <- file.path(pk, "supplement_tables.xlsx"); xlsx_write(f, sheets); add(f)
   }
-  if ("refs" %in% items) { f1 <- file.path(pk, "references.bib"); writeLines(refs_bibtex(used), f1, useBytes = TRUE); f2 <- file.path(pk, "references.ris"); writeLines(refs_ris(used), f2, useBytes = TRUE); add(f1); add(f2) }
+  if ("refs" %in% items) { .say("Collecting the citations of every method and tool named in the text", "Each reference was checked against PubMed when MR Studio was built."); f1 <- file.path(pk, "references.bib"); writeLines(refs_bibtex(used), f1, useBytes = TRUE); f2 <- file.path(pk, "references.ris"); writeLines(refs_ris(used), f2, useBytes = TRUE); add(f1); add(f2) }
   blocks_text <- function(with_figs = FALSE) {
     b <- list(); H <- function(t, l = 1) b[[length(b) + 1L]] <<- list(type = if (l == 1) "h1" else "h2", text = t); P <- function(t) for (x in t) b[[length(b) + 1L]] <<- list(type = "p", text = x)
     if (any(vapply(ctxs, `[[`, TRUE, "simulated"))) b[[1]] <- list(type = "note", text = "SIMULATED DATA: not for publication. At least one pair in this document uses simulated demonstration traits.")
@@ -612,8 +614,9 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
           w <- if (k == "agreement") min(wmm, 120) else min(wmm, 160); hh <- if (k == "agreement") f$ah else w * im[[k]][[2]]
           b[[length(b) + 1L]] <- list(type = "image", file = pn, width_mm = w, height_mm = hh, alt = so[[k]]); P(so[[k]]) } } }
     H("Limitations"); P(txt$limitations); H("Data availability"); P(txt$availability); H("References"); P(vapply(used, function(i) ref_text(REFS[[i]]), "")); b }
-  if ("text" %in% items) { f <- file.path(pk, "draft_methods_results_limitations.docx"); docx_write(f, c(list(list(type = "title", text = "Draft text: Methods, Results, Limitations")), list(list(type = "note", text = "Draft generated from the saved results and settings. Check every statement and edit it before use.")), blocks_text(FALSE))); add(f) }
+  if ("text" %in% items) { .say("Writing the draft Methods, Results and Limitations with your numbers and settings", "The draft names and cites every method; the limitations include every item the Check screen asked you to review."); f <- file.path(pk, "draft_methods_results_limitations.docx"); docx_write(f, c(list(list(type = "title", text = "Draft text: Methods, Results, Limitations")), list(list(type = "note", text = "Draft generated from the saved results and settings. Check every statement and edit it before use.")), blocks_text(FALSE))); add(f) }
   if ("report" %in% items) {
+    .say("Writing the full report (Word and PDF): summary table, methods, results, figures, limitations and references")
     est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { ce <- ctxs[[i]]$ce; if (!nrow(ce)) return(NULL); data.frame(Pair = i, Exposure = if (!is.null(ce$exposure_label)) ce$exposure_label else ctxs[[i]]$p$exName, Outcome = ctxs[[i]]$p$outName, Method = ce$name, `Estimate (β or log OR)` = .fnum(ce$estimate), `Lower confidence limit` = .fnum(ce$ci_lower), `Upper confidence limit` = .fnum(ce$ci_upper), `P value` = .fp(ce$p), `Instruments (variants used)` = ce$n_ivs, check.names = FALSE, stringsAsFactors = FALSE) }))
     bl <- c(list(list(type = "title", text = sprintf("Mendelian randomization report: %s", basename(h$dir))), list(type = "note", text = sprintf("Generated by MR Studio on %s. A draft for the authors to check.", format(Sys.Date())))), list(list(type = "h1", text = "Summary of estimates"), list(type = "table", data = est), list(type = "note", text = .est_key(ctxs))), blocks_text(TRUE))
     f <- file.path(pk, "report.docx"); docx_write(f, bl); add(f)
@@ -631,6 +634,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     f <- file.path(pk, "report.html"); writeLines(html, f, useBytes = TRUE); add(f)
   }
   if ("capsule" %in% items) {
+    .say("Packing the reproducibility capsule: every pair folder with its scripts, data, results and replay check, and the R version", "Anyone can rerun the whole analysis from the capsule and compare the numbers.")
     fs <- list.files(file.path(h$dir, "03_pairs"), recursive = TRUE, full.names = TRUE); rel <- substring(fs, nchar(h$dir) + 2L)
     ent <- setNames(lapply(fs, .file_raw), rel)
     ent[["SESSION.txt"]] <- .txt(c(sprintf("MR Studio reproducibility capsule, written %s", format(Sys.time())), R.version.string, sprintf("Platform: %s", R.version$platform), sprintf("TwoSampleMR commit pinned by the adapters: %s", ADAPTER_IVW_MRE_V11$packages$TwoSampleMR), "", "Each pair folder holds its scripts (02_scripts), data (01_data), results (04_tables), console output and replay check. Open a pair folder and run 02_scripts/00_run_all.R from it."))
@@ -638,6 +642,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   }
   strobe <- NULL
   if ("strobe" %in% items) {
+    .say("Filling the STROBE-MR checklist: each of the 20 items marked as filled from your study, partly filled, or for you to write")
     rows <- strobe_rows(ctxs, txt, tryCatch(ui_state_get(h$con, "plan") %||% list(), error = function(e) list()), items)
     f <- file.path(pk, "strobe_mr_checklist.docx"); n <- strobe_write(f, rows, basename(h$dir)); add(f)
     strobe <- list(filled = n[["FILLED"]], partly = n[["PARTLY"]], author = n[["AUTHOR"]])

@@ -286,6 +286,7 @@ ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NU
     if (!is.null(old) && identical(old$source$id, id) && identical(old$source$role, "exposure") && .ogw_same(old$source$params, params)) { old$reused <- TRUE; return(old) }
     stop("A dataset named \"", nm, "\" is already in the Data library, with other settings or another source. Choose another name.", call. = FALSE)
   }
+  .say(sprintf("Asking OpenGWAS for the variants of %s (%s) with P < %s%s", meta$trait %||% id, id, format(p), if (where == "local") ", unclumped, to clump on this computer" else if (where == "server_live") sprintf(", clumped live on the server (r\u00b2 < %s within %s kb, %s)", r2, format(kb, big.mark = ","), pop) else ", using the stored clumps"), "These become the instruments: genome-wide significant variants, one per region, so that they are independent.")
   d <- if (where == "local") .ogw_do(backend$tophits(id, p, r2, kb, pop, jwt, clump = 0)) else if (where == "server_live") .ogw_do(backend$tophits(id, p, r2, kb, pop, jwt, force = TRUE)) else .ogw_do(backend$tophits(id, p, r2, kb, pop, jwt))
   if (!is.data.frame(d) || !nrow(d)) stop("No variants reach P < ", format(p, scientific = TRUE), " in this dataset", if (where != "local") " after clumping", ". A less strict threshold (for example 5e-6) would find some, but they are weaker instruments.", call. = FALSE)
   std <- data.frame(snp = as.character(d$rsid), chr = as.character(d$chr), pos = suppressWarnings(as.numeric(d$position)), ea = d$ea, oa = d$nea, eaf = suppressWarnings(as.numeric(d$eaf)),
@@ -351,6 +352,7 @@ ogw_get_outcome <- function(id, exposure_name, jwt, proxies = TRUE, rsq = 0.8, m
     if (!is.null(old) && identical(old$source$id, id) && identical(old$source$role, "outcome") && .ogw_same(old$source$params, params)) { old$reused <- TRUE; return(old) }
     stop("A dataset named \"", nm, "\" is already in the Data library, with other settings or another source. Choose another name.", call. = FALSE)
   }
+  .say(sprintf("Looking up the %d instruments of %s in %s (%s)%s", length(snps), exposure_name, meta$trait %||% id, id, if (isTRUE(proxies)) sprintf(", with proxies (r\u00b2 of at least %s) where one is missing", rsq) else ""), "OpenGWAS returns each instrument's effect on the outcome; a proxy is a nearby variant in strong linkage, aligned to the instrument's alleles.")
   o <- .ogw_do(backend$outcome(c(snps, extra), id, isTRUE(proxies), rsq, maf, jwt))
   if (!is.data.frame(o) || !nrow(o)) stop("None of the ", length(snps), " instruments was found in this outcome", if (isTRUE(proxies)) ", not even through proxies" else " (proxies were off)", ". Check that the outcome covers the same genome build and ancestry.", call. = FALSE)
   col <- function(k) if (k %in% names(o)) o[[k]] else rep(NA, nrow(o))

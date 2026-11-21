@@ -87,7 +87,7 @@ mv_pair_facts <- function(exp_ids, out_id, pthr = 5e-8, p = NULL) {
   fk <- vapply(seq_len(K), function(k) mean((d[[sprintf("beta_x_%d", k)]] / d[[sprintf("se_x_%d", k)]])^2), 0)
   list(ex_id = paste(unlist(exp_ids), collapse = "|"), out_id = out_id, exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(d), mean_f = round(min(fk), 1), min_f = round(min(fk), 1),
        n_weak = 0L, palindromic = 0L, scale = p$input$outcome_scale, has_n = FALSE, simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger,
-       ukb_both = FALSE, og_x = FALSE, og_y = FALSE, scale_x = "beta", steiger = list(ok = FALSE), i2gx = NA_real_, mv = TRUE, exposures = p$exposure_labels, mean_f_each = round(fk, 1))
+       ukb_both = FALSE, og_x = isTRUE(p$from_opengwas), og_y = isTRUE(p$from_opengwas), scale_x = "beta", steiger = list(ok = FALSE), i2gx = NA_real_, mv = TRUE, exposures = p$exposure_labels, mean_f_each = round(fk, 1))
 }
 
 # ---- report (Round 50) -------------------------------------------------------------------------------------------------------
@@ -240,10 +240,12 @@ ogw_mv_build <- function(exp_ids, out_id, jwt, offline = FALSE, root = studies_r
   if (!identical(od$recipe$source$type, "opengwas") || is.null(od$recipe$source$id)) stop("The outcome \"", ou, "\" must come from OpenGWAS too, so that it can be looked up at the joint instruments.", call. = FALSE)
   ids <- vapply(ds, function(x) x$recipe$source$id, ""); oid <- od$recipe$source$id; op <- od$recipe$source$params %||% list()
   # 1. joint instruments
+  .say(sprintf("Multivariable set %s on %s: collecting the instruments of each exposure", paste(ex, collapse = " + "), ou), "MVMR uses the variants that are instruments for any of the exposures, so each exposure's direct effect can be separated from the others.")
   U <- do.call(rbind, lapply(seq_len(K), function(k) { x <- ds[[k]]$data; data.frame(key = x$snp, ea = x$ea, oa = x$oa, eaf = if ("eaf" %in% names(x)) x$eaf else NA_real_, p = x$p, from = k, stringsAsFactors = FALSE) }))
   U <- U[order(U$p), , drop = FALSE]; U <- U[!duplicated(U$key) & grepl("^rs[0-9]+$", U$key), , drop = FALSE]; led <- list(exposures = ex, own = vapply(ds, function(x) nrow(x$data), 1L), union = nrow(U))
   pop <- ld_pop_for(ds[[1]]$recipe$facts$ancestry); if (is.na(pop)) pop <- "EUR"
   local <- if (is.null(panel)) !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), paste0(pop, ".bed"))) else isTRUE(panel)
+  .say(sprintf("Clumping %s candidate variants jointly (r² < 0.001 within 10,000 kb, %s panel) on %s", format(nrow(U), big.mark = ","), pop, if (local) "this computer with PLINK" else "the OpenGWAS server"), "Variants close together on a chromosome are inherited together; keeping one per region makes the instruments independent.")
   keep <- if (local) { cl <- ld_clump_here(U$key, U$p, 0.001, 10000, pop); cl$variant_id[cl$status == "index"] } else .ogw_do(backend$clump(U$key, U$p, 0.001, 10000, pop, jwt))
   U <- U[U$key %in% keep, , drop = FALSE]; led$clumped <- nrow(U); led$clumped_where <- if (local) "this computer" else "OpenGWAS server"
   if (nrow(U) < 3) stop("Only ", nrow(U), " joint instruments remain after clumping; MVMR needs more.", call. = FALSE)
@@ -252,12 +254,14 @@ ogw_mv_build <- function(exp_ids, out_id, jwt, offline = FALSE, root = studies_r
   d <- data.frame(variant_id = U$key, ea = U$ea, oa = U$oa, stringsAsFactors = FALSE); found <- integer(K)
   # 2. every exposure at the joint instruments
   for (k in seq_len(K)) {
+    .say(sprintf("Looking up %s at the %d joint instruments on OpenGWAS (exposure %d of %d)", ex[k], nrow(U), k, K), "Each instrument needs its effect on every exposure, including the exposures it was not chosen for.")
     H <- al(.ogw_std(.ogw_do(backend$outcome(U$key, ids[k], FALSE, 0.8, 0.3, jwt)))); m <- if (is.null(H)) rep(NA_integer_, nrow(d)) else match(d$variant_id, H$SNP); found[k] <- sum(!is.na(m))
     d[[sprintf("beta_x_%d", k)]] <- if (is.null(H)) NA_real_ else H$beta.outcome[m]; d[[sprintf("se_x_%d", k)]] <- if (is.null(H)) NA_real_ else H$se.outcome[m]
     nn <- if (!is.null(H) && "samplesize.outcome" %in% names(H)) H$samplesize.outcome[m] else rep(NA_real_, nrow(d))
     d[[sprintf("n_x_%d", k)]] <- ifelse(is.finite(nn), nn, suppressWarnings(as.numeric(ds[[k]]$recipe$facts$n %||% NA)))
   }
   # 3. the outcome at the joint instruments
+  .say(sprintf("Looking up the outcome %s at the joint instruments, with proxies where a variant is missing", ou), "The outcome is looked up again at all joint instruments, so the exposure an outcome download was made for does not matter.")
   H <- al(.ogw_std(.ogw_do(backend$outcome(U$key, oid, !identical(op$proxies, FALSE), as.numeric(op$rsq %||% 0.8), as.numeric(op$maf_threshold %||% 0.3), jwt))))
   m <- if (is.null(H)) rep(NA_integer_, nrow(d)) else match(d$variant_id, H$SNP)
   d$beta_y <- if (is.null(H)) NA_real_ else H$beta.outcome[m]; d$se_y <- if (is.null(H)) NA_real_ else H$se.outcome[m]
@@ -265,6 +269,7 @@ ogw_mv_build <- function(exp_ids, out_id, jwt, offline = FALSE, root = studies_r
   d$mr_keep <- stats::complete.cases(d[, c(sprintf("beta_x_%d", seq_len(K)), sprintf("se_x_%d", seq_len(K)), "beta_y", "se_y")])
   led$found <- found; led$found_outcome <- sum(!is.na(m)); led$final <- sum(d$mr_keep)
   # 4. keep it in the Data library
+  .say(sprintf("Aligned the alleles of every exposure and the outcome: %d of %d joint instruments have all of them; saved in the Data library", sum(d$mr_keep), nrow(d)), "Effects are aligned to the same allele before they are compared; ambiguous palindromic variants are aligned by allele frequency or dropped.")
   nm <- clean_study_name(substr(sprintf("MV %s on %s", paste(ex, collapse = " + "), ou), 1, 90)); base <- nm; i <- 2L
   while (dir.exists(file.path(library_dir(root), nm))) { nm <- sprintf("%s %d", base, i); i <- i + 1L }
   dest <- file.path(library_dir(root), nm); dir.create(dest, recursive = TRUE)
@@ -284,7 +289,7 @@ ogw_mv_input <- function(exp_ids, out_id, root = studies_root()) {
   s <- library_dataset(nm, root); d <- s$data; ex <- unlist(s$recipe$source$exposure_names); od <- library_dataset(s$recipe$source$outcome_name, root)
   ds <- lapply(ex, function(e) library_dataset(e, root))
   list(exposure_label = paste(ex, collapse = " + "), outcome_label = od$recipe$trait, simulated = FALSE, anc_x = ds[[1]]$recipe$facts$ancestry %||% "?", anc_y = od$recipe$facts$ancestry %||% "?",
-       exposure_labels = ex, ledger = list(mv = s$recipe$ledger),
+       exposure_labels = ex, ledger = list(mv = s$recipe$ledger), from_opengwas = TRUE,
        input = list(kind = "multi_iv", data = d, exposure_id = paste(unlist(exp_ids), collapse = "|"), outcome_id = out_id,
                     outcome_scale = if (identical(od$recipe$facts$kind, "binary")) "log_or" else "beta", exposure_scale = "beta"))
 }

@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "cause_core.R")); source(file.path(args_dir, "fullgwas_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "cause_core.R")); source(file.path(args_dir, "fullgwas_core.R")); source(file.path(args_dir, "live_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -238,6 +238,18 @@ shiny::testServer(mr_server(args_dir), {
   expect("server: a second pair gets its own folder", length(pf) == 2L && grepl("^P02_", pf[2]))
   session$setInputs(act = list(t = "run_pair", i = 0, ex = "expA", out = "outB", methods = list("ivw_mre", "egger"), ci = 0.9, nonce = 6))
   expect("server: rerunning a pair with the same settings reuses its folder", length(studio_pair_folders(rv$h$dir)) == 2L && length(ui_state_get(rv$h$con, "pairs")) == 2L)
+  # Round 75f: the engine works through the queue itself (the window used to ask for each pair, so a locked screen stopped the run)
+  pump <- function(n = 400L) for (k in seq_len(n)) { later::run_now(0.05); if (is.null(rq$pairs)) break }
+  q2 <- list(list(i = 2, ex = "expA", out = "outA", methods = list("ivw_mre"), ci = 0.95), list(i = 3, ex = "expB", out = "outA", methods = list("ivw_mre"), ci = 0.95))
+  session$setInputs(act = list(t = "run_all", pairs = q2, total = 4L, study = "Server study", nonce = 7)); pump()
+  expect("Round 75f: a queued run finishes every pair by itself, with no request from the window between pairs", is.null(rq$pairs) && length(studio_pair_folders(rv$h$dir)) == 4L && rq$ok == 2L)
+  q3 <- list(list(i = 4, ex = "expA", out = "outC", methods = list("ivw_mre"), ci = 0.95), list(i = 5, ex = "expB", out = "outC", methods = list("ivw_mre"), ci = 0.95))
+  session$setInputs(act = list(t = "run_all", pairs = q3, total = 6L, nonce = 8)); session$setInputs(act = list(t = "run_pause", on = TRUE, nonce = 9)); pump(20L)
+  n_paused <- length(studio_pair_folders(rv$h$dir))
+  session$setInputs(act = list(t = "run_pause", on = FALSE, nonce = 10)); later::run_now(0.2)
+  session$setInputs(act = list(t = "run_stop", nonce = 11)); pump()
+  expect("Round 75f: Pause holds the queue between pairs, Resume continues it, and Stop ends it after the pair that is running",
+         n_paused == 4L && is.null(rq$pairs) && length(studio_pair_folders(rv$h$dir)) == 5L)
 })
 # ---- imported datasets in a run: harmonisation, ledger, refusals ----
 set.seed(1); kk <- 60; snps <- sprintf("rs%d", 1000 + 1:kk); eaa <- sample(c("A", "C", "G", "T"), kk, TRUE); cmp <- c(A = "T", T = "A", C = "G", G = "C")
@@ -1510,8 +1522,12 @@ local({ root <- file.path(tempfile("bidirrev"), "MR Studio"); dir.create(library
   calls <- character()
   gx <- function(id, jwt, p, r2, kb, pop, name, offline, root, where) { calls <<- c(calls, sprintf("x %s %s %s %s", id, format(p), pop, where)); mk(name, list(type = "opengwas", role = "exposure", id = id, trait = "CHD", params = px), TRUE, FALSE); list(trait = name) }
   gy <- function(id, exposure_name, jwt, proxies, rsq, maf, name, offline, root) { calls <<- c(calls, sprintf("y %s for %s %s", id, exposure_name, rsq)); mk(name, list(type = "opengwas", role = "outcome", id = id, trait = "LDL", params = py, for_exposure = exposure_name), FALSE, TRUE); list(trait = name) }
-  r1 <- bidir_reverse("lib:LDL", "lib:CHD for LDL", "tok", root = root, get_exposure = gx, get_outcome = gy)
-  r2 <- bidir_reverse("lib:LDL", "lib:CHD for LDL", "tok", root = root, get_exposure = gx, get_outcome = gy)
+  said <- list(); options(mrstudio.say = function(msg, why) said[[length(said) + 1L]] <<- list(msg = msg, why = why))
+  r1 <- bidir_reverse("lib:LDL", "lib:CHD for LDL", "tok", root = root, get_exposure = gx, get_outcome = gy); n1 <- length(said)
+  r2 <- bidir_reverse("lib:LDL", "lib:CHD for LDL", "tok", root = root, get_exposure = gx, get_outcome = gy); options(mrstudio.say = NULL)
+  expect("Round 75d: the background work is narrated step by step, each step with a one-sentence explanation, and a reused download says so",
+         n1 >= 3L && any(grepl("^Reverse direction", vapply(said, `[[`, "", "msg"))) && any(grepl("^Downloading the instruments", vapply(said, `[[`, "", "msg"))) &&
+         all(nzchar(vapply(said[1:3], `[[`, "", "why"))) && any(grepl("reused", vapply(said[-seq_len(n1)], `[[`, "", "msg"))))
   expect("Round 72c: the reverse direction downloads the outcome trait as an exposure with the forward settings, and the exposure trait as an outcome for it",
          identical(calls, c("x ieu-a-7 5e-08 EUR server_live", sprintf("y ieu-a-300 for %s 0.8", r1$exName))) && identical(r1$ex, paste0("lib:", r1$exName)) && grepl("downloaded", r1$note))
   expect("Round 72c: a second preparation reuses the reverse downloads", length(calls) == 2L && identical(r2[c("ex", "out")], r1[c("ex", "out")]) && identical(r2$note, ""))
@@ -1699,5 +1715,27 @@ local({ root <- file.path(tempfile("fg75"), "MR Studio"); dir.create(library_dir
   repeat { Sys.sleep(1); s <- fullgwas_job_read(j$key, root); if (!identical(s$state, "running") || difftime(Sys.time(), t0, units = "secs") > 90) break }
   expect("Round 75: a GWAS-VCF file is imported in a background R process, and the user's file is not changed or moved",
          identical(s$state, "done") && nrow(library_dataset("My VCF", root)$data) == nn + 1 && file.exists(vf) && identical(library_dataset("My VCF", root)$recipe$source$type, "vcf_file")) })
+
+# ---- Round 75e: narration while the method scripts run; the watched run gives the same results as the plain one ----
+local({ said <- list(); live_reset()
+  pi <- pair_input("expA", "outA"); m <- c("ivw_mre", "egger", "wm")
+  ha <- studio_new("Plain run"); ra <- studio_run(ha, pi$exposure_label, pi$outcome_label, pi$input, m, idx = 1L)
+  options(mrstudio.say = function(msg, why) said[[length(said) + 1L]] <<- list(msg = msg, why = why), mrstudio.script_progress = function(dir, cn) live_scripts(dir, cn))
+  hb <- studio_new("Watched run"); rb <- tryCatch(studio_run(hb, pi$exposure_label, pi$outcome_label, pi$input, m, idx = 1L), finally = options(mrstudio.say = NULL, mrstudio.script_progress = NULL))
+  ea <- .est_df(pair_payload(ha$dir, ra$pair_folder)); eb <- .est_df(pair_payload(hb$dir, rb$pair_folder)); msgs <- vapply(said, `[[`, "", "msg")
+  expect("Round 75e: a run watched for narration gives exactly the same estimates and replay result as the plain run",
+         identical(ea$estimate, eb$estimate) && identical(ea$se, eb$se) && identical(pair_payload(hb$dir, rb$pair_folder)$replay$status, "identical"))
+  expect("Round 75e: the Run screen is told when the method scripts start and when the replay check starts, each with why (fast methods finish before the first look)",
+         any(grepl("^Running 3 method scripts", msgs)) && any(grepl("^Replay check", msgs)) && all(nzchar(vapply(said[grepl("^Running|^Replay", msgs)], `[[`, "", "why"))))
+  # a slow method: reported as still running after 45 s, once; a failed one is named
+  d <- file.path(tempfile("live"), "pair"); dir.create(file.path(d, "02_scripts"), recursive = TRUE); dir.create(file.path(d, "04_tables")); dir.create(file.path(d, "03_console"))
+  file.create(file.path(d, "02_scripts", c("00_run_all.R", "01_ivw_mre.R", "02_presso.R", "03_wm.R"))); said <<- list(); said <- list(); live_reset()
+  options(mrstudio.say = function(msg, why) said[[length(said) + 1L]] <<- list(msg = msg, why = why))
+  live_scripts(d); file.create(file.path(d, "04_tables", "ivw_mre_estimates.csv")); k <- paste(d, "run_all_console.txt"); .live[[k]]$t <- Sys.time() - 10; live_scripts(d)
+  .live[[k]]$t <- Sys.time() - 50; live_scripts(d); live_scripts(d); writeLines("02_presso.R", file.path(d, "03_console", "failed_scripts.txt")); live_scripts(d)
+  options(mrstudio.say = NULL); msgs <- vapply(said, `[[`, "", "msg")
+  expect("Round 75e: a finished method is reported with its time, a slow one as still running (once, with why it is slow), a failed one by name",
+         any(grepl("finished in 10 s \\(1 of 3\\)", msgs)) && sum(grepl("still running", msgs)) == 1L && grepl("refits the model many times", said[[which(grepl("still running", msgs))]]$why) &&
+         any(grepl("MR-PRESSO.*stopped with an error", msgs)) && any(grepl("^Method 3 of 3", msgs))) })
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

@@ -217,6 +217,7 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
     if (!identical(kx$kind, "rsID")) stop("\"", ex$recipe$trait, "\" identifies variants by position only. Clumping needs rsIDs, so it cannot be clumped on this computer.")
     if (!nrow(X)) stop("No variant in \"", ex$recipe$trait, "\" reaches P < ", format(pthr, scientific = TRUE), ", so there is nothing to clump.")
     cr2 <- num(f$clump_r2, 0.001); ckb <- num(f$clump_kb, 10000); cpop <- f$clump_pop %||% ld_pop_for(f$ancestry)
+    .say(sprintf("Clumping %s variants of %s below P %s on this computer with PLINK and the 1000 Genomes %s panel", format(nrow(X), big.mark = ","), ex$recipe$trait, format(pthr), cpop), "Clumping keeps the strongest variant of each region and removes those in linkage disequilibrium with it, so the instruments are independent.")
     sel <- ld_clump_cached(ex$dir, X$key, X$p, cr2, ckb, cpop)   # Round 28: PLINK's own order for equal P, as ieugwasr::ld_clump_local
     alt <- if (anyDuplicated(X$p[is.finite(X$p)])) ld_clump_cached(ex$dir, X$key, X$p, cr2, ckb, cpop, z = X$beta / X$se, tie_order = "strongest") else NULL
     led$ties <- ld_tie_summary(sel, alt)
@@ -372,6 +373,9 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8, p = NULL) {   # p: an input 
 }
 #' Round 72e: whether both traits of a pair are complete summary statistics (genome-wide, in the Data library), as LD score regression,
 #' MRlap, MR-APSS, CAUSE and LHC-MR need. OpenGWAS downloads hold only instruments and their lookups.
+#' Round 75d: live narration of the background work for the Check screen. `msg` says what is happening now; `why` explains it in one
+#' sentence. The app sets the option to send each line to the screen at once; elsewhere (tests, scripts) it does nothing.
+.say <- function(msg, why = "") { f <- getOption("mrstudio.say"); if (is.function(f)) tryCatch(f(msg, why), error = function(e) NULL); invisible(NULL) }
 full_gwas_status <- function(exp_id, out_id, root = studies_root()) {
   ids <- c(exp_id, out_id); if (!all(startsWith(ids, "lib:"))) return(list(ok = FALSE, why = "simulated"))
   use <- if (exists("full_gwas_ids")) full_gwas_ids(ids, root) else ids   # Round 75: the complete GWAS of an OpenGWAS download, when downloaded

@@ -160,6 +160,7 @@ mediation_prepare <- function(x, ms, y, jwt = NULL, offline = FALSE, root = stud
   if (!.is_ogw_instruments(rx)) return(list(m_out = as.list(ms), m_inst = as.list(ms), notes = character()))   # full summary statistics: nothing to prepare
   notes <- character(); m_out <- m_inst <- character(length(ms))
   for (i in seq_along(ms)) { rm <- library_dataset(sub("^lib:", "", ms[i]), root)$recipe; src <- rm$source
+    .say(sprintf("Mediator %d of %d, %s: preparing it as an outcome of %s and as its own instruments", i, length(ms), rm$trait, rx$trait), "Mediation needs the effect of the exposure on the mediator (the mediator as an outcome) and the mediator's effect on the outcome given the exposure (multivariable MR).")
     if (!identical(src$type, "opengwas")) { m_out[i] <- m_inst[i] <- ms[i]; next }
     if (isTRUE(rm$usable_as_exposure)) { m_inst[i] <- ms[i]
       r <- ogw_ensure_outcome(src, rm$trait, rx$trait, ry$source$params %||% list(proxies = TRUE, rsq = 0.8, maf_threshold = 0.3), jwt, offline, root, get_outcome); m_out[i] <- paste0("lib:", r$name); notes <- c(notes, r$note)

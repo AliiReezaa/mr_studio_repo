@@ -104,7 +104,10 @@ let focusId = null;
 let modalOpen = false, lastTrig = null;
 const $root = () => document.getElementById('root');
 const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const send = (t, p) => { Shiny.setInputValue('act', Object.assign({ t: t, nonce: Math.random() }, p || {}), { priority: 'event' }); };
+// Round 75d: the Check screen narrates the background work live. Each step the engine reports is typed out, with a one-sentence
+// explanation; a pulsing dot and two clocks (the whole check, and the current step) show that the app is still working.
+const LIVE_START = ['facts', 'mv_prepare', 'med_prepare', 'bidir_prepare', 'run_pair', 'build_package', 'ogw_dl_exposure', 'ogw_dl_outcome', 'run_sens', 'mediation', 'bidir_cml', 'run_outliers'];   // Round 75e: every wait
+const send = (t, p) => { if (LIVE_START.indexOf(t) >= 0 && !(S.live && S.live.open)) { S.live = { open: true, t0: Date.now(), lines: [], typed: 0 }; liveTick(); } Shiny.setInputValue('act', Object.assign({ t: t, nonce: Math.random() }, p || {}), { priority: 'event' }); };
 const C = () => THEMES[S.theme] || THEMES.aurora;
 const svg = (d, s, sw) => '<svg width="' + (s || 18) + '" height="' + (s || 18) + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 1.8) + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"></path></svg>';
 const cta = (label, a, v, extra) => '<button type="button" class="cta" data-a="' + a + '" data-v="' + esc(v || '') + '" style="display:flex;align-items:center;justify-content:center;gap:8px;height:48px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;font-size:14px;padding:0 24px;' + (extra || '') + '">' + label + '</button>';
@@ -257,7 +260,7 @@ function vOgwPanel() {
     '<div><div class="mono" style="font-size:12px;color:var(--accent);margin-bottom:6px">DOWNLOAD AS ' + (ex ? 'EXPOSURE' : 'OUTCOME') + '</div><div style="font-size:20px;font-weight:600;letter-spacing:-0.02em">' + esc(r.trait) + '</div><div class="mono" style="font-size:11px;color:var(--mute);margin-top:4px;word-break:break-word">' + esc(facts) + '</div></div>' + body +
     ogF('Name in your Data library', 'Leave empty to use the trait name and its ID.', '<input id="og_name" value="' + esc(P.name) + '" style="' + INP + '">') +
     (P.msg ? '<div role="alert" style="padding:12px 14px;border-radius:12px;border:1px solid var(--warn);white-space:pre-wrap">' + esc(P.msg) + '</div>' : '') +
-    (busy ? '<div role="status" style="font-size:13px;color:var(--mute)">Talking to OpenGWAS. This can take a while (' + (ex && P.where === 'local' ? 'every variant below the threshold is downloaded, then clumped on this computer' : 'clumping and proxy searches run on their server') + '). Keep this window open.</div>' : '') +
+    (busy ? vLive('Talking to OpenGWAS. This can take a while (' + (ex && P.where === 'local' ? 'every variant below the threshold is downloaded, then clumped on this computer' : 'clumping and proxy searches run on their server') + ').', 'Keep this window open.', true) : '') +
     '<div style="display:flex;gap:10px;justify-content:flex-end"><button type="button" data-a="ogw_close" style="height:44px;padding:0 20px;border-radius:12px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:550">Cancel</button>' +
     '<button type="button" class="cta" data-a="ogw_dl" ' + (canGo ? '' : 'disabled') + ' style="height:44px;padding:0 24px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;' + (canGo ? '' : 'opacity:.6') + '">' + (busy ? 'Downloading…' : 'Download') + '</button></div></div></div>';
 }
@@ -282,6 +285,30 @@ const fmtB = (b) => (b == null || !isFinite(b)) ? 'unknown' : (b >= 1073741824 ?
 function fgActive() { return (S.fgjobs || []).some((j) => j.state === 'running'); }
 function fgPoll() { clearTimeout(S._fgT); if (fgActive()) S._fgT = setTimeout(() => send('fullgwas_status', {}), 3000); }
 function fgOpen(id, trait) { S.fg = { id: id, trait: trait || id, busy: true, plan: null, msg: '', keep: true, name: '' }; send('fullgwas_plan', { id: id }); render(); }
+function liveEnd() { const L = S.live; if (L && L.open) { L.open = false; L.end = Date.now(); const ll = L.lines; if (ll.length) ll[ll.length - 1].done = L.end; } }
+function liveAdd(msg, why) { const L = S.live || (S.live = { open: true, t0: Date.now(), lines: [], typed: 0 });
+  const last = L.lines[L.lines.length - 1]; if (last) last.done = Date.now();
+  L.lines.push({ msg: String(msg || ''), why: String(why || ''), t: Date.now() }); L.typed = 0; liveTick(); }
+const mmss = (ms) => { const s = Math.max(0, Math.floor(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+function liveTick() {
+  clearTimeout(S._liveT); const L = S.live; if (!L || !L.open) return;
+  const cur = L.lines[L.lines.length - 1], full = cur ? cur.msg : '';
+  if (cur && L.typed < full.length) { L.typed = Math.min(full.length, L.typed + 2); const el = document.getElementById('live_typing'); if (el) el.textContent = full.slice(0, L.typed); if (L.typed >= full.length) { const w = document.getElementById('live_why'); if (w) w.style.opacity = 1; } }
+  const a = document.getElementById('live_all'), b = document.getElementById('live_step'); if (a) a.textContent = mmss(Date.now() - L.t0); if (b && cur) b.textContent = mmss(Date.now() - cur.t);
+  S._liveT = setTimeout(liveTick, cur && L.typed < full.length ? 28 : 1000);
+}
+function vLive(fallback, foot, compact) {
+  const L = S.live || { lines: [], t0: Date.now(), typed: 0 }, n = L.lines.length, cur = L.lines[n - 1];
+  const past = L.lines.slice(Math.max(0, n - (compact ? 4 : 9)), n - 1).map((x) => '<li style="display:flex;gap:10px;align-items:flex-start;color:var(--mute)"><span aria-hidden="true" style="color:var(--accent);flex:none">✓</span><span style="flex:1;min-width:0">' + esc(x.msg) + '</span><span class="mono" style="flex:none;font-size:11px">' + mmss((x.done || Date.now()) - x.t) + '</span></li>').join('');
+  const now = cur ? '<li style="display:flex;gap:10px;align-items:flex-start"><span class="live-dot" aria-hidden="true"></span><span style="flex:1;min-width:0"><span id="live_typing" style="font-weight:550">' + esc(cur.msg.slice(0, L.typed)) + '</span><span class="live-caret" aria-hidden="true">▍</span>' +
+    (cur.why ? '<div id="live_why" style="font-size:12px;color:var(--mute);margin-top:4px;transition:opacity .6s;opacity:' + (L.typed >= cur.msg.length ? 1 : 0) + '">' + esc(cur.why) + '</div>' : '') + '</span><span class="mono" style="flex:none;font-size:11px;color:var(--mute)" id="live_step">' + mmss(Date.now() - cur.t) + '</span></li>' :
+    '<li style="display:flex;gap:10px;align-items:center"><span class="live-dot" aria-hidden="true"></span><span>' + esc(fallback) + '</span></li>';
+  return '<style>.live-dot{flex:none;width:10px;height:10px;margin-top:5px;border-radius:50%;background:var(--accent);animation:livepulse 1.2s ease-in-out infinite}@keyframes livepulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.35;transform:scale(.7)}}.live-caret{color:var(--accent);animation:liveblink 1s steps(1) infinite;margin-left:1px}@keyframes liveblink{50%{opacity:0}}@media (prefers-reduced-motion:reduce){.live-dot,.live-caret{animation:none}}</style>' +
+    '<div role="status" aria-live="polite" style="box-sizing:border-box;padding:20px 24px;border-radius:16px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;gap:14px">' +
+    '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px"><span class="mono" style="color:var(--accent)">WORKING</span><span style="flex:1 1 200px;font-size:13px;color:var(--mute)">' + esc(fallback) + '</span><span class="mono" style="font-size:12px;color:var(--mute)">elapsed <span id="live_all">' + mmss(Date.now() - L.t0) + '</span></span></div>' +
+    '<ol style="list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;font-size:13px">' + past + now + '</ol>' +
+    '<div style="font-size:12px;color:var(--mute)">' + (foot == null ? 'The checks appear here when it is done. You can leave this screen; the work continues.' : foot) + (cur && Date.now() - cur.t > 20000 && /OpenGWAS|Looking up|Asking/.test(cur.msg) ? ' This step waits for OpenGWAS, which can be slow when it is busy.' : '') + '</div></div>';
+}
 function vFgPanel() {
   const F = S.fg; if (!F) return '';
   const P = F.plan; let body = '';
@@ -760,7 +787,11 @@ function checks() {
   const fc = S.facts || []; if (!fc.length) return S.factErr.length ? [['Data problem', S.factErr.join(' '), 'REVIEW']] : [];
   const minI = Math.min.apply(null, fc.map((x) => x.instruments)), weak = fc.reduce((a, x) => a + x.n_weak, 0), meanF = fc.reduce((a, x) => a + x.mean_f, 0) / fc.length, pal = fc.reduce((a, x) => a + x.palindromic, 0);
   const imp = fc.some((x) => !x.simulated), two = (x) => x.anc_x === x.anc_y;
-  const led = fc.filter((x) => x.ledger).map((x) => { const l = x.ledger, c = l.clump; return x.exposure + ' → ' + x.outcome + ': ' + (c ? l.below_threshold + ' variants under P ' + l.threshold + ' in the exposure file, clumped on this computer with PLINK and the 1000 Genomes ' + c.pop + ' panel (r² < ' + c.r2 + ' within ' + Number(c.kb).toLocaleString() + ' kb): ' + c.clumped + ' removed as correlated with a stronger variant, ' + c.not_in_panel + ' not in the reference panel (LD unknown, removed), ' + c.kept + ' independent instruments; then ' : (l.instruments != null && l.instruments < l.candidates ? l.candidates + ' variants in the exposure file, ' + l.instruments + ' of them under P ' + l.threshold + ', ' : l.candidates + ' variants under P ' + l.threshold + ' in the exposure file, ')) + l.missing_in_outcome + ' not found in the outcome' + (l.by_proxy ? ' (' + l.by_proxy + ' more were found only through a proxy variant)' : '') + ', ' + l.dropped_palindromic + ' palindromic dropped (ambiguous strand), ' + l.dropped_mismatch + ' dropped (alleles do not match), ' + l.flipped + ' had their alleles aligned to the exposure (swapped, or on the opposite strand), ' + l.kept + ' kept.' + (tiesText(l.ties) ? ' ' + tiesText(l.ties) + (l.ties.regions > 0 ? ' A sensitivity analysis with the strongest variant can be run on the Instrument review screen.' : '') : ''); });
+  const led = fc.filter((x) => x.ledger).map((x) => { const l = x.ledger, c = l.clump;
+    if (l.mv) { const v = l.mv, ex = [].concat(v.exposures || []), own = [].concat(v.own || []);   // Round 75d: a multivariable pair has its own ledger (was shown as "undefined")
+      return x.exposure + ' → ' + x.outcome + ': ' + (v.union != null ? v.union + ' candidate instruments (the union of ' + ex.map((e, i) => e + ' ' + (own[i] != null ? own[i] : '?')).join(', ') + ')' : 'the joint instruments') +
+        (v.clumped != null ? ', ' + v.clumped + ' after joint clumping' : '') + (v.final != null ? ', ' + v.final + ' with every exposure and the outcome' : '') + '.'; }
+    return x.exposure + ' → ' + x.outcome + ': ' + (c ? l.below_threshold + ' variants under P ' + l.threshold + ' in the exposure file, clumped on this computer with PLINK and the 1000 Genomes ' + c.pop + ' panel (r² < ' + c.r2 + ' within ' + Number(c.kb).toLocaleString() + ' kb): ' + c.clumped + ' removed as correlated with a stronger variant, ' + c.not_in_panel + ' not in the reference panel (LD unknown, removed), ' + c.kept + ' independent instruments; then ' : (l.instruments != null && l.instruments < l.candidates ? l.candidates + ' variants in the exposure file, ' + l.instruments + ' of them under P ' + l.threshold + ', ' : l.candidates + ' variants under P ' + l.threshold + ' in the exposure file, ')) + l.missing_in_outcome + ' not found in the outcome' + (l.by_proxy ? ' (' + l.by_proxy + ' more were found only through a proxy variant)' : '') + ', ' + l.dropped_palindromic + ' palindromic dropped (ambiguous strand), ' + l.dropped_mismatch + ' dropped (alleles do not match), ' + l.flipped + ' had their alleles aligned to the exposure (swapped, or on the opposite strand), ' + l.kept + ' kept.' + (tiesText(l.ties) ? ' ' + tiesText(l.ties) + (l.ties.regions > 0 ? ' A sensitivity analysis with the strongest variant can be run on the Instrument review screen.' : '') : ''); });
   const out = [['Instrument strength', weak === 0 ? 'All variants in all ' + fc.length + ' pair' + (fc.length === 1 ? '' : 's') + ' have F above 10 (at least ' + minI + ' per pair). Mean F is ' + meanF.toFixed(1) + ', so weak-instrument bias is unlikely.' : weak + ' variants have F below 10. Weak instruments bias estimates toward the null.', weak === 0 ? 'PASS' : 'REVIEW']];
   if (imp) out.push(['What happened to each instrument', led.join(' '), 'PASS']);
   out.push(imp ? ['Ancestry match', fc.map((x) => x.exposure + ' ' + x.anc_x + (x.og_x ? ' (from OpenGWAS)' : ' (declared at import)') + ', ' + x.outcome + ' ' + x.anc_y + (x.og_y ? ' (from OpenGWAS)' : ' (declared at import)')).join('; ') + '. This app does not verify ancestry.', fc.every(two) ? 'PASS' : 'REVIEW'] : ['Ancestry match', 'Both traits are declared European. Ancestry is not tested for simulated traits.', 'PASS']);
@@ -795,7 +826,7 @@ function vCheck() {
       : S.revBusy ? 'Preparing the reverse direction on OpenGWAS: each outcome as an exposure, and each exposure looked up at its instruments.'
       : 'Checking the data and the instruments of every pair.';
     return frame('study', 'check', '<header style="max-width:680px">' + eyebrow('STEP 3 OF 7 · CHECK') + h1('Check the data before choosing methods') + '</header>' +
-      '<div role="status" style="box-sizing:border-box;padding:20px 24px;border-radius:16px;background:var(--panel);border:1px solid var(--line);display:flex;gap:14px;align-items:center"><span class="mono" style="color:var(--accent)">WORKING</span><span>' + what + ' The checks appear here when it is done.</span></div>');
+      vLive(what));
   }
   const none = !!S.facts && !S.facts.length && S.factErr.length > 0;   // Round 31: every pair failed the data check
   const C6 = checks(), passed = C6.filter((c) => c[2] === 'PASS').length, rev = C6.filter((c) => c[2] === 'REVIEW').length, nb = C6.filter((c) => c[2] === 'NOT BUILT' || c[2] === 'NOT RUN').length;
@@ -807,7 +838,9 @@ function vCheck() {
     (none ? '<div role="alert" style="font-size:12px;color:var(--warn);padding:12px;border-radius:12px;background:var(--panel2)">No pair can run yet. Fix the problem on the Data step: the next steps need at least one pair that passes.</div>' + cta('Back to data', 'nav', 'data')
       : '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">' + (S.factErr.length ? 'Pairs with a data problem will not run. The others can continue, and each open item will be reported as a limitation in your draft text.' : 'Nothing is blocked. You can continue, and each open item will be reported as a limitation in your draft text.') + '</div>' +
     cta('Continue to methods' + svg(IC.arrow, 16, 2.2), 'c_next')) + '</aside></div>' + DEMO_NOTE;
-  return frame('study', 'check', main) + vOverlap();
+  const L = S.live, lsum = L && !L.open && L.lines.length ? '<details style="box-sizing:border-box;padding:14px 18px;border-radius:14px;background:var(--panel2);font-size:13px"><summary style="cursor:pointer;font-weight:550">What the app did in the background (' + L.lines.length + ' step' + (L.lines.length === 1 ? '' : 's') + ', ' + mmss((L.end || Date.now()) - L.t0) + ')</summary><ol style="margin:10px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:8px">' +
+    L.lines.map((x) => '<li>' + esc(x.msg) + (x.why ? '<div style="font-size:12px;color:var(--mute)">' + esc(x.why) + '</div>' : '') + '</li>').join('') + '</ol></details>' : '';
+  return frame('study', 'check', main + lsum) + vOverlap();
 }
 function vOverlap() {
   const d = S.ovl; if (!d) return '';
@@ -857,7 +890,7 @@ function vRun() {
     '<div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-start"><section style="flex:999 1 480px;min-width:0;box-sizing:border-box;padding:28px;border-radius:20px;background:var(--panel);border:1px solid var(--line)"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:12px"><span class="mono" style="font-size:36px;font-weight:500;letter-spacing:-0.04em">' + pct + '%</span><span class="mono" style="font-size:12px;color:var(--mute)">' + r.done + ' of ' + r.total + ' pairs saved</span></div><div style="height:8px;border-radius:4px;background:var(--line);margin-bottom:24px"><div style="height:8px;border-radius:4px;width:' + pct + '%;background:' + (paused ? 'var(--warn)' : 'var(--accent)') + '"></div></div>' + rows + '</section>' +
     '<aside style="flex:1 1 300px;max-width:380px;display:flex;flex-direction:column;gap:16px"><div style="padding:20px;border-radius:16px;background:var(--panel);border:1px solid var(--line)"><div style="font-size:12px;color:var(--mute)">Time remaining</div>' + (() => { const e = etaParts(); return '<div id="eta" class="mono" style="font-size:28px;font-weight:500;letter-spacing:-0.03em;margin-top:4px;white-space:nowrap">' + esc(e[0]) + '</div>' + (e[1] ? '<div style="font-size:12px;color:var(--mute);margin-top:4px">' + esc(e[1]) + '</div>' : ''); })() + '</div>' +
     '<div style="padding:20px;border-radius:16px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;gap:14px">' + sw('Keep computer awake', 'awake') + sw('Notify me when finished', 'notify') + '<div style="font-size:12px;color:var(--mute)">Same inputs always give the same numbers, so a resumed run matches an uninterrupted one.</div></div>' +
-    '<div style="padding:20px;border-radius:16px;background:var(--panel2);border:1px solid var(--line)"><div style="font-size:12px;color:var(--mute);margin-bottom:8px">Activity</div><div class="mono" style="font-size:12px;line-height:1.7;color:var(--mute)">' + log + '</div></div></aside></div>' + DEMO_NOTE;
+    '<div style="padding:20px;border-radius:16px;background:var(--panel2);border:1px solid var(--line)"><div style="font-size:12px;color:var(--mute);margin-bottom:8px">Activity</div><div class="mono" style="font-size:12px;line-height:1.7;color:var(--mute)">' + log + '</div></div></aside></div>' + (S.live && S.live.lines.length && (S.live.open || (S.run && S.run.state !== 'done')) ? '<section style="display:flex;flex-direction:column;gap:8px"><h2 style="margin:0;font-size:16px;font-weight:600;padding:0 4px">What is happening now</h2>' + vLive('Running the analysis.', 'Each pair is saved as soon as it finishes. You can leave this screen; the work continues.') + '</section>' : '') + DEMO_NOTE;
   return frame('study', 'run', main);
 }
 
@@ -1174,7 +1207,7 @@ function mvReview(pair, pay, ids, nm, lor) {
   const run = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px">' + cta(S.sensBusy ? 'Running…' : 'Rerun without the ' + sel.length + ' ticked variant' + (sel.length === 1 ? '' : 's'), 'mv_sens', 'ticked', 'height:40px;padding:0 18px;font-size:13px' + (sel.length && !S.sensBusy ? '' : ';opacity:.5;pointer-events:none')) +
     '<span style="font-size:12px;color:var(--mute)">' + (sel.length ? sel.length + ' ticked' + (hidden ? ' (' + hidden + ' not in the rows shown)' : '') + '. Every method of the main analysis is rerun without them.' : 'Tick the variants to leave out, then rerun.') + '</span></div>';
   return box('<div style="font-size:13px;color:var(--mute)">Cochran\'s Q of MVMR-IVW is ' + fx(R.q_total, 1) + ' on ' + R.df + ' degrees of freedom. Each variant\'s contribution is listed, largest first, with whether MVMR-Lasso left it out as pleiotropic. Heterogeneity is reported, not removed: rerunning without chosen variants is a sensitivity analysis, compared with the main result below, never in its place.</div>' +
-    picks + '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;width:100%"><tr style="color:var(--mute);text-align:left">' + th('Leave out') + th('Variant', 'rsID') + th('Contribution to Q', "Cochran's Q of the variant", 1) + th('Share', '% of the total Q', 1) + th('Flagged by MVMR-Lasso', 'left out as pleiotropic') + '</tr>' + rows + '</table></div>' + run + mvCompare(pair, pay, ids, nm, lor));
+    picks + '<div style="overflow-x:auto"><table style="border-collapse:collapse;font-size:13px;width:100%"><tr style="color:var(--mute);text-align:left">' + th('Leave out') + th('Variant', 'rsID') + th('Contribution to Q', "Cochran's Q of the variant", 1) + th('Share', '% of the total Q', 1) + th('Flagged by MVMR-Lasso', 'left out as pleiotropic') + '</tr>' + rows + '</table></div>' + run + (S.sensBusy && S.live && S.live.open ? vLive('Running the sensitivity analysis.', 'The comparison below includes it when it is done.', true) : '') + mvCompare(pair, pay, ids, nm, lor));
 }
 // Round 75c: the main analysis and every rerun without chosen variants, side by side, for one method at a time
 function mvCompare(pair, pay, ids, nm, lor) {
@@ -1317,7 +1350,7 @@ function outlierSection(pair, pay) {
   }
   const tag = !R ? (on.length ? 'SIGNAL PRESENT' : 'NO SIGNAL') : R.review === 'awaiting review' ? 'AWAITING REVIEW' : 'REVIEWED';
   return '<section style="box-sizing:border-box;padding:20px 24px;border-radius:20px;background:var(--panel);border:1px solid ' + (on.length || (R && R.review === 'awaiting review') ? 'var(--warn)' : 'var(--line)') + ';display:flex;flex-direction:column;gap:12px"><div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:baseline;gap:8px"><h2 style="margin:0;font-size:16px;font-weight:600">Outlier analysis</h2><span class="mono" style="font-size:11px;color:' + (R && R.review !== 'awaiting review' ? 'var(--accent)' : on.length || R ? 'var(--warn)' : 'var(--accent)') + '">' + tag + '</span></div>' +
-    '<div style="font-size:13px">' + lead + '</div><div class="mono" style="font-size:11px;color:var(--mute)">' + esc(sigTxt) + '</div>' + body + (R ? lookupBlock(R) : '') + '<div>' + btn + '</div></section>';
+    '<div style="font-size:13px">' + lead + '</div><div class="mono" style="font-size:11px;color:var(--mute)">' + esc(sigTxt) + '</div>' + body + (R ? lookupBlock(R) : '') + (busy && S.live && S.live.open ? vLive('Running the outlier analysis.', 'The comparison appears here when it is done.', true) : '') + '<div>' + btn + '</div></section>';
 }
 // Round 49 (FR-106, FR-112): nearest gene and other-trait associations of the flagged variants, looked up on request.
 function lookupBlock(R) {
@@ -1382,7 +1415,7 @@ function vExport() {
     (S.pkg && S.pkg.ok ? '<div role="status" style="padding:14px;border-radius:12px;background:var(--panel2);border:1px solid var(--accent);font-size:13px"><div class="mono" style="font-size:11px;color:var(--accent);margin-bottom:6px">PACKAGE BUILT</div><div>' + S.pkg.files.length + ' items in <span class="mono">05_publication/' + esc(S.pkg.folder) + '</span>.</div>' + (S.pkg.simulated ? '<div style="margin-top:8px;color:var(--warn)">Contains SIMULATED data: the files say so, and nothing here is a scientific finding.</div>' : '') + (S.pkg.notes.length ? '<div style="margin-top:8px;color:var(--mute)">' + S.pkg.notes.map(esc).join(' ') + '</div>' : '') + '</div>' : '') +
     (S.pkg && S.pkg.ok === false ? '<div role="alert" style="padding:14px;border-radius:12px;background:var(--panel2);border:1px solid var(--warn);color:var(--warn);font-size:13px">' + esc(S.pkg.msg) + '</div>' : '') +
     '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Everything is a draft for you to check: the numbers come from the saved results, and each text is assembled from the settings recorded in the scripts. A new package never overwrites an earlier one.</div>' +
-    (S.pkg && S.pkg.ok ? cta('Show the package folder', 'open_package') : cta('Show study folder', 'folder')) + '<button type="button" class="cta" data-a="build_package" ' + (canBuild ? '' : 'disabled') + ' style="height:44px;border-radius:12px;border:1px solid ' + (canBuild ? 'var(--accent)' : 'var(--line)') + ';background:transparent;color:' + (canBuild ? 'var(--accent)' : 'var(--mute)') + ';font-weight:550;opacity:' + (canBuild ? 1 : .7) + '">' + (S.pkgBusy ? 'Building…' : 'Build package') + '</button></aside></div>' + DEMO_NOTE;
+    (S.pkg && S.pkg.ok ? cta('Show the package folder', 'open_package') : cta('Show study folder', 'folder')) + '<button type="button" class="cta" data-a="build_package" ' + (canBuild ? '' : 'disabled') + ' style="height:44px;border-radius:12px;border:1px solid ' + (canBuild ? 'var(--accent)' : 'var(--line)') + ';background:transparent;color:' + (canBuild ? 'var(--accent)' : 'var(--mute)') + ';font-weight:550;opacity:' + (canBuild ? 1 : .7) + '">' + (S.pkgBusy ? 'Building…' : 'Build package') + '</button></aside></div>' + (S.pkgBusy && S.live ? vLive('Building the publication package.', 'The package folder opens when it is done.') : '') + DEMO_NOTE;
   return frame('study', 'export', main);
 }
 // ---- LD reference panel (Round 19): optional one-time download, kept once per computer ------------------------------------
@@ -1527,14 +1560,23 @@ function startRun() {
   send('run_begin', {});   // Round 72c: keeps the computer awake (Settings)
   go('run'); runNext();
 }
-function runNext() {
+// Round 75f: the engine runs the queue of pairs by itself. The window only shows progress and sends Pause and Stop, so a run continues
+// when the screen is locked or the window is hidden (macOS suspends a hidden window: the run stopped after pair 5 of test 3 when the
+// screen locked, because the window used to ask for each next pair).
+function pairSpec(i) {
+  const p = S.pairs[i], f = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out), withSt = !p.mv && S.steiger && S.methods.indexOf('ivw_mre') >= 0 && steigerPair(f).ok, withLoo = !p.mv && S.loo && S.methods.indexOf('ivw_mre') >= 0 && !(f && f.instruments < 3);
+  return { i: i, ex: p.ex, out: p.out, rev: !!p.rev, pthr: p.pthr || 5e-8, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && !!x.mv === !!p.mv && methodState(x).st !== 'locked')).concat(withSt ? ['steiger'] : []).concat(withLoo ? ['loo'] : []), params: S.params, med: p.med || null,
+    prev: { x: prevOk(S.prev[p.ex]) ? S.prev[p.ex] : null, y: prevOk(S.prev[p.out]) ? S.prev[p.out] : null } };
+}
+function runMark(i) { const r = S.run, p = S.pairs[i]; if (!r || !p) return; r.t0 = Date.now(); r.log.push('Pair ' + (i + 1) + ': starting ' + p.exName + ' → ' + p.outName); }
+function runFinish() { const r = S.run; if (!r || r.state === 'done') return; r.state = 'done'; liveEnd(); if (S.kind === 'bidir') send('bidir_cml', {}); if (S.kind === 'mediation') send('mediation', { ci: S.params.ci_level || 0.95 }); render(); }
+function runNext() {   // starts the queue (or continues it after Pause); the engine sends pair_done for each pair and run_queue_done at the end
   const r = S.run; if (!r || r.state === 'done') return;
-  if (r.i >= r.total) { r.state = 'done'; send('run_end', { done: r.results.filter((x) => x && x.ok).length, total: r.total, study: S.name || '' }); if (S.kind === 'bidir') send('bidir_cml', {}); if (S.kind === 'mediation') send('mediation', { ci: S.params.ci_level || 0.95 }); render(); return; }
+  if (r.i >= r.total) { runFinish(); return; }
   if (r.paused) { render(); return; }
-  const p = S.pairs[r.i]; r.t0 = Date.now(); r.log.push('Pair ' + (r.i + 1) + ': starting ' + p.exName + ' → ' + p.outName); render();
-  const f = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out), withSt = !p.mv && S.steiger && S.methods.indexOf('ivw_mre') >= 0 && steigerPair(f).ok, withLoo = !p.mv && S.loo && S.methods.indexOf('ivw_mre') >= 0 && !(f && f.instruments < 3);
-  send('run_pair', { i: r.i, ex: p.ex, out: p.out, rev: !!p.rev, pthr: p.pthr || 5e-8, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && !!x.mv === !!p.mv && methodState(x).st !== 'locked')).concat(withSt ? ['steiger'] : []).concat(withLoo ? ['loo'] : []), params: S.params, med: p.med || null,
-    prev: { x: prevOk(S.prev[p.ex]) ? S.prev[p.ex] : null, y: prevOk(S.prev[p.out]) ? S.prev[p.out] : null } });
+  runMark(r.i); render();
+  const idx = []; for (let k = r.i; k < r.total; k++) idx.push(k);
+  send('run_all', { pairs: idx.map(pairSpec), study: S.name || '', total: r.total });
 }
 function impNext() {
   const I = S.imp;
@@ -1627,9 +1669,9 @@ function onClick(e) {
     case 'ovl_close': S.ovl = null; render(); break;
     case 'ovl_close_bg': if (e.target === t) { S.ovl = null; render(); } break;
     case 'ovl_save': { const items = S.ovl.items.filter((it) => it.answer); if (!items.length) { S.ovl = null; render(); break; } send('overlap_save', { items: items.map((it) => ({ ex: it.ex, out: it.out, answer: it.answer, pct: it.answer === 'some' && String(it.pct).trim() !== '' ? Number(it.pct) : null, note: it.note })) }); break; }
-    case 'run_toggle': S.run.paused = !S.run.paused; if (!S.run.paused) runNext(); else render(); break;
+    case 'run_toggle': S.run.paused = !S.run.paused; send('run_pause', { on: S.run.paused }); if (!S.run.paused && S.run.i < S.run.total) runMark(S.run.i); render(); break;
     case 'run_stop': S.dialog = { title: 'Stop the analysis?', body: 'Pairs that are already saved stay saved. The pair being calculated right now finishes first. The remaining pairs are not run, and you can run them later from the Data step.', danger: true, buttons: [{ label: 'Keep running', a: 'dialog_close' }, { label: 'Stop and keep results', a: 'run_stop_yes', primary: true, danger: true }] }; render(); break;
-    case 'run_stop_yes': S.dialog = null; S.run.stopped = true; S.run.i = S.run.total; if (S.run.results.length >= S.pairs.length || S.run.paused) S.run.state = 'done'; render(); break;
+    case 'run_stop_yes': S.dialog = null; S.run.stopped = true; send('run_stop', {}); if (S.run.paused) runFinish(); else render(); break;
     case 'dialog_close': S.dialog = null; render(); break;
     case 'dialog_bg': if (e.target === t) { S.dialog = null; render(); } break;
     case 'reload': location.reload(); break;
@@ -1797,21 +1839,22 @@ function handle(m) {
         if (r.ok) { p.ex = r.ex; p.out = r.out; if (r.exName) p.exName = r.exName; if (r.outName) p.outName = r.outName; if (r.note) S.revNote.push(p.exName + ' → ' + p.outName + ': ' + r.note + '.'); }
         else S.revErr.push(r.msg); });
       S.revBusy = false; S.factsBusy = false; S.facts = null; go(S.screen); break; }   // Round 72e: continue to the checks
-    case 'facts': S.factsBusy = false; S.factErr = Array.from(new Set(m.facts.filter((f) => f.error).map((f) => f.error).concat(S.revErr || []))); S.facts = m.facts.filter((f) => !f.error); S.feas = m.feas || null; if (S.screen === 'methods' || S.screen === 'check') render(); break;
+    case 'facts': S.factsBusy = false; liveEnd();   // Round 75d S.factErr = Array.from(new Set(m.facts.filter((f) => f.error).map((f) => f.error).concat(S.revErr || []))); S.facts = m.facts.filter((f) => !f.error); S.feas = m.feas || null; if (S.screen === 'methods' || S.screen === 'check') render(); break;
     case 'feas': S.feas = m.feas || null; if (S.screen === 'methods') render(); break;
     case 'pair_done': { const r = S.run; if (!r) break; const p = S.pairs[m.i]; r.times.push((Date.now() - r.t0) / 1000); r.results[m.i] = { ok: m.ok };
       if (m.ok) { p.folder = m.folder; S.payloads[m.folder] = m.payload; if (m.left_out) r.log.push('Pair ' + (m.i + 1) + ': ' + m.left_out); if (!p.ledger) { const fz = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out); if (fz && fz.ledger) p.ledger = fz.ledger; } /* Round 34: the instrument record right after a run, not only after reopening */ r.log.push('Pair ' + (m.i + 1) + ': ' + (m.reused ? 'nothing changed, saved results reused' : 'done') + (m.payload.replay ? ', replay ' + m.payload.replay.status : '')); } else { r.failed++; r.log.push('Pair ' + (m.i + 1) + ' failed: ' + String(m.msg).replace(/\s+/g, ' ').slice(0, 220)); }
-      r.done = r.results.filter((x) => x && x.ok).length; r.i = r.stopped ? r.total : m.i + 1; if (r.stopped) r.state = 'done'; if (r.done) S.maxStep = Math.max(S.maxStep, 6); runNext(); break; }
-    case 'package_done': S.pkgBusy = false; S.pkg = m.ok ? { ok: true, folder: m.folder, files: m.files || [], notes: (m.notes || []).concat(m.strobe ? ['STROBE-MR checklist: ' + m.strobe.filled + ' items filled from your study, ' + m.strobe.partly + ' partly filled, ' + m.strobe.author + ' for you to write. Add page and line numbers before submission.'] : []), simulated: !!m.simulated } : { ok: false, msg: m.msg }; render(); break;
+      r.done = r.results.filter((x) => x && x.ok).length; r.i = r.stopped ? r.total : m.i + 1; if (r.done) S.maxStep = Math.max(S.maxStep, 6); if (!r.stopped && !r.paused && r.i < r.total) runMark(r.i); render(); break; }
+    case 'run_queue_done': if (S.run) { if (m.stopped) S.run.stopped = true; if (!m.paused) runFinish(); } break;   // Round 75f
+    case 'package_done': S.pkgBusy = false; liveEnd(); S.pkg = m.ok ? { ok: true, folder: m.folder, files: m.files || [], notes: (m.notes || []).concat(m.strobe ? ['STROBE-MR checklist: ' + m.strobe.filled + ' items filled from your study, ' + m.strobe.partly + ' partly filled, ' + m.strobe.author + ' for you to write. Add page and line numbers before submission.'] : []), simulated: !!m.simulated } : { ok: false, msg: m.msg }; render(); break;
     case 'rstudio': if (m.opened) { if (!S.rsNote) { S.rsNote = true; S.dialog = { title: 'Sent to RStudio', body: 'VERIFY_IN_R.R is opening in RStudio. Click the Source button at the top right of the script. It runs your saved scripts on a copy and tells you whether every number matches MR Studio. You do not need to copy anything or set a working folder, and your saved results are never changed.\n\nIf RStudio shows "Error while opening file", it is usually stuck after a long session: quit it with Cmd+Q (Ctrl+Q on Windows) and click the button again.', buttons: [{ label: 'Close', a: 'dialog_close', primary: true }] }; render(); } } else if (!m.opened) { S.dialog = { title: 'RStudio was not found', body: 'MR Studio looked in the usual places and did not find RStudio. The check is a normal R file (shown below), so you can open it in any editor and run it in any R: source it and it does the rest. It writes only into its own new folder, so your saved results are not changed.', mono: m.script, buttons: [{ label: 'Close', a: 'dialog_close' }, { label: 'Open the check script in a text editor', a: 'open_script', v: (curPair() || {}).folder, primary: true }] }; render(); } break;
     case 'compare': S.cmp = m; S.cmpBusy = null; render(); break;
     case 'instruments': if (curPair() && m.folder === curPair().folder) { S.inst = m.rows; if (S.screen === 'outliers') render(); } break;
-    case 'outliers_done': S.outBusy = false; if (m.ok) { S.outl[m.parent] = m.res; (m.recs || []).forEach((rec) => { S.sens = S.sens.filter((x) => !(x.parent === rec.parent && JSON.stringify(x.remove) === JSON.stringify(rec.remove))).concat([rec]); }); Object.assign(S.payloads, m.payloads || {}); S.notice = { kind: 'ok', msg: 'Done. Each eligible set is saved as its own sensitivity analysis with its scripts and replay check. Review the rule\'s choice below.' }; } else { S.notice = { kind: 'err', msg: m.msg }; } render(); break;
+    case 'outliers_done': S.outBusy = false; liveEnd(); if (m.ok) { S.outl[m.parent] = m.res; (m.recs || []).forEach((rec) => { S.sens = S.sens.filter((x) => !(x.parent === rec.parent && JSON.stringify(x.remove) === JSON.stringify(rec.remove))).concat([rec]); }); Object.assign(S.payloads, m.payloads || {}); S.notice = { kind: 'ok', msg: 'Done. Each eligible set is saved as its own sensitivity analysis with its scripts and replay check. Review the rule\'s choice below.' }; } else { S.notice = { kind: 'err', msg: m.msg }; } render(); break;
     case 'outlier_lookup_done': S.lkBusy = false; if (m.ok) S.outl[m.parent] = m.res; else S.notice = { kind: 'err', msg: m.msg }; render(); break;
     case 'outliers_chosen': S.outl[m.parent] = m.res; render(); break;
     case 'full_status': S.fullst = S.fullst || {}; S.fullst[m.folder] = { ok: !!m.ok, why: m.why || '' }; render(); break;
     case 'mv_review': S.mvrev = S.mvrev || {}; S.mvrev[m.folder] = m.error ? { error: m.error } : { rows: m.rows || [], lasso: m.lasso || [], q_total: m.q_total, df: m.df, n: m.n }; render(); break;
-    case 'sens_done': S.sensBusy = false; if (m.ok) { S.sens = S.sens.filter((x) => !(x.parent === m.rec.parent && JSON.stringify(x.remove) === JSON.stringify(m.rec.remove))).concat([m.rec]); S.payloads[m.rec.folder] = m.payload; S.notice = { kind: 'ok', msg: 'Done. The sensitivity analysis is saved in its own folder, with its scripts and replay check. The comparison below includes it.' }; } else { S.notice = { kind: 'err', msg: m.msg }; } render(); break;
+    case 'sens_done': S.sensBusy = false; liveEnd(); if (m.ok) { S.sens = S.sens.filter((x) => !(x.parent === m.rec.parent && JSON.stringify(x.remove) === JSON.stringify(m.rec.remove))).concat([m.rec]); S.payloads[m.rec.folder] = m.payload; S.notice = { kind: 'ok', msg: 'Done. The sensitivity analysis is saved in its own folder, with its scripts and replay check. The comparison below includes it.' }; } else { S.notice = { kind: 'err', msg: m.msg }; } render(); break;
     case 'library': S.lib = m.items || []; S.tmpls = m.templates || []; if (m.catalogue) S.cat = m.catalogue; if (S.screen === 'library') render(); break;
     case 'import_head': { if (!S.imp) S.imp = impNew(); const I = S.imp; I.busy = false; I.head = { name: m.name, size: m.size, sep: m.sep, columns: m.columns, rows: m.rows }; I.mapping = {}; I.conf = {}; I.why = {};
       Object.keys(m.suggest || {}).forEach((k) => { I.mapping[k] = m.suggest[k].column; I.conf[k] = m.suggest[k].confidence; I.why[k] = m.suggest[k].why; });
@@ -1820,24 +1863,25 @@ function handle(m) {
     case 'import_report': if (S.imp) { S.imp.report = { ok: m.ok, errors: [].concat(m.errors || []), warnings: [].concat(m.warnings || []), stats: m.stats || {} }; render(); } break;
     case 'import_saved': if (S.imp) { S.imp.saving = false; S.imp.saved = { rec: m.rec, template: m.template }; } S.lib = m.items || []; S.tmpls = m.templates || []; if (m.catalogue) S.cat = m.catalogue; render(); break;
     case 'study_open_failed': S.dialog = { title: 'This study could not be opened', body: m.msg + '\n\nNothing was changed. You can look at the folder yourself, or start a new study.', mono: S.root + '/' + m.name, danger: true, buttons: [{ label: 'Close', a: 'dialog_close' }, { label: 'Show folder', a: 'study_folder', v: m.name, primary: true }] }; render(); break;
-    case 'bidir_cml': S.bcml = m.rows || []; render(); break;
+    case 'bidir_cml': liveEnd(); S.bcml = m.rows || []; render(); break;
     case 'ldsc': S.ldsc = S.ldsc || {}; S.ldsc[m.folder] = { rows: m.rows || [], msg: m.msg || '', text: m.text || '' }; render(); break;
     case 'ldsc_ref': S.ldscRef = m.status; ldscPoll(); render(); break;
     case 'cause': S.cause = S.cause || {}; S.cause[m.folder] = { rows: m.rows || [], msg: m.msg || '', job: m.job || {}, panel: !!m.panel }; causePoll(m.folder); render(); break;
     case 'mrapss': S.apss = S.apss || {}; S.apss[m.folder] = { rows: m.rows || [], msg: m.msg || '', job: m.job || {}, ldsc_official: !!m.ldsc_official, panel: !!m.panel }; mrapssPoll(m.folder); render(); break;
     case 'mrlap': S.mrlap = S.mrlap || {}; S.mrlap[m.folder] = { rows: m.rows || [], msg: m.msg || '', job: m.job || {}, ldsc_official: !!m.ldsc_official }; mrlapPoll(m.folder); render(); break;
     case 'lhcmr': S.lhc = S.lhc || {}; S.lhc[m.folder] = { rows: m.rows || [], msg: m.msg || '', status: m.status || {}, text: m.text || '', options: m.options || [], memory: m.memory || {} }; lhcPoll(m.folder); render(); break;
-    case 'mediation': S.medRes = (m.rows && m.rows.length) ? { rows: m.rows, spec: m.spec } : null; render(); break;
+    case 'mediation': liveEnd(); S.medRes = (m.rows && m.rows.length) ? { rows: m.rows, spec: m.spec } : null; render(); break;
     case 'mvcov_head': { const cols = m.columns || [], lc = (x) => String(x).toLowerCase(); S.mvc = { name: m.name, columns: cols, busy: false,
       cols: S.ex.map((e) => { const n = lc((((S.cat && S.cat.exposures) || []).find((x) => x.id === e) || {}).name || e); return cols.find((c) => lc(c) === n || lc(c) === lc(e)) || ''; }) }; S.notice = null; render(); break; }
     case 'mvcov_error': S.mvc = null; err(m.msg); break;
     case 'mvcov_saved': S.mvcov = m.mvcov || []; S.mvc = null; render(); break;
-    case 'error': if (S.mvc) S.mvc.busy = false; S.sensBusy = false; S.outBusy = false; S.lkBusy = false; if (S.imp) S.imp.saving = false; err(m.msg); break;
+    case 'error': liveEnd(); if (S.mvc) S.mvc.busy = false; S.sensBusy = false; S.outBusy = false; S.lkBusy = false; if (S.imp) S.imp.saving = false; err(m.msg); break;
     case 'ogw_state': S.ogw.token = m.token || { set: false }; S.ogw.cat = m.catalogue || { have: false }; S.ogw.offline = !!m.offline; if (S.screen === 'library' || S.screen === 'settings' || S.screen === 'setup') render(); break;
     case 'ogw_token': S.ogw.tokBusy = false; if (m.ok) S.ogw.token = m.token || { set: false }; S.ogw.tokMsg = { ok: !!m.ok, text: m.msg }; render(); break;
     case 'ogw_token_tested': S.ogw.tokBusy = false; S.ogw.tokMsg = { ok: !!m.ok, text: m.msg }; render(); break;
     case 'ogw_cat': S.ogw.busyCat = false; if (m.ok) { S.ogw.cat = m.status; S.notice = { kind: 'ok', msg: 'The catalogue is saved on this computer: ' + Number(m.status.n).toLocaleString() + ' datasets.' }; ogwSearch(); } else S.notice = { kind: 'err', msg: m.msg }; render(); break;
     case 'ogw_results': if (m.q === S.ogw.q || m.q == null) { S.ogw.res = m.rows || []; S.ogw.total = m.total || 0; const ae = document.activeElement; focusId = ae && (ae.id === 'oq' || ae.id === 'ogw_minn') ? ae.id : null; render(); focusId = null; } break;
+    case 'live': liveAdd(m.msg, m.why); render(); break;
     case 'fullgwas_plan': if (S.fg && S.fg.id === m.id) { S.fg.busy = false; if (m.ok) S.fg.plan = m.plan; else S.fg.msg = m.msg; render(); } break;
     case 'fullgwas_jobs': { const before = (S.fgjobs || []).filter((j) => j.state === 'done').length; S.fgjobs = [].concat(m.jobs || []);
       if (m.items) S.lib = m.items; if (m.catalogue) S.cat = m.catalogue;
@@ -1848,7 +1892,7 @@ function handle(m) {
       fgPoll(); render(); break; }
     case 'vcf_head': { if (S.imp) S.imp.busy = false; const base = String(m.name || '').replace(/\.vcf(\.b?gz)?$/i, '');
       S.vcf = { head: m, name: base, anc: 'EUR', kind: m.kind || 'continuous', ncase: m.ncase || '', ncontrol: m.ncontrol || '', n: '', msg: '', busy: false }; render(); break; }
-    case 'ogw_dl': ogwDone(m); break;
+    case 'ogw_dl': liveEnd(); ogwDone(m); break;
     case 'name_error': S.err = m.msg; render(); break;
     case 'settings_info': S.info = m.info; if (S.screen === 'settings') render(); break;
     case 'diagnostics': S.diagRun = m.items; if (S.screen === 'settings') render(); break;

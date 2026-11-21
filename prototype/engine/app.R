@@ -66,6 +66,54 @@ mr_server <- function(engine_dir) {
     output$hello <- renderText("connected")
     rv <- reactiveValues(h = NULL, imp = NULL)
     ev <- function(t, ...) session$sendCustomMessage("ev", c(list(t = t), list(...)))
+    options(mrstudio.say = function(msg, why = "") ev("live", msg = msg, why = why))   # Round 75d: live narration of the background work
+    options(mrstudio.script_progress = function(dir, console_name) live_scripts(dir, console_name))   # Round 75e: which method is running, on the Run screen
+    # Round 75f: one pair (what the run_pair event did), and the queue the engine works through by itself. Between pairs the queue returns
+    # to Shiny's event loop (later::later), so Pause and Stop from the window are handled; the run no longer needs the window to ask for
+    # each pair, so it continues when the screen is locked or the window hidden. At the end the computer may sleep again and the
+    # notification is shown by the engine.
+    run_one <- function(a) {
+      rq$last_ok <- FALSE
+      req(rv$h)
+      pt <- as.numeric(a$pthr %||% 5e-8)
+      mvp <- length(unlist(a$ex)) > 1   # Round 50: several exposures in one model
+      inp <- tryCatch(if (!is.null(a$med)) mediation_pair_input(a$med, pt) else if (mvp) mv_pair_input(a$ex, a$out, pt) else pair_input(a$ex, a$out, pt), error = function(e) e)   # Round 57: mediation steps
+      if (mvp && !inherits(inp, "error")) inp <- tryCatch({ inp$input <- mv_with_cov(rv$h, a$ex, inp$input); inp }, error = function(e) e)   # Round 55
+      if (inherits(inp, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
+      meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
+      live_reset(); .say(sprintf("Pair %s: %s → %s, %d instruments; preparing the analysis data and writing one R script per method", a$i + 1L, inp$exposure_label, inp$outcome_label, sum(inp$input$data$mr_keep %in% TRUE)), "The scripts and the data are saved in the pair folder, so every result can be rerun in R and checked.")
+      # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
+      old <- Filter(function(p) identical(p$ex, a$ex) && identical(p$out, a$out), ui_state_get(rv$h$con, "pairs") %||% list())
+      idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
+      sti <- if (any(c("steiger", "ivw_steiger") %in% meths)) steiger_input(inp, list(x = a$prev$x, y = a$prev$y)) else NULL   # prevalence the analyst entered for a binary trait
+      r <- tryCatch(studio_run(rv$h, inp$exposure_label, inp$outcome_label, inp$input, meths, ci, idx = idx, params = prm, steiger_in = sti), error = function(e) e)
+      if (inherits(r, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(r)); return() }
+      bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
+      # Round 70c: each method runs on its own; the pair fails only when no method finished, otherwise it is saved and the failures are named
+      if (length(bad) && length(bad) == length(r$results)) { ev("pair_done", i = a$i, ok = FALSE, msg = paste("No method finished:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
+      if (length(bad)) r$left_out <- c(r$left_out, stats::setNames(vapply(r$results[bad], function(x) paste0("stopped with an error (", gsub("^FAILED [^:]+: ", "", paste(x$messages, collapse = " ")), ")"), ""), bad))
+      tryCatch(save_instrument_selection(rv$h$dir, r$pair_folder, inp$selection), error = function(e) NULL)
+      tryCatch(save_eaf_check(rv$h$dir, r$pair_folder, inp$eaf_rows), error = function(e) NULL)   # Round 33
+      pl <- ui_state_get(rv$h$con, "pairs") %||% list()
+      pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
+      pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), mv = mvp, med = a$med, exNames = if (mvp) as.list(inp$exposure_labels) else NULL, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
+      ui_state_set(rv$h$con, "pairs", pl)
+      rq$last_ok <- TRUE; ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder), left_out = if (length(r$left_out)) paste(sprintf("%s: %s.", names(r$left_out), r$left_out), collapse = " ") else "")
+    }
+    rq <- new.env()
+    run_queue_step <- function() {
+      if (is.null(rq$pairs)) return(invisible())
+      if (isTRUE(rq$pause) && !isTRUE(rq$stop)) return(invisible())   # continued by run_pause(on = FALSE)
+      if (isTRUE(rq$stop) || rq$k > length(rq$pairs)) {
+        stopped <- isTRUE(rq$stop) && rq$k <= length(rq$pairs); rq$pairs <- NULL
+        keep_awake_stop()
+        if (isTRUE(settings_read()$notify)) notify_done("MR Studio", sprintf("%s %s: %d of %d pair%s saved.", if (nzchar(rq$study)) rq$study else "The analysis", if (stopped) "stopped" else "finished", rq$ok + rq$done_before, rq$total, if (rq$total == 1) "" else "s"))
+        ev("run_queue_done", stopped = stopped); return(invisible()) }
+      a <- rq$pairs[[rq$k]]; rq$k <- rq$k + 1L
+      ok <- tryCatch({ shiny::isolate(run_one(a)); TRUE }, error = function(e) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(e)); FALSE })
+      if (isTRUE(ok) && isTRUE(rq$last_ok)) rq$ok <- rq$ok + 1L
+      later::later(run_queue_step, 0.05); invisible()
+    }
     ogw_ev <- function() ev("ogw_state", token = ogw_token_info(ogw_token_get()), catalogue = ogw_catalogue_status(), offline = isTRUE(settings_read()$offline))
     close_study <- function() { if (!is.null(rv$h)) try(DBI::dbDisconnect(rv$h$con), silent = TRUE); rv$h <- NULL }
     onSessionEnded(function() isolate(close_study()))
@@ -166,17 +214,22 @@ mr_server <- function(engine_dir) {
           study_msg("study_opened", h, to = a$to %||% "auto")
         },
         facts = {
-          pt <- as.numeric(a$pthr %||% 5e-8); f <- lapply(a$pairs, function(p) tryCatch({ mi <- if (length(p) > 2 && !is.null(p[[3]])) mediation_pair_input(p[[3]], pt) else NULL   # Round 57: mediation steps
+          pt <- as.numeric(a$pthr %||% 5e-8); np <- length(a$pairs); ip <- 0L; f <- lapply(a$pairs, function(p) tryCatch({ ip <<- ip + 1L
+            .say(sprintf("Pair %d of %d, %s → %s: reading both datasets, keeping the variants below P %s and matching each one in the outcome", ip, np, paste(sub("^lib:", "", unlist(p[[1]])), collapse = " + "), sub("^lib:", "", p[[2]]), format(pt)), "Each instrument's effect on the exposure and on the outcome must refer to the same allele, so the alleles are aligned and ambiguous variants are handled before anything is estimated.")
+            mi <- if (length(p) > 2 && !is.null(p[[3]])) mediation_pair_input(p[[3]], pt) else NULL   # Round 57: mediation steps
             if (length(unlist(p[[1]])) > 1) mv_pair_facts(p[[1]], p[[2]], pt, mi) else pair_facts(p[[1]], p[[2]], pt, mi) }, error = function(e) list(error = conditionMessage(e))))   # Round 50: MVMR pairs
           rv$facts <- Filter(function(x) is.null(x$error), f)
+          .say("Running the checks: instrument strength (F statistics), ancestry, sample overlap, units, palindromic variants, allele frequencies and the direction of effect", "Each check is shown with what it means; items marked REVIEW do not stop the study and are written into the limitations.")
           ev("facts", facts = f, feas = feasibility(Filter(function(x) !isTRUE(x$mv), rv$facts), run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list()))
         },
         mediation = {   # Round 57: write and run the mediation script over the study's mediation pairs
-          req(rv$h); res <- mediation_run(rv$h, ui_state_get(rv$h$con, "pairs") %||% list(), as.numeric(a$ci %||% 0.95))
+          req(rv$h); .say("Mediation: combining the steps into the total, direct and indirect effects and the proportion mediated, with delta-method intervals", "The total effect comes from univariable MR, the direct effect from multivariable MR; the indirect effect is their product (exposure on mediator times mediator on outcome) and also total minus direct.")
+          res <- mediation_run(rv$h, ui_state_get(rv$h$con, "pairs") %||% list(), as.numeric(a$ci %||% 0.95))
           ev("mediation", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), spec = attr(res, "spec"))   # Shiny sends a data frame by columns
         },
         bidir_cml = {   # Round 63: bidirectional constrained maximum likelihood over each forward/reverse couple
           req(rv$h); if (!requireNamespace("BiDirectCausal", quietly = TRUE)) { ev("bidir_cml", rows = list(), msg = "BiDirectCausal is not installed in this runtime."); return() }
+          .say("Bidirectional MR-cML: estimating both directions together for each pair of traits", "Fitting both directions jointly allows for the reverse effect when estimating each one.")
           res <- bidir_cml_run(rv$h, ui_state_get(rv$h$con, "pairs") %||% list())
           ev("bidir_cml", rows = unlist(lapply(names(res), function(k) { r <- res[[k]]; if (!is.data.frame(r)) return(list())
             lapply(seq_len(nrow(r)), function(i) c(list(forward = k), as.list(r[i, , drop = FALSE]))) }), recursive = FALSE), errors = Filter(Negate(is.data.frame), res))
@@ -230,32 +283,12 @@ mr_server <- function(engine_dir) {
           ev("mvcov_saved", mvcov = st)
         },
         mvcov_clear = { req(rv$h); ev("mvcov_saved", mvcov = mv_cov_clear(rv$h, a$ex)) },
-        run_pair = {
-          req(rv$h)
-          pt <- as.numeric(a$pthr %||% 5e-8)
-          mvp <- length(unlist(a$ex)) > 1   # Round 50: several exposures in one model
-          inp <- tryCatch(if (!is.null(a$med)) mediation_pair_input(a$med, pt) else if (mvp) mv_pair_input(a$ex, a$out, pt) else pair_input(a$ex, a$out, pt), error = function(e) e)   # Round 57: mediation steps
-          if (mvp && !inherits(inp, "error")) inp <- tryCatch({ inp$input <- mv_with_cov(rv$h, a$ex, inp$input); inp }, error = function(e) e)   # Round 55
-          if (inherits(inp, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
-          meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
-          # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
-          old <- Filter(function(p) identical(p$ex, a$ex) && identical(p$out, a$out), ui_state_get(rv$h$con, "pairs") %||% list())
-          idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-          sti <- if (any(c("steiger", "ivw_steiger") %in% meths)) steiger_input(inp, list(x = a$prev$x, y = a$prev$y)) else NULL   # prevalence the analyst entered for a binary trait
-          r <- tryCatch(studio_run(rv$h, inp$exposure_label, inp$outcome_label, inp$input, meths, ci, idx = idx, params = prm, steiger_in = sti), error = function(e) e)
-          if (inherits(r, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(r)); return() }
-          bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
-          # Round 70c: each method runs on its own; the pair fails only when no method finished, otherwise it is saved and the failures are named
-          if (length(bad) && length(bad) == length(r$results)) { ev("pair_done", i = a$i, ok = FALSE, msg = paste("No method finished:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
-          if (length(bad)) r$left_out <- c(r$left_out, stats::setNames(vapply(r$results[bad], function(x) paste0("stopped with an error (", gsub("^FAILED [^:]+: ", "", paste(x$messages, collapse = " ")), ")"), ""), bad))
-          tryCatch(save_instrument_selection(rv$h$dir, r$pair_folder, inp$selection), error = function(e) NULL)
-          tryCatch(save_eaf_check(rv$h$dir, r$pair_folder, inp$eaf_rows), error = function(e) NULL)   # Round 33
-          pl <- ui_state_get(rv$h$con, "pairs") %||% list()
-          pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
-          pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), mv = mvp, med = a$med, exNames = if (mvp) as.list(inp$exposure_labels) else NULL, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
-          ui_state_set(rv$h$con, "pairs", pl)
-          ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder), left_out = if (length(r$left_out)) paste(sprintf("%s: %s.", names(r$left_out), r$left_out), collapse = " ") else "")
-        },
+        run_pair = run_one(a),
+        run_all = {   # Round 75f: the engine runs the queue of pairs itself (see run_queue_step)
+          req(rv$h); rq$pairs <- a$pairs; rq$k <- 1L; rq$pause <- FALSE; rq$stop <- FALSE; rq$ok <- 0L; rq$total <- as.integer(a$total %||% length(a$pairs)); rq$study <- a$study %||% ""
+          rq$done_before <- rq$total - length(a$pairs); later::later(run_queue_step, 0.05) },
+        run_pause = { rq$pause <- isTRUE(a$on); if (!rq$pause && !is.null(rq$pairs)) later::later(run_queue_step, 0.05) },
+        run_stop = { rq$stop <- TRUE; if (isTRUE(rq$pause) || is.null(rq$pairs)) { rq$pause <- FALSE; later::later(run_queue_step, 0.05) } },
         instruments = ev("instruments", folder = a$folder, rows = { it <- instrument_table(a$ex, a$out, as.numeric(a$pthr %||% 5e-8)); unname(lapply(seq_len(nrow(it)), function(i) as.list(it[i, , drop = FALSE]))) }),
         full_status = { r <- tryCatch(full_gwas_status(a$ex, a$out), error = function(e) list(ok = FALSE, why = "instruments")); ev("full_status", folder = a$folder, ok = isTRUE(r$ok), why = r$why) },   # Round 72e
         mv_review = {   # Round 72e: per-variant contributions to the MVMR-IVW heterogeneity, and MVMR-Lasso's flags

@@ -79,6 +79,7 @@ bidir_reverse <- function(ex_id, out_id, jwt = NULL, offline = FALSE, root = stu
   es <- e$source; os <- o$source
   if (!identical(es$type, "opengwas") || !identical(os$type, "opengwas") || is.null(es$id) || is.null(os$id))
     stop(sprintf("The reverse direction needs \"%s\" as an exposure and \"%s\" as an outcome for it. Download both from OpenGWAS, or import the full summary statistics of both traits.", o$trait, e$trait), call. = FALSE)
+  .say(sprintf("Reverse direction %s → %s: preparing %s as an exposure", o$trait, e$trait, o$trait), "Bidirectional MR tests each direction with its own instruments: the variants of the outcome trait become the instruments of the reverse direction.")
   rx <- ogw_ensure_exposure(os, o$trait, es$params, jwt, offline, root, get_exposure)
   ry <- ogw_ensure_outcome(es, e$trait, rx$name, os$params, jwt, offline, root, get_outcome)
   nx <- rx$name; ny <- ry$name; note <- c(rx$note, ry$note); note <- note[nzchar(note)]
@@ -89,7 +90,8 @@ bidir_reverse <- function(ex_id, out_id, jwt = NULL, offline = FALSE, root = stu
 ogw_ensure_exposure <- function(src, label, px, jwt, offline, root, get_exposure = ogw_get_exposure) {
   kx <- c("pval", "clump", "r2", "kb", "pop", "where")
   hit <- Filter(function(r) identical(r$source$type, "opengwas") && identical(r$source$id, src$id) && isTRUE(r$usable_as_exposure) && .same_params(r$source$params, px, kx), .lib_recipes(root))
-  if (length(hit)) return(list(name = names(hit)[1], note = ""))
+  if (length(hit)) { .say(sprintf("%s as an exposure is already in the Data library (same settings), so it is reused", src$trait %||% label)); return(list(name = names(hit)[1], note = "")) }
+  .say(sprintf("Downloading the instruments of %s (%s) from OpenGWAS: P < %s, clumped", src$trait %||% label, src$id, format(as.numeric(px$pval %||% 5e-8))), "Instruments are the genome-wide significant variants of the trait, one per region.")
   nx <- .free_name(sprintf("%s (%s)", src$trait %||% label, src$id), root)
   nx <- get_exposure(src$id, jwt, as.numeric(px$pval %||% 5e-8), as.numeric(px$r2 %||% 0.001), as.numeric(px$kb %||% 10000), px$pop, nx, offline, root = root, where = px$where %||% "server")$trait
   list(name = nx, note = sprintf("downloaded \"%s\" as an exposure", nx))
@@ -98,7 +100,8 @@ ogw_ensure_exposure <- function(src, label, px, jwt, offline, root, get_exposure
 ogw_ensure_outcome <- function(src, label, exposure_name, py, jwt, offline, root, get_outcome = ogw_get_outcome) {
   ky <- c("proxies", "rsq", "maf_threshold")
   hit <- Filter(function(r) identical(r$source$type, "opengwas") && identical(r$source$id, src$id) && identical(r$source$for_exposure, exposure_name) && .same_params(r$source$params, py, ky), .lib_recipes(root))
-  if (length(hit)) return(list(name = names(hit)[1], note = ""))
+  if (length(hit)) { .say(sprintf("%s looked up for %s is already in the Data library, so it is reused", src$trait %||% label, exposure_name)); return(list(name = names(hit)[1], note = "")) }
+  .say(sprintf("Looking up the instruments of %s in %s (%s) on OpenGWAS, with proxies where one is missing", exposure_name, src$trait %||% label, src$id), "Each instrument's effect on the outcome is needed; a proxy is a nearby variant in strong linkage (r² of at least 0.8) used when the instrument itself is missing.")
   ny <- .free_name(sprintf("%s for %s", src$trait %||% label, exposure_name), root)
   ny <- get_outcome(src$id, exposure_name, jwt, !identical(py$proxies, FALSE), as.numeric(py$rsq %||% 0.8), as.numeric(py$maf_threshold %||% 0.3), ny, offline, root = root)$trait
   list(name = ny, note = sprintf("downloaded \"%s\" as an outcome for %s", ny, exposure_name))
