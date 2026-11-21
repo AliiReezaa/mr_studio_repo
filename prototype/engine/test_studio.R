@@ -1891,7 +1891,7 @@ local({
     f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
     writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
       "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
-      "const cst = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, src.indexOf(';\\n', i) + 1); };",
+      "const cst = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, i + src.slice(i).search(/;\\r?\\n/) + 1); };",
       "global.document = { getElementById: () => null }; global.S = { lives: {}, _pin: {}, _top: {} }; let now = 1000; Date.now = () => now; global.setTimeout = () => 0; global.clearTimeout = () => 0;",
       "eval(cst('LIVE_GROUP') + cst('LIVE_PREP') + cst('mmss') + grab('liveOpen') + grab('liveEnd') + grab('liveAdd') + grab('liveFollow') + grab('liveTick'));",
       "liveOpen('check'); liveAdd('Pair 1 of 2', '', 'facts'); now = 200000; liveEnd('check');",
@@ -1959,7 +1959,7 @@ local({
     f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
     writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
       "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
-      "const cst = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, src.indexOf(';\\n', i) + 1); };",
+      "const cst = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, i + src.slice(i).search(/;\\r?\\n/) + 1); };",
       "global.S = { ldscRef: { official: true, computed: [] } }; global.send = () => 0; global.esc = (x) => String(x);",
       "eval(cst('POPN') + grab('ldrefState') + grab('ldrefNote'));",
       "const av = { EUR: { panel: true, scores: true, official: true }, EAS: { panel: true, scores: false, official: false } };",
