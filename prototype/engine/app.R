@@ -66,7 +66,7 @@ mr_server <- function(engine_dir) {
     output$hello <- renderText("connected")
     rv <- reactiveValues(h = NULL, imp = NULL)
     ev <- function(t, ...) session$sendCustomMessage("ev", c(list(t = t), list(...)))
-    options(mrstudio.say = function(msg, why = "") ev("live", msg = msg, why = why))   # Round 75d: live narration of the background work
+    options(mrstudio.say = function(msg, why = "") ev("live", msg = msg, why = why, act = getOption("mrstudio.act", "")))   # Round 75d: live narration of the background work; Round 80: each message names its action (its own box on the screen)
     options(mrstudio.script_progress = function(dir, console_name) live_scripts(dir, console_name))   # Round 75e: which method is running, on the Run screen
     # Round 75f: one pair (what the run_pair event did), and the queue the engine works through by itself. Between pairs the queue returns
     # to Shiny's event loop (later::later), so Pause and Stop from the window are handled; the run no longer needs the window to ask for
@@ -81,6 +81,10 @@ mr_server <- function(engine_dir) {
       if (is.null(med)) return(NULL)
       mediation_pair_input(med, as.numeric(a$pthr %||% rec[[1]]$pthr %||% 5e-8))
     }
+    # Round 80: a finished pair carries its start, finish and duration as the engine measured them, so the screen shows the right times
+    # even when the window was asleep (a locked screen) and receives the news late
+    pair_done <- function(...) { t0 <- rq$t_start %||% Sys.time(); t1 <- Sys.time()
+      ev("pair_done", ..., started = format(t0, "%H:%M:%S"), finished = format(t1, "%H:%M:%S"), secs = round(as.numeric(difftime(t1, t0, units = "secs")))) }
     run_one <- function(a) {
       rq$last_ok <- FALSE
       req(rv$h)
@@ -88,7 +92,7 @@ mr_server <- function(engine_dir) {
       mvp <- length(unlist(a$ex)) > 1   # Round 50: several exposures in one model
       inp <- tryCatch(if (!is.null(a$med)) mediation_pair_input(a$med, pt) else if (mvp) mv_pair_input(a$ex, a$out, pt) else pair_input(a$ex, a$out, pt), error = function(e) e)   # Round 57: mediation steps
       if (mvp && !inherits(inp, "error")) inp <- tryCatch({ inp$input <- mv_with_cov(rv$h, a$ex, inp$input); inp }, error = function(e) e)   # Round 55
-      if (inherits(inp, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
+      if (inherits(inp, "error")) { pair_done(i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
       meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
       live_reset(); .say(sprintf("Pair %s: %s → %s, %d instruments; preparing the analysis data and writing one R script per method", a$i + 1L, inp$exposure_label, inp$outcome_label, sum(inp$input$data$mr_keep %in% TRUE)), "The scripts and the data are saved in the pair folder, so every result can be rerun in R and checked.")
       # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
@@ -96,10 +100,10 @@ mr_server <- function(engine_dir) {
       idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
       sti <- if (any(c("steiger", "ivw_steiger") %in% meths)) steiger_input(inp, list(x = a$prev$x, y = a$prev$y)) else NULL   # prevalence the analyst entered for a binary trait
       r <- tryCatch(studio_run(rv$h, inp$exposure_label, inp$outcome_label, inp$input, meths, ci, idx = idx, params = prm, steiger_in = sti), error = function(e) e)
-      if (inherits(r, "error")) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(r)); return() }
+      if (inherits(r, "error")) { pair_done(i = a$i, ok = FALSE, msg = conditionMessage(r)); return() }
       bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
       # Round 70c: each method runs on its own; the pair fails only when no method finished, otherwise it is saved and the failures are named
-      if (length(bad) && length(bad) == length(r$results)) { ev("pair_done", i = a$i, ok = FALSE, msg = paste("No method finished:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
+      if (length(bad) && length(bad) == length(r$results)) { pair_done(i = a$i, ok = FALSE, msg = paste("No method finished:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
       if (length(bad)) r$left_out <- c(r$left_out, stats::setNames(vapply(r$results[bad], function(x) paste0("stopped with an error (", gsub("^FAILED [^:]+: ", "", paste(x$messages, collapse = " ")), ")"), ""), bad))
       tryCatch(save_instrument_selection(rv$h$dir, r$pair_folder, inp$selection), error = function(e) NULL)
       tryCatch(save_eaf_check(rv$h$dir, r$pair_folder, inp$eaf_rows), error = function(e) NULL)   # Round 33
@@ -107,7 +111,7 @@ mr_server <- function(engine_dir) {
       pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
       pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), mv = mvp, med = a$med, exNames = if (mvp) as.list(inp$exposure_labels) else NULL, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
       ui_state_set(rv$h$con, "pairs", pl)
-      rq$last_ok <- TRUE; ev("pair_done", i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder), left_out = if (length(r$left_out)) paste(sprintf("%s: %s.", names(r$left_out), r$left_out), collapse = " ") else "")
+      rq$last_ok <- TRUE; pair_done(i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder), left_out = if (length(r$left_out)) paste(sprintf("%s: %s.", names(r$left_out), r$left_out), collapse = " ") else "")
     }
     rq <- new.env()
     run_queue_step <- function() {
@@ -118,8 +122,9 @@ mr_server <- function(engine_dir) {
         keep_awake_stop()
         if (isTRUE(settings_read()$notify)) notify_done("MR Studio", sprintf("%s %s: %d of %d pair%s saved.", if (nzchar(rq$study)) rq$study else "The analysis", if (stopped) "stopped" else "finished", rq$ok + rq$done_before, rq$total, if (rq$total == 1) "" else "s"))
         ev("run_queue_done", stopped = stopped); return(invisible()) }
-      a <- rq$pairs[[rq$k]]; rq$k <- rq$k + 1L
-      ok <- tryCatch({ shiny::isolate(run_one(a)); TRUE }, error = function(e) { ev("pair_done", i = a$i, ok = FALSE, msg = conditionMessage(e)); FALSE })
+      a <- rq$pairs[[rq$k]]; rq$k <- rq$k + 1L; rq$t_start <- Sys.time()
+      old_act <- options(mrstudio.act = "run_all"); on.exit(options(old_act), add = TRUE)   # Round 80: the run's own box on the screen
+      ok <- tryCatch({ shiny::isolate(run_one(a)); TRUE }, error = function(e) { pair_done(i = a$i, ok = FALSE, msg = conditionMessage(e)); FALSE })
       if (isTRUE(ok) && isTRUE(rq$last_ok)) rq$ok <- rq$ok + 1L
       later::later(run_queue_step, 0.05); invisible()
     }
@@ -171,6 +176,7 @@ mr_server <- function(engine_dir) {
 
     observeEvent(input$act, {
       a <- input$act; t <- a$t
+      old_act <- options(mrstudio.act = t); on.exit({ options(old_act); if (!identical(t, "run_all")) ev("live_end", act = t) }, add = TRUE)   # Round 80: the screen closes this action's box
       tryCatch((function() switch(t,
         init = {
           s <- settings_read(); root <- studies_root()

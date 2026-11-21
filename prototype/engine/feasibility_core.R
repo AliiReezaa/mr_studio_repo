@@ -32,7 +32,8 @@ feas_i2gx <- function(bx, sx) { ok <- is.finite(bx) & is.finite(sx) & sx > 0; if
   thr <- suppressWarnings(as.numeric(r$threshold))
   switch(test,
     several_pairs = if (ctx$n_pairs > 1) list(n = ctx$n_pairs, bonf = format(signif(0.05 / ctx$n_pairs, 3))),
-    ancestry_differs = { ax <- f$anc_x %||% "?"; ay <- f$anc_y %||% "?"; if (!(ax %in% c("?", "")) && !(ay %in% c("?", "")) && !identical(ax, ay)) list(ax = ax, ay = ay) },
+    ancestry_differs = { ax <- f$gpop_x %||% f$anc_x %||% "?"; ay <- f$gpop_y %||% f$anc_y %||% "?";   # Round 80: the GWAS populations (OpenGWAS) where known, not the clumping panel
+      if (!(ax %in% c("?", "")) && !(ay %in% c("?", "")) && !identical(ax, ay)) list(ax = ax, ay = ay) },
     steiger_data = { w <- f$steiger$why %||% ""; if (nzchar(w)) list(why = w) },
     iv_below_min = { mi <- ctx$min_ivs[[m]]; if (f$instruments < mi) list(min = mi, n = f$instruments) },
     iv_below_recommended = if (f$instruments < thr && f$instruments >= ctx$min_ivs[[m]]) list(n = f$instruments, thr = thr,

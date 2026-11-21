@@ -141,10 +141,12 @@ demo_catalogue <- function() {
 #' Datasets imported by the user, offered next to the simulated traits. An exposure must be marked as already independent, or set to be clumped on this computer (Round 19).
 library_catalogue <- function(root = studies_root()) {
   recs <- tryCatch(library_list(root), error = function(e) list())
-  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else if (identical(r$source$type, "opengwas_vcf")) "OpenGWAS, complete GWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?")
+  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, gwas = r$source$id %||% "", src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else if (identical(r$source$type, "opengwas_vcf")) "OpenGWAS, complete GWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?")
   list(exposures = lapply(Filter(function(r) isTRUE(r$usable_as_exposure), recs), mk, role = "exposure"),
        outcomes = lapply(Filter(function(r) isTRUE(r$usable_as_outcome), recs), mk, role = "outcome"))
 }
+# Round 80: the population OpenGWAS gives for a downloaded GWAS ("European", "Mixed", ...), as a panel code where there is one; NULL otherwise
+.gwas_pop <- function(rec) if (identical(rec$source$type, "opengwas") && length(rec$source$population)) .ogw_ancestry(rec$source$population) else NULL
 catalogue_all <- function(root = studies_root()) {
   d <- demo_catalogue(); l <- library_catalogue(root)
   list(exposures = c(l$exposures, d$exposures), outcomes = c(l$outcomes, d$outcomes))
@@ -297,7 +299,7 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   sc <- if (identical(ou$recipe$facts$kind, "binary")) "log_or" else "beta"
   scx <- if (identical(ex$recipe$facts$kind, "binary")) "log_or" else "beta"
   list(exposure_label = ex$recipe$trait, outcome_label = ou$recipe$trait, simulated = FALSE, ledger = led, selection = sel, eaf_rows = eaf_rows,
-       anc_x = ex$recipe$facts$ancestry %||% "?", anc_y = ou$recipe$facts$ancestry %||% "?", ukb_both = isTRUE(ex$recipe$facts$ukb) && isTRUE(ou$recipe$facts$ukb),
+       anc_x = ex$recipe$facts$ancestry %||% "?", anc_y = ou$recipe$facts$ancestry %||% "?", gpop_x = .gwas_pop(ex$recipe), gpop_y = .gwas_pop(ou$recipe), ukb_both = isTRUE(ex$recipe$facts$ukb) && isTRUE(ou$recipe$facts$ukb),   # Round 80: gpop_*: the GWAS's own population (OpenGWAS) besides the panel used
        source_x = ex$recipe$source$id %||% NULL, source_y = ou$recipe$source$id %||% NULL,
        binary = list(x = if (identical(scx, "log_or")) .case_counts(ex$recipe) else NULL, y = if (identical(sc, "log_or")) .case_counts(ou$recipe) else NULL),
        input = list(kind = "pair_iv", data = d, exposure_id = exp_id, outcome_id = out_id, outcome_scale = sc, exposure_scale = scx))
@@ -367,7 +369,7 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8, p = NULL) {   # p: an input 
   list(ex_id = exp_id, out_id = out_id, exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(kept), mean_f = round(mean(Fs), 1), min_f = round(min(Fs), 1),
        n_weak = sum(Fs < 10), palindromic = pal, scale = p$input$outcome_scale,
        has_n = nrow(kept) > 0 && all(c("n_x", "n_y") %in% names(kept)) && all(is.finite(kept$n_x) & is.finite(kept$n_y) & kept$n_x > 2 & kept$n_y > 2),
-       simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y),
+       simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, gpop_x = p$gpop_x, gpop_y = p$gpop_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y),
        scale_x = p$input$exposure_scale %||% "beta", steiger = steiger_readiness(p),
        i2gx = if (exists("feas_i2gx")) feas_i2gx(kept$beta_x, kept$se_x) else NA_real_, full_gwas = full_gwas_status(exp_id, out_id))
 }

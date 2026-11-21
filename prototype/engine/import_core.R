@@ -2,29 +2,35 @@
 # Plain base R on purpose, so the bundled runtime needs nothing extra. Individual-level data is refused (S-06).
 
 IMPORT_ROLES <- c(snp = "Variant ID (rsID)", chr = "Chromosome", pos = "Position", ea = "Effect allele", oa = "Other allele", eaf = "Effect allele frequency",
-                  beta = "Effect size", se = "Standard error", p = "P value", n = "Sample size", z = "Z score")
+                  beta = "Effect size", se = "Standard error", p = "P value", n = "Sample size", z = "Z score",
+                  ci_lower = "Lower confidence limit", ci_upper = "Upper confidence limit", test = "Test (PLINK 2, REGENIE)", oa_alt = "Second other-allele column (PLINK 2 REF and ALT)")
 IMPORT_REQUIRED <- c("snp", "ea", "oa", "beta", "se")   # Round 77: the effect or the SE may be derived (see import_missing)
 
 .norm_col <- function(x) gsub("[^a-z0-9]", "", tolower(x))
 
 IMPORT_SYNONYMS <- list(
-  snp = c("snp", "rsid", "rsids", "rs", "markername", "marker", "variantid", "variant", "snpid", "id", "rsnumber", "rsnum"),
+  snp = c("snp", "rsid", "rsids", "rs", "markername", "marker", "variantid", "variant", "snpid", "id", "rsnumber", "rsnum", "markerid"),
   chr = c("chr", "chrom", "chromosome", "chrcode", "chromosomenumber", "hgchr"),
-  pos = c("pos", "position", "bp", "basepair", "basepairposition", "bppos", "bpposition", "genpos", "chrpos", "hgpos"),
+  pos = c("pos", "position", "bp", "basepair", "basepairposition", "bppos", "bpposition", "genpos", "chrpos", "hgpos", "basepairlocation", "bplocation"),
   ea = c("ea", "effectallele", "a1", "allele1", "alt", "testedallele", "eallele", "effallele", "codedallele", "tested"),
-  oa = c("oa", "otherallele", "a2", "allele2", "ref", "nea", "noneffectallele", "reference", "refallele", "nonefallele", "othalle"),
-  eaf = c("eaf", "effectallelefreq", "effectallelefrequency", "freq", "frq", "af", "a1freq", "freq1", "afreq", "af1", "effectaf", "a1frq",
+  oa = c("oa", "otherallele", "a2", "allele2", "ref", "nea", "noneffectallele", "reference", "refallele", "nonefallele", "othalle", "allele0", "a0", "nonea"),
+  eaf = c("eaf", "effectallelefreq", "effectallelefrequency", "freq", "frq", "af", "a1freq", "freq1", "afreq", "af1", "effectaf", "a1frq", "afalt", "altfreq", "afallele2", "a2freq", "freqtestedallele", "testedallelefreq",
           "maf", "minorallelefreq", "minorallelefrequency"),   # Round 77: a MAF heading is matched here but marked as a minor allele frequency (import_hints)
   beta = c("beta", "b", "effect", "effectsize", "es", "logor", "logodds", "estimate", "betahat", "or", "oddsratio"),
-  se = c("se", "stderr", "stderror", "standarderror", "sebeta", "sebetahat", "selogor"),
+  se = c("se", "stderr", "stderror", "standarderror", "sebeta", "sebetahat", "selogor", "logorse", "orse", "selnor", "selogodds"),
   p = c("p", "pval", "pvalue", "pvalu", "pvalues", "pvalueassoc", "plrt", "pwald", "pbolt", "pboltlmminf", "pboltlmm",
         "negativelog10p", "neglog10p", "mlog10p", "minuslog10p", "log10p", "neglogp", "mlogp", "logp", "lp", "neglog10pval", "mlog10pval", "log10pvalue", "neglog10pvalue"),   # Round 77: -log10(P) headings are converted (import_hints)
-  n = c("n", "samplesize", "neff", "totaln", "nsamples", "ntotal", "nsample", "weight", "nobs"),
-  z = c("z", "zscore", "zstat", "zstatistic", "zvalue", "zval"))
+  n = c("n", "samplesize", "neff", "totaln", "nsamples", "ntotal", "nsample", "weight", "nobs", "ncompletesamples", "obsct"),
+  z = c("z", "zscore", "zstat", "zstatistic", "zvalue", "zval"),
+  # Round 79: a confidence interval instead of an SE (papers, GWAS Catalog), and the PLINK 2 / REGENIE test column
+  ci_lower = c("cilower", "lci", "lowerci", "lower95", "l95", "lower95ci", "ci95lower", "cilow", "lowerlimit", "orlower95", "orlci", "lowerbound", "orl95", "betalower", "betal95", "lcl"),
+  ci_upper = c("ciupper", "uci", "upperci", "upper95", "u95", "upper95ci", "ci95upper", "cihigh", "upperlimit", "orupper95", "oruci", "upperbound", "oru95", "betaupper", "betau95", "ucl"),
+  test = c("test"))
 
 #' Layers 1 and 2 of FR-78: normalised synonyms (high) and fuzzy matches (medium, with a score). Layer 3 looks at the values (low).
 import_suggest <- function(cols, rows) {
   nc <- sub("(hg19|hg38|grch37|grch38|b37|b38|build37|build38)$", "", .norm_col(cols)); out <- list(); used <- character()   # Round 77: POS_hg38 is a position
+  nc <- ifelse(grepl("^hm.", nc), sub("^hm", "", nc), nc)   # Round 79: GWAS Catalog harmonised columns (hm_beta, hm_rsid, ...)
   pick <- function(role, col, conf, why) { if (!(col %in% used)) { out[[role]] <<- list(column = col, confidence = conf, why = why); used <<- c(used, col) } }
   # Round 77: when several headings match, the earliest synonym wins (a plain P before a -log10 P, an EAF before a MAF)
   for (role in names(IMPORT_SYNONYMS)) { h <- which(nc %in% IMPORT_SYNONYMS[[role]]); h <- h[!(cols[h] %in% used)]; if (length(h)) pick(role, cols[h[order(match(nc[h], IMPORT_SYNONYMS[[role]]))[1]]], "high", "Matches a known heading") }
@@ -41,9 +47,22 @@ import_suggest <- function(cols, rows) {
       v <- vals(col); if (length(v) < 3) next; num <- suppressWarnings(as.numeric(v))
       ok <- switch(role, snp = all(grepl("^rs[0-9]+$", v)), ea = , oa = all(grepl("^[ACGTacgt]$", v)),
                    pos = all(!is.na(num)) && all(num == round(num)) && all(num > 1000), p = all(!is.na(num)) && all(num >= 0 & num <= 1) && any(num < 0.01) && stats::median(num) > 0.1,
-                   eaf = all(!is.na(num)) && all(num > 0 & num < 1), FALSE)
+                   eaf = all(!is.na(num)) && all(num > 0 & num < 1) && grepl("fr|af", .norm_col(col)), FALSE)   # Round 79: an interval column is not a frequency
       if (ok) { pick(role, col, "low", "Guessed from the values, please confirm"); free <- setdiff(free, col); break }
     }
+  }
+  # Round 79: a variant column without rsIDs (chr:pos:ref:alt, chr_pos_a1_a2) is not an rsID column when chromosome and position are there
+  if (!is.null(out$snp) && !is.null(out$chr) && !is.null(out$pos)) { v <- vals(out$snp$column); if (length(v) && !any(grepl("^rs[0-9]", v))) out$snp <- NULL }
+  # Round 79: SAIGE reports the effect of Allele2 (AF_Allele2), not Allele1
+  hn <- function(r) if (is.null(out[[r]])) "" else .norm_col(out[[r]]$column)
+  if (grepl("allele2|a2freq", hn("eaf")) && hn("ea") %in% c("allele1", "a1") && hn("oa") %in% c("allele2", "a2")) {
+    e <- out$ea; out$ea <- out$oa; out$oa <- e
+    out$ea$why <- "The frequency column is for Allele2, so Allele2 is the effect allele (as in SAIGE output)"; out$oa$why <- "Allele1 is the reference allele (as in SAIGE output)"
+  }
+  # Round 79: PLINK 2 --glm: A1 is the effect allele and is either REF or ALT; the other allele is the one of REF and ALT that is not A1
+  if (hn("ea") == "a1" && all(c("ref", "alt") %in% nc)) {
+    out$oa <- list(column = cols[match("ref", nc)], confidence = "high", why = "PLINK 2: the other allele is REF, or ALT where A1 is REF")
+    out$oa_alt <- list(column = cols[match("alt", nc)], confidence = "high", why = "PLINK 2: used where A1 is the REF allele")
   }
   out
 }
@@ -52,16 +71,19 @@ IMPORT_MAF_HEADS <- c("maf", "minorallelefreq", "minorallelefrequency")
 IMPORT_MLOG10_HEADS <- c("negativelog10p", "neglog10p", "mlog10p", "minuslog10p", "log10p", "neglogp", "mlogp", "logp", "lp", "neglog10pval", "mlog10pval", "log10pvalue", "neglog10pvalue")
 
 #' Round 77: what the headings and first rows say about the answers on the facts step (each one is shown and can be changed).
-import_hints <- function(cols, rows, sug) {
-  hc <- function(r) if (is.null(sug[[r]])) "" else .norm_col(sug[[r]]$column)
+import_hints <- function(cols, rows, sug, build_check = TRUE) {
+  hc <- function(r) if (is.null(sug[[r]])) "" else { x <- .norm_col(sug[[r]]$column); if (grepl("^hm.", x)) sub("^hm", "", x) else x }
   vals <- function(col) suppressWarnings(as.numeric(vapply(rows, function(r) as.character(r[[col]] %||% NA), "")))
   out <- list()
   if (!is.null(sug$eaf)) out$frq <- if (hc("eaf") %in% IMPORT_MAF_HEADS) "maf" else "eaf"
   if (!is.null(sug$p)) { v <- vals(sug$p$column); out$p_scale <- if (hc("p") %in% IMPORT_MLOG10_HEADS || any(v > 1, na.rm = TRUE)) "mlog10" else "p" }
   if (!is.null(sug$beta) && hc("beta") %in% c("or", "oddsratio")) out$scale <- "or"
+  if (!is.null(sug$beta) && is.null(out$scale)) { v <- vals(sug$beta$column); v <- v[is.finite(v)]; if (length(v) >= 3 && all(v > 0) && stats::median(v) > 0.7 && stats::median(v) < 1.4 && grepl("or|odds|hr|hazard", hc("beta"))) out$scale <- "or" }
   if (is.null(sug$beta) && !is.null(sug$z)) out$scale <- "z"
+  if (identical(out$scale, "z") && is.null(sug$eaf) && !is.null(sug$snp) && !is.na(tryCatch(.panel_pop_any(), error = function(e) NA))) out$eaf_fill <- "panel"   # Round 79: Z scores need a frequency
   all_h <- tolower(paste(cols, collapse = " "))
   if (grepl("hg38|grch38|b38|build38", all_h)) out$build <- "38" else if (grepl("hg19|grch37|b37|build37", all_h)) out$build <- "37"
+  if (build_check) { bg <- tryCatch(import_build_guess(rows, sug), error = function(e) NULL); if (!is.null(bg)) { out$build <- bg$build; out$build_why <- bg$why } }   # Round 79
   out
 }
 
@@ -83,23 +105,109 @@ import_prepare <- function(path, name = basename(path), sheet = NULL) {
   }
   rest <- top[-seq_len(skip + 1L)]; sep <- .detect_sep(sub("^#", "", top[skip + 1L]))
   dec_comma <- sep != "," && length(rest) && mean(grepl("(^|[\t;]) *-?[0-9]+,[0-9]+([eE][-+]?[0-9]+)? *($|[\t;])", rest)) > 0.5
-  if (!bom && !skip && !hash_head && !dec_comma) return(list(path = path, notes = notes))
+  # Round 79: a chr:pos:ref:alt variant column with no position columns, and combined columns of a published table (a sample of rows)
+  spl <- function(l) gsub('^"|"$', "", if (sep == " ") strsplit(trimws(l), "[ ]+")[[1]] else strsplit(l, sep, fixed = TRUE)[[1]])
+  hdr <- spl(sub("^#", "", top[skip + 1L])); smp <- lapply(utils::head(rest[nzchar(trimws(rest))], 40), spl)
+  sdf <- as.data.frame(lapply(seq_along(hdr), function(j) vapply(smp, function(r) if (j <= length(r)) r[j] else "", "")), stringsAsFactors = FALSE, col.names = make.unique(hdr))
+  vj <- if (nrow(sdf)) .split_varid(hdr, sdf) else NULL
+  comb <- nrow(sdf) > 0 && !identical(.split_combined(hdr, sdf)$head, hdr)
+  if (comb && file.size(path) > 50e6) { comb <- FALSE; notes <- c(notes, "Some columns seem to hold two values (for example an estimate with its interval). The file is too large to split them here; split them first or choose the columns by hand.") }
+  if (!bom && !skip && !hash_head && !dec_comma && is.null(vj) && !comb) return(list(path = path, notes = notes))
   if (bom) notes <- c(notes, "A byte-order mark at the start of the file was removed.")
   if (skip) notes <- c(notes, sprintf("%d comment or empty line%s before the heading %s skipped.", skip, if (skip > 1) "s" else "", if (skip > 1) "were" else "was"))
   if (hash_head) notes <- c(notes, "The heading line starts with #; the # was removed.")
   if (dec_comma) notes <- c(notes, "Numbers use a decimal comma (for example 0,05); they were read as decimal points.")
-  out <- tempfile("import-", fileext = ".tsv"); oc <- file(out, "w"); on.exit(close(oc), add = TRUE)
-  close(con); con <- .open_any(path); first <- TRUE; n_skip <- skip
+  out <- tempfile("import-", fileext = ".tsv"); oc <- file(out, "w")
+  close(con); con <- .open_any(path); first <- TRUE; n_skip <- skip; n_head_done <- FALSE
   repeat {
     L <- readLines(con, n = 200000L, warn = FALSE); if (!length(L)) break
     if (n_skip) { k <- min(n_skip, length(L)); L <- L[-seq_len(k)]; n_skip <- n_skip - k; if (!length(L)) next }
     if (first) { L[1] <- sub("^\ufeff", "", sub("^\xef\xbb\xbf", "", L[1], useBytes = TRUE)); if (hash_head) L[1] <- sub("^#", "", L[1]); first <- FALSE }
     if (sep != "\t") L <- if (sep == " ") gsub("[ ]+", "\t", trimws(L)) else gsub(sep, "\t", L, fixed = TRUE)
     if (dec_comma) L <- gsub("(^|\t) *(-?[0-9]+),([0-9]+([eE][-+]?[0-9]+)?) *(?=\t|$)", "\\1\\2.\\3", L, perl = TRUE)
+    if (!is.null(vj)) {   # Round 79: chromosome, position and alleles appended from the variant column
+      hd1 <- !n_head_done; v <- vapply(strsplit(L, "\t", fixed = TRUE), function(r) if (length(r) >= vj) gsub('^"|"$', "", r[vj]) else "", "")
+      vc <- .varid_cols(v); L <- paste(L, vc$CHR, vc$POS, vc$REF, vc$ALT, sep = "\t"); if (hd1) L[1] <- paste(sub("(\t[^\t]*){4}$", "", L[1]), "CHR", "POS", "REF", "ALT", sep = "\t")
+    }
+    n_head_done <- TRUE
     writeLines(L, oc)
+  }
+  close(oc); on.exit(close(con)); oc <- NULL
+  if (!is.null(vj)) notes <- c(notes, sprintf("Chromosome, position and alleles were read from the column \"%s\" (chr:pos:ref:alt); the effect is taken to be for ALT, the last allele, as in Neale lab and most pipelines.", hdr[vj]))
+  if (comb) {   # a published table: read whole, split the combined columns, write again
+    d <- utils::read.table(out, header = TRUE, sep = "\t", quote = "\"", colClasses = "character", check.names = FALSE, comment.char = "", fill = TRUE, na.strings = character())
+    sc <- .split_combined(names(d), d); notes <- c(notes, sc$notes); names(sc$body) <- make.unique(sc$head)
+    .write_tsv_bytes(rbind(names(sc$body), as.matrix(sc$body)), out)
   }
   list(path = out, notes = notes)
 }
+
+# Round 79: a table written byte for byte, so typeset or accented characters are not turned into <U+00D7> text in a non-UTF-8 locale
+.write_tsv_bytes <- function(m, path) {
+  m <- as.matrix(m); m[is.na(m)] <- ""; m[] <- .ascii_typeset(m)
+  con <- file(path, "wb"); on.exit(close(con)); writeLines(apply(m, 1, paste, collapse = "\t"), con, useBytes = TRUE)
+}
+# Round 79: numbers as papers and spreadsheets print them: "1.2 × 10−8", "1.2x10^-8", "1.2E-08", a Unicode minus sign, "< 1e-300"
+# Typeset characters become ASCII first, byte by byte, so the patterns below are plain ASCII and work in any locale (Windows included)
+.ascii_typeset <- function(x) {
+  x <- as.character(x)   # no enc2utf8: in a non-UTF-8 locale it turns these characters into text such as <c3><97>
+  # built with intToUtf8: a "\\u2212" written in the code becomes the text <U+2212> when R loads it in a non-UTF-8 locale
+  rp <- list(c(0x2212, "-"), c(0x2013, " to "), c(0x2014, " to "), c(0x00d7, "x"), c(0x00b7, "x"), c(0x2264, "<"), c(0x2265, ">"), c(0x00a0, " "))
+  for (k in rp) x <- gsub(rawToChar(charToRaw(intToUtf8(as.integer(k[1])))), k[2], x, fixed = TRUE, useBytes = TRUE)   # compared as bytes
+  x
+}
+.num_parse <- function(x) {
+  x <- trimws(.ascii_typeset(x)); x <- sub("^[<>]\\s*", "", x)
+  x <- sub("^([-+]?[0-9]*\\.?[0-9]+)\\s*[x*]\\s*10\\s*\\^?\\s*([-+]?[0-9]+)$", "\\1e\\2", x, perl = TRUE)
+  x <- sub("^10\\s*\\^\\s*([-+]?[0-9]+)$", "1e\\1", x)
+  suppressWarnings(as.numeric(x))
+}
+
+# Round 79: combined columns of published tables, split into one value per column:
+#   "T/C" (effect/other allele), "0.15 (0.01)" (estimate and SE), "1.12 (1.05–1.19)" (estimate and 95% CI), "1:109814880" (chromosome and position)
+.NUM <- "[-+]?[0-9]*\\.?[0-9]+(?:[eE][-+]?[0-9]+)?"
+.split_combined <- function(head, body) {
+  notes <- character(); out_h <- character(); out <- list()
+  share <- function(v, re) { v <- v[nzchar(v)]; length(v) >= 1 && mean(grepl(re, v, perl = TRUE)) >= 0.8 }
+  for (j in seq_along(head)) {
+    h <- head[j]; v <- trimws(.ascii_typeset(body[[j]])); hl <- tolower(.ascii_typeset(h))
+    re_al <- "^[ACGTacgt]+\\s*/\\s*[ACGTacgt]+$"
+    re_se <- sprintf("^(%s)\\s*[\\(\\[]\\s*(%s)\\s*[\\)\\]]$", .NUM, .NUM)
+    re_ci <- sprintf("^(%s)\\s*[\\(\\[]\\s*(%s)\\s*(?:to|,|;|\\s-\\s|-)\\s*(%s)\\s*[\\)\\]]$", .NUM, .NUM, .NUM)
+    re_cp <- "^(chr)?([0-9]{1,2}|X|Y|MT):[0-9,]+$"
+    if (share(v, re_al)) {
+      second <- grepl("^(other|non|ref|a2|allele 2)", hl); a <- toupper(sub("\\s*/.*$", "", v)); b <- toupper(sub("^.*/\\s*", "", v))
+      out_h <- c(out_h, "Effect allele", "Other allele"); out <- c(out, list(if (second) b else a, if (second) a else b))
+      notes <- c(notes, sprintf("The column \"%s\" holds two alleles (for example %s); it was split into the effect allele (%s) and the other allele.", h, v[nzchar(v)][1], if (second) "the second" else "the first"))
+    } else if (share(v, re_ci)) {
+      e <- if (grepl("\\bor\\b|odds", hl)) "OR" else if (grepl("\\bhr\\b|hazard", hl)) "HR" else "Beta"
+      out_h <- c(out_h, e, paste(e, "CI lower"), paste(e, "CI upper")); out <- c(out, list(sub(re_ci, "\\1", v, perl = TRUE), sub(re_ci, "\\2", v, perl = TRUE), sub(re_ci, "\\3", v, perl = TRUE)))
+      notes <- c(notes, sprintf("The column \"%s\" holds an estimate with its confidence interval (for example %s); it was split into the estimate and the two limits, from which the standard error is derived.", h, v[nzchar(v)][1]))
+    } else if (share(v, re_se) && grepl("se|standard error|s\\.e\\.", hl)) {
+      e <- if (grepl("\\bor\\b|odds", hl)) "OR" else "Beta"
+      out_h <- c(out_h, e, "SE"); out <- c(out, list(sub(re_se, "\\1", v, perl = TRUE), sub(re_se, "\\2", v, perl = TRUE)))
+      notes <- c(notes, sprintf("The column \"%s\" holds an estimate with its standard error (for example %s); it was split into the two.", h, v[nzchar(v)][1]))
+    } else if (share(v, re_cp)) {
+      bs <- regmatches(hl, regexpr("hg19|hg38|grch37|grch38|b37|b38", hl)); sfx <- if (length(bs)) paste0(" (", bs, ")") else ""
+      out_h <- c(out_h, "Chromosome", paste0("Position", sfx)); out <- c(out, list(sub("^(chr)?([^:]+):.*$", "\\2", v), gsub(",", "", sub("^[^:]+:", "", v))))
+      notes <- c(notes, sprintf("The column \"%s\" holds chromosome and position together (for example %s); it was split into the two.", h, v[nzchar(v)][1]))
+    } else { out_h <- c(out_h, h); out <- c(out, list(body[[j]])) }
+  }
+  list(head = out_h, body = as.data.frame(stats::setNames(out, make.unique(out_h)), stringsAsFactors = FALSE, check.names = FALSE), notes = notes)
+}
+
+# Round 79: a variant column of the form chr:pos:ref:alt (Neale lab UK Biobank, many pipelines) with no separate chromosome, position or allele
+# columns: these are read from it. The effect is for ALT (the last allele), as in those sources; the allele question on the facts step checks it.
+.RE_VARID <- "^(chr)?([0-9]{1,2}|X|Y|MT)[:_]([0-9]+)[:_]([ACGT]+)[:_]([ACGT]+)$"
+.split_varid <- function(head, body) {
+  nh <- sub("^hm(.)", "\\1", .norm_col(head)); if (any(nh %in% c(IMPORT_SYNONYMS$chr, IMPORT_SYNONYMS$pos))) return(NULL)   # positions already there
+  for (j in seq_along(head)) { v <- trimws(body[[j]]); v <- v[nzchar(v)]
+    if (length(v) && mean(grepl(.RE_VARID, v, perl = TRUE)) >= 0.8 && !any(grepl("^rs[0-9]", v))) return(j) }
+  NULL
+}
+.varid_cols <- function(v) { v <- trimws(v); ok <- grepl(.RE_VARID, v, perl = TRUE)
+  f <- function(k) ifelse(ok, sub(.RE_VARID, paste0("\\", k), v, perl = TRUE), "")
+  data.frame(CHR = f(2), POS = f(3), REF = f(4), ALT = f(5), stringsAsFactors = FALSE) }
 
 .prepare_excel <- function(path, name, sheet = NULL) {
   if (!requireNamespace("readxl", quietly = TRUE)) stop("Reading Excel files needs the readxl package, which is not in this installation.")
@@ -121,18 +229,21 @@ import_prepare <- function(path, name = basename(path), sheet = NULL) {
              if (sum(!full)) sprintf("%d row%s with mostly empty cells (notes or footnotes) %s left out.", sum(!full), if (sum(!full) > 1) "s" else "", if (sum(!full) > 1) "were" else "was"))
   body <- body[full, , drop = FALSE]; body[is.na(body)] <- ""
   for (j in seq_along(body)) body[[j]] <- gsub("[\t\r\n]+", " ", body[[j]])
+  sc <- .split_combined(head, body); head <- sc$head; body <- sc$body; notes <- c(notes, sc$notes)   # Round 79
+  vj <- .split_varid(head, body); if (!is.null(vj)) { body <- cbind(body, .varid_cols(body[[vj]])); head <- c(head, "CHR", "POS", "REF", "ALT")
+    notes <- c(notes, sprintf("Chromosome, position and alleles were read from the column \"%s\" (chr:pos:ref:alt); the effect is taken to be for ALT, the last allele.", head[vj])) }
   out <- tempfile("import-", fileext = ".tsv")
-  utils::write.table(rbind(head, as.matrix(body)), out, sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE)
+  .write_tsv_bytes(rbind(head, as.matrix(body)), out)
   list(path = out, notes = notes, sheets = as.list(sheets), sheet = sheet)
 }
 
 .detect_sep <- function(line) { cands <- c("\t", ",", ";", " "); cnt <- vapply(cands, function(s) lengths(regmatches(line, gregexpr(s, line, fixed = TRUE))), 0L); cands[which.max(cnt)] }
 .read_tbl <- function(path, ...) { con <- .open_any(path); on.exit(close(con)); utils::read.table(con, ...) }
-.open_any <- function(path) if (grepl("\\.gz$", path, ignore.case = TRUE)) gzfile(path, "rt") else file(path, "rt")
+.open_any <- function(path) if (grepl("\\.b?gz$", path, ignore.case = TRUE)) gzfile(path, "rt") else file(path, "rt")   # Round 79: .bgz (block gzip) reads as gzip
 
 #' The start of a file: separator, headings and the first rows. Refuses formats and layouts that are not supported.
 import_read_head <- function(path, name = basename(path), nrows = 8L, sheet = NULL) {
-  if (grepl("\\.(zip|bgz|vcf)(\\.gz)?$", name, ignore.case = TRUE)) stop("This file type is not supported here. Supported: text tables (TSV, CSV, space or semicolon separated, optionally gzip-compressed .gz) and Excel workbooks (.xlsx, .xls); GWAS-VCF files have their own import.")
+  if (grepl("\\.(zip|vcf)(\\.b?gz)?$", name, ignore.case = TRUE)) stop("This file type is not supported here. Supported: text tables (TSV, CSV, space or semicolon separated, optionally compressed as .gz or .bgz) and Excel workbooks (.xlsx, .xls); GWAS-VCF files have their own import.")
   orig_size <- file.size(path); pr <- import_prepare(path, name, sheet); path <- pr$path   # Round 77: Excel, comment lines, byte-order mark, decimal commas
   con <- .open_any(path); on.exit(close(con))
   lines <- readLines(con, n = nrows + 1L, warn = FALSE)
@@ -178,6 +289,45 @@ import_missing <- function(mp, facts) {
 }
 .panel_ready <- function(pop) isTRUE(tryCatch(all(file.exists(file.path(ld_panel_dir(), paste0(pop, c(".bed", ".bim", ".fam"))))) && { b <- plink_bin(); length(b) == 1L && !is.na(b) && nzchar(b) }, error = function(e) FALSE))
 
+# Round 79: the 1000 Genomes panel (GRCh37) as a reference for rsIDs and positions, read by PLINK (the variant list is about 250 MB per
+# ancestry, so it is never loaded into R). Any installed ancestry serves: positions and rsIDs are the same in all of them.
+.panel_pop_any <- function(pref = "EUR") { for (p in unique(c(toupper(pref), "EUR", "EAS", "AFR", "AMR", "SAS"))) if (.panel_ready(p)) return(p); NA_character_ }
+.panel_bim <- function(snps = NULL, ranges = NULL, pop = .panel_pop_any()) {
+  if (is.na(pop)) return(NULL)
+  tmp <- tempfile("bim-"); dir.create(tmp); on.exit(unlink(tmp, recursive = TRUE))
+  ex <- if (!is.null(snps)) { writeLines(unique(snps[!is.na(snps)]), file.path(tmp, "x.txt")); c("--extract", shQuote(file.path(tmp, "x.txt"))) }
+        else { utils::write.table(ranges, file.path(tmp, "r.txt"), sep = "\t", quote = FALSE, row.names = FALSE, col.names = FALSE); c("--extract", "range", shQuote(file.path(tmp, "r.txt"))) }
+  suppressWarnings(system2(plink_bin(), c("--bfile", shQuote(file.path(ld_panel_dir(), pop)), ex, "--make-just-bim", "--threads", "1", "--out", shQuote(file.path(tmp, "o"))), stdout = FALSE, stderr = FALSE))
+  f <- file.path(tmp, "o.bim"); if (!file.exists(f)) return(data.frame(chr = character(), snp = character(), pos = numeric(), a1 = character(), a2 = character()))
+  b <- utils::read.table(f, colClasses = c("character", "character", "NULL", "numeric", "character", "character"), col.names = c("chr", "snp", "cm", "pos", "a1", "a2"))
+  b$chr <- .chr_norm(b$chr); b
+}
+#' Round 79: the genome build of a file with rsIDs and positions: where its first rsIDs sit in the panel (GRCh37), directly or after
+#' converting the file's positions from GRCh38. NULL when it cannot be told (no panel, no rsIDs or positions, too few matches).
+import_build_guess <- function(rows, sug) {
+  if (is.null(sug$snp) || is.null(sug$chr) || is.null(sug$pos)) return(NULL)
+  g <- function(col) vapply(rows, function(r) as.character(r[[col]] %||% NA), "")
+  rs <- g(sug$snp$column); chr <- .chr_norm(g(sug$chr$column)); pos <- suppressWarnings(as.numeric(gsub(",", "", g(sug$pos$column))))
+  ok <- grepl("^rs[0-9]+$", rs) & is.finite(pos); if (sum(ok) < 3) return(NULL)
+  b <- tryCatch(.panel_bim(snps = rs[ok]), error = function(e) NULL); if (is.null(b) || nrow(b) < 3) return(NULL)
+  i <- match(rs[ok], b$snp); k <- !is.na(i); if (sum(k) < 3) return(NULL)
+  same37 <- mean(chr[ok][k] == b$chr[i[k]] & pos[ok][k] == b$pos[i[k]])
+  l <- liftover_38_to_37(chr[ok][k], pos[ok][k]); same38 <- mean(!is.na(l$pos) & l$chr == b$chr[i[k]] & l$pos == b$pos[i[k]])
+  why <- sprintf("Detected: %d of the first rsIDs in the file sit at the same %s positions in the 1000 Genomes panel.", sum(k), "%s")
+  if (same37 >= 0.8) return(list(build = "37", why = sprintf(why, "GRCh37"))) else if (same38 >= 0.8) return(list(build = "38", why = sprintf(why, "GRCh38 (converted)")))
+  NULL
+}
+#' Round 79: rsIDs for a file with positions only (GRCh37 after any conversion), from the panel by chromosome, position and alleles
+.rsid_from_panel <- function(d) {
+  ok <- !is.na(d$chr) & is.finite(d$pos); if (!any(ok)) return(list(snp = rep(NA_character_, nrow(d)), n = 0L))
+  ps <- format(d$pos[ok], scientific = FALSE, trim = TRUE)   # PLINK reads 1e+06 as no position
+  b <- .panel_bim(ranges = data.frame(chr = d$chr[ok], s = ps, e = ps, l = seq_len(sum(ok))))
+  if (is.null(b)) return(NULL)
+  kd <- paste(d$chr, format(d$pos, scientific = FALSE, trim = TRUE)); kb <- paste(b$chr, format(b$pos, scientific = FALSE, trim = TRUE))
+  al <- function(x, y) paste(pmin(x, y), pmax(x, y)); m <- match(paste(kd, al(toupper(d$ea), toupper(d$oa))), paste(kb, al(b$a1, b$a2)))
+  list(snp = b$snp[m], n = sum(!is.na(m)))
+}
+
 IMPORT_NA_TOKENS <- c("", "NA", "NAN", ".", "-", "NULL", "NONE", "N/A", "INF", "-INF", "+INF")
 
 .import_read <- function(path, sep, columns, mp, max_rows = Inf) {
@@ -190,11 +340,24 @@ IMPORT_NA_TOKENS <- c("", "NA", "NAN", ".", "-", "NULL", "NONE", "N/A", "INF", "
 #' runs for the check and for the save, so what the user approves is what is saved.
 .import_transform <- function(d, facts, final = FALSE, ds_dir = NULL) {
   ch <- character(); warn <- character(); err <- character(); fm <- function(x) format(x, big.mark = ","); vv <- function(x) paste(fm(x), if (x == 1) "variant" else "variants")
-  for (r in intersect(c("eaf", "beta", "se", "p", "n", "pos", "z"), names(d))) {
-    raw <- trimws(d[[r]]); tok <- toupper(raw) %in% IMPORT_NA_TOKENS; v <- suppressWarnings(as.numeric(raw))
+  # Round 79: rows of other tests (PLINK 2 and REGENIE write covariate rows such as AGE or SEX next to ADD)
+  if ("test" %in% names(d)) { tt <- toupper(trimws(d$test)); add <- tt %in% c("ADD", "ADDITIVE")
+    if (any(add) && !all(add)) { ch <- c(ch, sprintf("%s rows of other tests (%s) left out; the additive test (ADD) is kept.", fm(sum(!add)), paste(utils::head(unique(tt[!add]), 4), collapse = ", "))); d <- d[add, , drop = FALSE] }
+    d$test <- NULL }
+  for (r in intersect(c("eaf", "beta", "se", "p", "n", "pos", "z", "ci_lower", "ci_upper"), names(d))) {
+    raw <- trimws(d[[r]]); tok <- toupper(raw) %in% IMPORT_NA_TOKENS; v <- .num_parse(raw)   # Round 79: typeset numbers (1.2 × 10−8)
     bad <- sum(is.na(v) & !tok); if (bad) warn <- c(warn, sprintf("%s values in \"%s\" are not numbers and will be dropped.", fm(bad), IMPORT_ROLES[[r]]))
     v[!is.finite(v)] <- NA_real_; d[[r]] <- v
   }
+  # Round 79: a cell with several rsIDs (FinnGen rsids "rs1,rs2") keeps the first one
+  if ("snp" %in% names(d)) { d$snp <- trimws(d$snp); ml <- grepl("[,;]", d$snp); if (any(ml)) { d$snp[ml] <- sub("\\s*[,;].*$", "", d$snp[ml]); ch <- c(ch, sprintf("%s cells listed several variant IDs; the first one was kept.", fm(sum(ml)))) }
+    d$snp[d$snp %in% c(".", "", "NA")] <- NA_character_ }
+  if ("oa_alt" %in% names(d)) {   # Round 79: PLINK 2: where A1 is REF, the other allele is ALT
+    sw <- toupper(trimws(d$ea)) == toupper(trimws(d$oa)); d$oa[sw] <- d$oa_alt[sw]; d$oa_alt <- NULL
+    if (any(sw)) ch <- c(ch, sprintf("For %s where the effect allele A1 is the REF allele, the other allele is ALT (PLINK 2).", vv(sum(sw)))) }
+  # Round 79: a "beta" column that holds odds ratios (all positive, centred on 1) would give wrong results without the right answer
+  if ("beta" %in% names(d) && identical(facts$scale %||% "beta", "beta")) { b <- d$beta[is.finite(d$beta)]
+    if (length(b) >= 5 && all(b > 0) && stats::median(b) > 0.7 && stats::median(b) < 1.4) warn <- c(warn, "Every effect size is positive and close to 1, as odds ratios are. If the column holds odds ratios, choose Odds ratio under \"Effect size is\"; otherwise the results will be wrong.") }
   if ("chr" %in% names(d)) { c0 <- d$chr; d$chr <- .chr_norm(d$chr); nch <- sum(c0 != d$chr, na.rm = TRUE); if (nch) ch <- c(ch, sprintf("Chromosome names written in one form (1 to 22, X, Y, MT) in %s rows (for example chr1 or 23).", fm(nch))) }
   # P values: -log10(P) is converted; the log P is kept so that very small P values (which round to 0) still give a standard error
   lp <- NULL
@@ -208,6 +371,14 @@ IMPORT_NA_TOKENS <- c("", "NA", "NAN", ".", "-", "NULL", "NONE", "N/A", "INF", "
       lp <- log(d$p)
     }
   }
+  # Round 79: SE from a 95% confidence interval: (upper - lower) / (2 × 1.96), on the log scale for odds ratios
+  if (all(c("ci_lower", "ci_upper") %in% names(d)) && "beta" %in% names(d)) {
+    if (!("se" %in% names(d))) d$se <- NA_real_
+    zc <- stats::qnorm(0.975); orl <- identical(facts$scale, "or")
+    sec <- if (orl) suppressWarnings((log(d$ci_upper) - log(d$ci_lower)) / (2 * zc)) else (d$ci_upper - d$ci_lower) / (2 * zc)
+    fill <- is.na(d$se) & is.finite(sec) & sec > 0; d$se[fill] <- sec[fill]
+    if (any(fill)) ch <- c(ch, sprintf("Standard errors derived from the 95%% confidence interval for %s (%s).", vv(sum(fill)), if (orl) "log(upper / lower) / (2 × 1.96)" else "(upper - lower) / (2 × 1.96)"))
+    d$ci_lower <- NULL; d$ci_upper <- NULL }
   if (identical(facts$scale, "or") && "beta" %in% names(d)) {
     if (any(d$beta <= 0, na.rm = TRUE)) err <- c(err, "Odds ratios must be positive, but zero or negative values were found. If the column holds log odds ratios, choose \"Beta or log odds\" instead.")
     else { d$beta <- log(d$beta); ch <- c(ch, "Odds ratios converted to log odds ratios.") }
@@ -237,11 +408,13 @@ IMPORT_NA_TOKENS <- c("", "NA", "NAN", ".", "-", "NULL", "NONE", "N/A", "INF", "
     }
   }
   # SE from the effect and its P value: se = |b| / z, with z the normal quantile of P / 2 (Altman and Bland 2011)
-  if (!("se" %in% names(d)) && "beta" %in% names(d) && !is.null(lp) && !identical(facts$scale, "z")) {
+  sem <- if ("se" %in% names(d)) is.na(d$se) else rep(TRUE, nrow(d))   # Round 79: also rows whose SE is missing, not only a missing column
+  if (any(sem) && "beta" %in% names(d) && !is.null(lp) && !identical(facts$scale, "z")) {
     zz <- stats::qnorm(lp - log(2), lower.tail = FALSE, log.p = TRUE); se <- abs(d$beta) / zz
-    oks <- is.finite(se) & se > 0; d$se <- ifelse(oks, se, NA_real_)
-    ch <- c(ch, sprintf("Standard errors derived from the effect and its P value for %s (Altman and Bland 2011). The P values must be two-sided and from the same test as the effect; rounded P values give approximate standard errors.", vv(sum(oks))))
-    if (sum(!oks)) warn <- c(warn, sprintf("%s with an effect of 0, a P value of 1 or no P value will be dropped (no standard error can be derived).", vv(sum(!oks))))
+    if (!("se" %in% names(d))) d$se <- NA_real_
+    oks <- sem & is.finite(se) & se > 0; d$se[oks] <- se[oks]; left <- sem & !oks
+    if (any(oks)) ch <- c(ch, sprintf("Standard errors derived from the effect and its P value for %s (Altman and Bland 2011). The P values must be two-sided and from the same test as the effect; rounded P values give approximate standard errors.", vv(sum(oks))))
+    if (sum(left)) warn <- c(warn, sprintf("%s with an effect of 0, a P value of 1 or no P value will be dropped (no standard error can be derived).", vv(sum(left))))
   }
   list(d = d, changes = ch, warnings = warn, errors = err)
 }
@@ -348,6 +521,12 @@ import_save <- function(path, orig_name, sep, columns, mapping, facts, root = st
     pan <- sprintf("Effect allele frequencies taken from the 1000 Genomes %s panel for %s of %s variants (matched by rsID and alleles%s).", pop, format(sum(!is.na(f)), big.mark = ","), format(nrow(d), big.mark = ","), if (identical(facts$strand, "forward")) "" else "; palindromic variants left without a frequency because the strand is not known")
   }
   tr <- .import_transform(d, facts, final = TRUE); d <- tr$d
+  if (!("snp" %in% names(d)) && all(c("chr", "pos") %in% names(d))) {   # Round 79: position-only files get rsIDs where the panel has the variant
+    rr <- tryCatch(.rsid_from_panel(d), error = function(e) NULL)
+    if (!is.null(rr) && rr$n > 0) { n0 <- nrow(d); d$snp <- rr$snp; d <- d[!is.na(d$snp), , drop = FALSE]; mp$snp <- "rsID from the 1000 Genomes panel"
+      tr$changes <- c(tr$changes, sprintf("rsIDs added from the 1000 Genomes panel for %s of %s variants, matched by chromosome, position (GRCh37) and alleles%s.", format(rr$n, big.mark = ","), format(n0, big.mark = ","), if (n0 > rr$n) sprintf("; the %s not in the panel are left out, because datasets are matched by rsID", format(n0 - rr$n, big.mark = ",")) else "")) }
+    else tr$changes <- c(tr$changes, "No rsIDs: this dataset can be paired only with datasets that also identify variants by position. Install the 1000 Genomes panel (Settings) to add rsIDs when importing.")
+  }
   key <- if ("snp" %in% names(d)) d$snp else paste(d$chr, d$pos, d$ea, d$oa)
   keep <- grepl("^[ACGT]$", d$ea) & grepl("^[ACGT]$", d$oa) & !is.na(d$beta) & !is.na(d$se) & d$se > 0 & !duplicated(key) & (if (identical(facts$build, "38")) !is.na(d$pos) else TRUE)
   d <- d[keep, , drop = FALSE]

@@ -60,8 +60,15 @@ live_scripts <- function(dir, console_name = "run_all_console.txt") {
   done <- ids[file.exists(file.path(dir, "04_tables", paste0(ids, "_estimates.csv"))) | ids %in% failed]
   nxt <- setdiff(ids, done)[1]; nxt <- if (is.na(nxt)) "" else nxt
   if (!identical(nxt, st$cur)) {
-    if (nzchar(st$cur)) { secs <- as.numeric(difftime(Sys.time(), st$t, units = "secs")); f <- st$cur %in% failed
-      if (f || secs >= 5) .say(sprintf("%s %s (%s of %d)%s", .method_label(st$cur), if (f) "stopped with an error; the other methods continue" else sprintf("finished in %s", .fmt_secs(secs)), length(done), length(ids), "")) }
+    # Round 80: every method that finished since the last look is reported (fast ones finish between two looks and were skipped)
+    newly <- setdiff(done, st$done %||% character())
+    if (length(newly) && !replay) {
+      bad <- newly[newly %in% failed]; good <- setdiff(newly, bad)
+      if (length(good) == 1L && identical(good, st$cur)) .say(sprintf("%s finished in %s (%d of %d)", .method_label(good), .fmt_secs(difftime(Sys.time(), st$t, units = "secs")), length(done), length(ids)))
+      else if (length(good)) .say(sprintf("Finished: %s (%d of %d)", paste(vapply(good, .method_label, ""), collapse = ", "), length(done), length(ids)))
+      for (b in bad) .say(sprintf("%s stopped with an error; the other methods continue (%d of %d)", .method_label(b), length(done), length(ids)))
+    }
+    st$done <- done
     if (nzchar(nxt) && !replay) .say(sprintf("Method %d of %d: %s", match(nxt, ids), length(ids), .method_label(nxt)), METHOD_WHY[[nxt]] %||% "")
     if (nzchar(nxt) && replay && match(nxt, ids) %% 10 == 1) .say(sprintf("Replay check: method %d of %d (%s)", match(nxt, ids), length(ids), .method_label(nxt)))
     st$cur <- nxt; st$t <- Sys.time(); st$told <- FALSE

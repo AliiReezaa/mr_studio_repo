@@ -21,6 +21,9 @@ fn main() {
                 .title("MR Studio")
                 .inner_size(1440.0, 900.0)
                 .min_inner_size(1024.0, 700.0)
+                // Round 80: keep the page running when the window is covered, hidden or minimised (macOS 14 and later); otherwise macOS
+                // pauses it and the Run screen catches up only when the window comes back (the engine itself never stops)
+                .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
                 .build()?;
             let loading_url = win.url()?;
             let resource_dir = app.path().resource_dir()?;

@@ -65,7 +65,7 @@ library_mv_input <- function(exp_ids, out_id, pthr = 5e-8, root = studies_root()
   d$beta_y <- U$beta_y; d$se_y <- U$se_y; d$n_y <- U$n_y
   d$mr_keep <- stats::complete.cases(d[, c(sprintf("beta_x_%d", seq_len(K)), sprintf("se_x_%d", seq_len(K)), "beta_y", "se_y")])
   led$found <- found; led$final <- sum(d$mr_keep)
-  list(exposure_label = paste(labs, collapse = " + "), outcome_label = ps[[1]]$outcome_label, simulated = FALSE, anc_x = ps[[1]]$anc_x, anc_y = ps[[1]]$anc_y,
+  list(exposure_label = paste(labs, collapse = " + "), outcome_label = ps[[1]]$outcome_label, simulated = FALSE, anc_x = ps[[1]]$anc_x, anc_y = ps[[1]]$anc_y, gpop_x = ps[[1]]$gpop_x, gpop_y = ps[[1]]$gpop_y,
        exposure_labels = labs, ledger = list(mv = led),
        input = list(kind = "multi_iv", data = d, exposure_id = paste(exp_ids, collapse = "|"), outcome_id = ps[[1]]$input$outcome_id, outcome_scale = ps[[1]]$input$outcome_scale, exposure_scale = "beta"))
 }
@@ -86,7 +86,7 @@ mv_pair_facts <- function(exp_ids, out_id, pthr = 5e-8, p = NULL) {
   if (is.null(p)) p <- mv_pair_input(exp_ids, out_id, pthr); d <- p$input$data; d <- d[d$mr_keep, , drop = FALSE]; K <- length(p$exposure_labels)
   fk <- vapply(seq_len(K), function(k) mean((d[[sprintf("beta_x_%d", k)]] / d[[sprintf("se_x_%d", k)]])^2), 0)
   list(ex_id = paste(unlist(exp_ids), collapse = "|"), out_id = out_id, exposure = p$exposure_label, outcome = p$outcome_label, instruments = nrow(d), mean_f = round(min(fk), 1), min_f = round(min(fk), 1),
-       n_weak = 0L, palindromic = 0L, scale = p$input$outcome_scale, has_n = FALSE, simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, ledger = p$ledger,
+       n_weak = 0L, palindromic = 0L, scale = p$input$outcome_scale, has_n = FALSE, simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, gpop_x = p$gpop_x, gpop_y = p$gpop_y, ledger = p$ledger,
        ukb_both = FALSE, og_x = isTRUE(p$from_opengwas), og_y = isTRUE(p$from_opengwas), scale_x = "beta", steiger = list(ok = FALSE), i2gx = NA_real_, mv = TRUE, exposures = p$exposure_labels, mean_f_each = round(fk, 1))
 }
 
@@ -288,7 +288,7 @@ ogw_mv_input <- function(exp_ids, out_id, root = studies_root()) {
   if (is.null(nm)) stop("The multivariable data for these OpenGWAS downloads is not prepared yet. Open the Check step again to prepare it.", call. = FALSE)
   s <- library_dataset(nm, root); d <- s$data; ex <- unlist(s$recipe$source$exposure_names); od <- library_dataset(s$recipe$source$outcome_name, root)
   ds <- lapply(ex, function(e) library_dataset(e, root))
-  list(exposure_label = paste(ex, collapse = " + "), outcome_label = od$recipe$trait, simulated = FALSE, anc_x = ds[[1]]$recipe$facts$ancestry %||% "?", anc_y = od$recipe$facts$ancestry %||% "?",
+  list(exposure_label = paste(ex, collapse = " + "), outcome_label = od$recipe$trait, simulated = FALSE, gpop_x = .gwas_pop(ds[[1]]$recipe), gpop_y = .gwas_pop(od$recipe), anc_x = ds[[1]]$recipe$facts$ancestry %||% "?", anc_y = od$recipe$facts$ancestry %||% "?",
        exposure_labels = ex, ledger = list(mv = s$recipe$ledger), from_opengwas = TRUE,
        input = list(kind = "multi_iv", data = d, exposure_id = paste(unlist(exp_ids), collapse = "|"), outcome_id = out_id,
                     outcome_scale = if (identical(od$recipe$facts$kind, "binary")) "log_or" else "beta", exposure_scale = "beta"))

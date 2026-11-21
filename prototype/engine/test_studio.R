@@ -1801,7 +1801,9 @@ local({
   # GRCh38 positions: APOE rs7412 and rs429358 (GRCh37 19:45412079 and 19:45411941); a reverse-strand block complements the alleles
   bl <- liftover_blocks(); rb <- bl[bl$qstrand == "-" & bl$tchr == "1", ][1, ]
   g38 <- mk("g38.tsv", c("CHR\tBP\tA1\tA2\tBETA\tSE", "19\t44908822\tT\tC\t0.1\t0.01", "19\t44908684\tC\tT\t0.2\t0.01", sprintf("1\t%d\tA\tG\t0.3\t0.01", rb$tstart + 6), "1\t1\tA\tG\t0.4\t0.01"))
-  c5 <- head_of(g38); r5 <- import_save(c5$h$path, "g38.tsv", c5$h$sep, c5$h$columns, c5$map, modifyList(facts0, list(name = "GRCh38 file", build = "38", frq = "none")))
+  old5 <- Sys.getenv("MRGUI_LD_DIR"); Sys.setenv(MRGUI_LD_DIR = tempfile("nopanel"))   # Round 79: without a panel, so the positions stay the IDs (no rsIDs added)
+  c5 <- head_of(g38); Sys.setenv(MRGUI_LD_DIR = tempfile("nopanel")); r5 <- import_save(c5$h$path, "g38.tsv", c5$h$sep, c5$h$columns, c5$map, modifyList(facts0, list(name = "GRCh38 file", build = "38", frq = "none")))
+  Sys.setenv(MRGUI_LD_DIR = old5)
   d5 <- lib_table_read(file.path(library_dir(), "GRCh38 file"), "standardised"); u5 <- import_validate(c5$h$path, c5$h$sep, c5$h$columns, c5$map, modifyList(facts0, list(build = "unknown")))
   expect("Round 77: GRCh38 positions are converted to GRCh37 (APOE variants at their known positions), reverse-strand alleles complemented, an unmappable one dropped, the chain recorded",
          identical(d5$pos[1:2], c(45412079, 45411941)) && identical(d5$ea[3], "T") && identical(d5$oa[3], "C") && nrow(d5) == 3L && identical(r5$liftover$sha256, LIFTOVER_CHAIN$sha256) && identical(r5$build_saved, "GRCh37") &&
@@ -1816,6 +1818,95 @@ local({
          is.list(r6) && !is.null(d6) && nrow(d6) >= 1L && all(d6$eaf > 0 & d6$eaf < 1) && any(grepl("1000 Genomes EUR panel", unlist(r6$changes))) && isTRUE(all.equal(d6$se, 1 / sqrt(2 * d6$eaf * (1 - d6$eaf) * (20000 + (d6$beta / d6$se)^2)))))
 })
 
+# ---- Round 79: layouts of real sources (GWAS Catalog harmonised, FinnGen, Neale UKB, PLINK 2, SAIGE, papers' tables) ----
+local({
+  td <- tempfile("imp79"); dir.create(td); mk <- function(name, lines, eol = "\n") { fp <- file.path(td, name); con <- if (grepl("gz$", name)) gzfile(fp, "w") else file(fp, "wb"); writeLines(lines, con, sep = eol); close(con); fp }
+  hs <- function(fp) { h <- import_read_head(fp); s <- import_suggest(h$columns, h$rows); list(h = h, s = s, map = lapply(s, `[[`, "column"), hint = import_hints(h$columns, h$rows, s, build_check = FALSE)) }
+  tf <- function(x, facts = list()) { d <- .import_read(x$h$path, x$h$sep, x$h$columns, x$map); .import_transform(d, utils::modifyList(list(scale = "beta", p_scale = "p"), facts)) }
+  # GWAS Catalog harmonised: hm_ prefixes; hm_beta wins over hm_odds_ratio; hm_rsid over variant_id
+  a <- hs(mk("h.tsv", c("hm_variant_id\thm_rsid\thm_chrom\thm_pos\thm_other_allele\thm_effect_allele\thm_beta\thm_odds_ratio\thm_ci_lower\thm_ci_upper\thm_effect_allele_frequency\tvariant_id\tp_value\tstandard_error",
+                         "1_100_A_G\trs1\t1\t100\tA\tG\t0.1\tNA\tNA\tNA\t0.3\trs1\t0.01\t0.02", "1_200_C_T\trs2\t1\t200\tC\tT\t-0.2\tNA\tNA\tNA\t0.4\trs2\t0.02\t0.03", "1_300_G_A\trs3\t1\t300\tG\tA\t0.05\tNA\tNA\tNA\t0.5\trs3\t0.3\t0.04")))
+  expect("Round 79: GWAS Catalog harmonised headings (hm_) are recognised: effect hm_beta (not hm_odds_ratio), rsID hm_rsid, alleles and frequency",
+         identical(unlist(a$map[c("snp", "chr", "pos", "ea", "oa", "beta", "eaf", "se", "p")]), c(snp = "hm_rsid", chr = "hm_chrom", pos = "hm_pos", ea = "hm_effect_allele", oa = "hm_other_allele", beta = "hm_beta", eaf = "hm_effect_allele_frequency", se = "standard_error", p = "p_value")) && is.null(a$hint$scale))
+  # SAIGE: the effect allele is Allele2
+  b <- hs(mk("saige.txt", c("CHR POS MarkerID Allele1 Allele2 AC_Allele2 AF_Allele2 N BETA SE Tstat p.value", "1 100 rs1 A G 10 0.3 1000 0.1 0.02 5 1e-6", "1 200 rs2 C T 20 0.4 1000 -0.2 0.03 -6 1e-8", "1 300 rs3 G A 30 0.5 1000 0.05 0.04 1 0.2")))
+  expect("Round 79: SAIGE output: Allele2 (whose frequency is AF_Allele2) is proposed as the effect allele, Allele1 as the other", identical(b$map$ea, "Allele2") && identical(b$map$oa, "Allele1") && identical(b$map$eaf, "AF_Allele2"))
+  # PLINK 2: A1 can be REF; covariate rows are left out
+  c2 <- hs(mk("p.glm.logistic", c("#CHROM\tPOS\tID\tREF\tALT\tA1\tA1_FREQ\tTEST\tOBS_CT\tOR\tLOG(OR)_SE\tZ_STAT\tP", "1\t100\trs1\tA\tG\tG\t0.3\tADD\t1000\t1.2\t0.05\t3.6\t3e-4", "1\t200\trs2\tC\tT\tC\t0.4\tADD\t1000\t0.8\t0.06\t-3.7\t2e-4",
+                                   "1\t200\trs2\tC\tT\tC\t0.4\tAGE\t1000\t1.01\t0.01\t1\t0.3", "1\t300\trs3\tG\tA\tA\t0.5\tADD\t1000\t1.05\t0.04\t1.2\t0.2")))
+  t2 <- tf(c2, list(scale = c2$hint$scale))
+  expect("Round 79: PLINK 2 --glm: A1 is the effect allele, the other allele is REF or (where A1 is REF) ALT; OR and LOG(OR)_SE read as log OR and SE; covariate rows left out",
+         identical(c2$map$ea, "A1") && identical(c2$map$oa_alt, "ALT") && identical(c2$map$se, "LOG(OR)_SE") && identical(c2$hint$scale, "or") && nrow(t2$d) == 3L && identical(t2$d$oa, c("A", "T", "G")) && isTRUE(all.equal(t2$d$beta, log(c(1.2, 0.8, 1.05)))) && any(grepl("AGE", t2$changes)))
+  # FinnGen: several rsIDs in one cell
+  f <- hs(mk("fg.tsv.gz", c("#chrom\tpos\tref\talt\trsids\tpval\tmlogp\tbeta\tsebeta\taf_alt", "1\t100\tA\tG\trs1,rs99\t1e-6\t6\t0.1\t0.02\t0.3", "1\t200\tC\tT\trs2\t1e-8\t8\t-0.2\t0.03\t0.4", "1\t300\tG\tA\trs3\t0.2\t0.7\t0.05\t0.04\t0.5")))
+  expect("Round 79: FinnGen: alt is the effect allele, af_alt its frequency, and a cell with several rsIDs keeps the first", identical(f$map$ea, "alt") && identical(f$map$eaf, "af_alt") && identical(tf(f)$d$snp, c("rs1", "rs2", "rs3")))
+  # Neale lab UK Biobank: .bgz, variant chr:pos:ref:alt only
+  n <- hs(mk("neale.tsv.bgz", c("variant\tminor_allele\tminor_AF\tn_complete_samples\tbeta\tse\ttstat\tpval", "1:100:A:G\tG\t0.3\t1000\t0.1\t0.02\t5\t1e-6", "1:200:C:T\tT\t0.4\t1000\t-0.2\t0.03\t-6\t1e-8", "1:300:G:A\tA\t0.45\t1000\t0.05\t0.04\t1\t0.2")))
+  expect("Round 79: Neale lab files (.bgz, variant chr:pos:ref:alt): chromosome, position, REF (other) and ALT (effect) are read from the variant; it is not taken as an rsID",
+         identical(unlist(n$map[c("chr", "pos", "ea", "oa")]), c(chr = "CHR", pos = "POS", ea = "ALT", oa = "REF")) && is.null(n$map$snp) && identical(tf(n)$d$pos, c(100, 200, 300)) && any(grepl("chr:pos:ref:alt", unlist(n$h$notes))))
+  # A paper's table: combined columns and typeset P values
+  sc <- .split_combined(c("Lead SNP", "Chr:position (hg19)", "Effect/other allele", "OR (95% CI)", "Beta (SE)", "P"),
+                        data.frame(a = c("rs1", "rs2"), b = c("1:1,000", "2:2000"), c = c("t/c", "A/G"), d = c("1.12 (1.05–1.19)", "0.90 (0.80 to 1.01)"), e = c("−0.15 (0.01)", "0.2 (0.03)"), f = c("3.2 × 10−8", "0.04"), stringsAsFactors = FALSE))
+  expect("Round 79: combined columns of published tables are split (chr:pos, effect/other allele, OR with its 95% CI, beta with its SE), and typeset P values are read",
+         identical(sc$head, c("Lead SNP", "Chromosome", "Position (hg19)", "Effect allele", "Other allele", "OR", "OR CI lower", "OR CI upper", "Beta", "SE", "P")) && identical(sc$body[[3]], c("1000", "2000")) &&
+         identical(sc$body[[4]], c("T", "A")) && identical(sc$body[[8]], c("1.19", "1.01")) && identical(sc$body[[9]], c("-0.15", "0.2")) && isTRUE(all.equal(.num_parse(c("3.2 × 10−8", "1.2x10^-5", "<1e-300", "5E-8")), c(3.2e-8, 1.2e-5, 1e-300, 5e-8))))
+  # SE from a 95% CI (log scale for OR), and per-row SE from P where the SE cell is missing
+  ci <- .import_transform(data.frame(ea = "A", oa = "G", beta = c("1.2", "0.8"), ci_lower = as.character(exp(log(c(1.2, 0.8)) - 1.959964 * 0.05)), ci_upper = as.character(exp(log(c(1.2, 0.8)) + 1.959964 * 0.05)), stringsAsFactors = FALSE), list(scale = "or"))$d
+  pr <- .import_transform(data.frame(ea = "A", oa = "G", beta = c("0.1", "0.2"), se = c("0.02", "."), p = c("1e-6", as.character(2 * stats::pnorm(-0.2 / 0.04))), stringsAsFactors = FALSE), list(scale = "beta", p_scale = "p"))
+  expect("Round 79: the SE is derived from a 95% confidence interval (on the log scale for odds ratios), and for single rows whose SE is missing, from the P value",
+         isTRUE(all.equal(ci$se, c(0.05, 0.05), tolerance = 1e-6)) && isTRUE(all.equal(ci$beta, log(c(1.2, 0.8)))) && isTRUE(all.equal(pr$d$se, c(0.02, 0.04))) && any(grepl("1 variant", pr$changes)))
+  w <- .import_transform(data.frame(ea = "A", oa = "G", beta = c("1.1", "0.95", "1.2", "1.05", "0.9"), se = "0.02", stringsAsFactors = FALSE), list(scale = "beta"))
+  expect("Round 79: odds ratios in a column read as beta are flagged (all positive and centred on 1)", any(grepl("as odds ratios are", w$warnings)))
+  # The 1000 Genomes panel (fixture): build detected from rsID positions (GRCh37, or GRCh38 converted), rsIDs added by position and alleles
+  options(mrgui.engine_dir = args_dir); old79 <- Sys.getenv("MRGUI_LD_DIR"); Sys.setenv(MRGUI_LD_DIR = file.path(args_dir, "test_fixtures", "ld_panel")); on.exit(Sys.setenv(MRGUI_LD_DIR = old79), add = TRUE)   # the fixture panel
+  b37 <- import_build_guess(list(list(ID = "rs9100001", CHR = "1", POS = "1000000"), list(ID = "rs9100002", CHR = "1", POS = "1000100"), list(ID = "rs9200001", CHR = "1", POS = "15000000"), list(ID = "rs9300001", CHR = "1", POS = "40000000")),
+                            list(snp = list(column = "ID"), chr = list(column = "CHR"), pos = list(column = "POS")))
+  bl <- liftover_blocks(); inv <- function(p37) { bb <- bl[bl$qchr == "1" & bl$qstrand == "+", ]; k <- which(p37 - 1 >= bb$qstart & p37 - 1 < bb$qstart + bb$size)[1]; bb$tstart[k] + (p37 - 1 - bb$qstart[k]) + 1 }
+  b38 <- import_build_guess(lapply(c(1000000, 1000100, 15000000, 40000000), function(p) list(ID = c("rs9100001", "rs9100002", "rs9200001", "rs9300001")[match(p, c(1000000, 1000100, 15000000, 40000000))], CHR = "1", POS = as.character(inv(p)))),
+                            list(snp = list(column = "ID"), chr = list(column = "CHR"), pos = list(column = "POS")))
+  rr <- .rsid_from_panel(data.frame(chr = c("1", "1", "1"), pos = c(1000000, 1000100, 5), ea = c("C", "A", "A"), oa = c("A", "G", "C"), stringsAsFactors = FALSE))
+  expect("Round 79: the genome build is detected from where rsIDs sit in the 1000 Genomes panel (GRCh37 directly, GRCh38 after conversion), and position-only variants get rsIDs by position and alleles",
+         identical(b37$build, "37") && identical(b38$build, "38") && identical(rr$snp, c("rs9100001", NA, NA)) && rr$n == 1L)
+})
+
+# ---- Round 80: narration per kind of wait, in every kind of study; every finished method reported; OpenGWAS populations ----
+local({
+  # fast methods that finish between two looks are all reported
+  d <- file.path(tempfile("live80"), "pair"); dir.create(file.path(d, "02_scripts"), recursive = TRUE); dir.create(file.path(d, "04_tables")); dir.create(file.path(d, "03_console"))
+  file.create(file.path(d, "02_scripts", c("00_run_all.R", "01_ivw_mre.R", "02_egger.R", "03_wm.R", "04_mode.R", "05_presso.R"))); said <- list(); live_reset()
+  options(mrstudio.say = function(msg, why) said[[length(said) + 1L]] <<- list(msg = msg, why = why))
+  live_scripts(d); file.create(file.path(d, "04_tables", paste0(c("ivw_mre", "egger", "wm"), "_estimates.csv"))); live_scripts(d)
+  file.create(file.path(d, "04_tables", "mode_estimates.csv")); writeLines("05_presso.R", file.path(d, "03_console", "failed_scripts.txt")); live_scripts(d)
+  options(mrstudio.say = NULL); msgs <- vapply(said, `[[`, "", "msg")
+  expect("Round 80: every method that finished between two looks is reported (three at once, then the next one and a failed one by name)",
+         any(grepl("^Finished: Inverse-variance weighted.*MR-Egger.*Weighted median \\(3 of 5\\)", msgs)) && any(grepl("^Weighted mode finished in", msgs)) && any(grepl("MR-PRESSO stopped with an error.*\\(5 of 5\\)", msgs)))
+  # every engine action that narrates has its own box on the screen, the engine names the action in every message and marks its end
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n"); app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  grp <- regmatches(js, regexpr("const LIVE_GROUP = \\{[^}]*\\}", js)); keys <- regmatches(grp, gregexpr("[a-z_]+(?=: ')", grp, perl = TRUE))[[1]]
+  acts <- c("facts", "mv_prepare", "med_prepare", "bidir_prepare", "run_all", "build_package", "ogw_dl_exposure", "ogw_dl_outcome", "run_sens", "run_outliers", "mediation", "bidir_cml", "instruments", "run_ties", "compare_default", "init", "diagnostics")
+  expect("Round 80: each action that narrates (two-sample, multivariable, mediation and bidirectional studies, reruns, outliers, publishing, downloads) has its own box group; messages name their action and every action's end is sent",
+         all(acts %in% keys) && grepl('act = getOption("mrstudio.act", "")', app, fixed = TRUE) && grepl('ev("live_end", act = t)', app, fixed = TRUE) && grepl('options(mrstudio.act = "run_all")', app, fixed = TRUE) && !grepl("S\\.live\\b", js))
+  # the screen's boxes, run in node: a run opens its own box (a new clock) after the Check box closed; news from another action does not land in it
+  if (nzchar(Sys.which("node"))) {
+    f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
+    writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
+      "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
+      "const cst = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, src.indexOf(';\\n', i) + 1); };",
+      "global.document = { getElementById: () => null }; global.S = { lives: {}, _pin: {}, _top: {} }; let now = 1000; Date.now = () => now; global.setTimeout = () => 0; global.clearTimeout = () => 0;",
+      "eval(cst('LIVE_GROUP') + cst('LIVE_PREP') + cst('mmss') + grab('liveOpen') + grab('liveEnd') + grab('liveAdd') + grab('liveFollow') + grab('liveTick'));",
+      "liveOpen('check'); liveAdd('Pair 1 of 2', '', 'facts'); now = 200000; liveEnd('check');",
+      "now = 380000; liveAdd('Running 31 method scripts', '', 'run_all'); now = 381000; liveAdd('Instrument review: loading', '', 'instruments');",
+      "console.log([S.lives.run.t0, S.lives.run.lines.length, S.lives.check.open, S.lives.check.lines.length, S.lives.review.lines.length].join(' '));"), f)
+    o <- strsplit(system2("node", f, stdout = TRUE), " ")[[1]]
+    expect("Round 80: on the screen, a run gets its own box and clock (it showed the Check step's clock), the Check box stays closed, and news from another action goes to that action's box",
+           identical(o, c("380000", "1", "false", "1", "1")))
+  }
+  # populations: the GWAS's own (OpenGWAS) in the Check, the ancestry rule and the draft text, not the panel used for clumping
+  r <- list(source = list(type = "opengwas", population = "Mixed"), facts = list(ancestry = "EUR")); r2 <- list(source = list(type = "opengwas", population = "European"), facts = list(ancestry = "EUR"))
+  expect("Round 80: an OpenGWAS download's population is OpenGWAS's own (Mixed stays Mixed although its instruments were clumped with the EUR panel; European is EUR)",
+         identical(.gwas_pop(r), "Mixed") && identical(.gwas_pop(r2), "EUR") && is.null(.gwas_pop(list(source = list(type = "file"), facts = list(ancestry = "EUR")))))
+})
+
 # Round 78: a trailing comment must never swallow code (Round 75d turned the rest of the Check screen's result handler into a comment, so the
 # Check screen never finished in build-34). Every line of the screen code with code before "//" is scanned for statements after it.
 local({
@@ -1827,6 +1918,18 @@ local({
       after <- substr(l, k + 2, nchar(l)); return(grepl("\\S", before) && grepl("(break;|render\\(\\);|\\bS\\.[A-Za-z]+ = )", after)) }
     FALSE }, TRUE))
   expect("Round 78: no trailing comment in the screen code swallows statements (the bug that kept the Check screen from finishing)", !length(bad) || { cat("  lines:", bad, "\n"); FALSE })
+})
+
+# Round 80: the same check for the engine's R code (a trailing comment turned the UK Biobank overlap flag into a comment during Round 80)
+local({
+  fs <- c(list.files(args_dir, pattern = "\\.R$", full.names = TRUE), file.path(find_contracts_dir(args_dir), "r", c("script.R", "study.R")))
+  fs <- fs[!grepl("test_studio\\.R$", fs)]
+  hits <- unlist(lapply(fs, function(f) { L <- readLines(f, warn = FALSE, encoding = "UTF-8")
+    k <- vapply(L, function(l) { p <- regexpr("#", l, fixed = TRUE); if (p < 2) return(FALSE); b <- substr(l, 1, p - 1)
+      if (!grepl("\\S", b) || lengths(regmatches(b, gregexpr('"', b, fixed = TRUE))) %% 2 || lengths(regmatches(b, gregexpr("'", b, fixed = TRUE))) %% 2) return(FALSE)
+      grepl("\\b[a-z_.]+ = (isTRUE|list|c\\(|as\\.|[a-z_.]+\\$|[a-z_.]+\\()|<-\\s*[a-zA-Z(]|\\)\\s*\\}\\s*,?\\s*$|^\\s*\\},", substr(l, p + 1, nchar(l)), perl = TRUE) }, TRUE)
+    if (any(k)) paste0(basename(f), ":", which(k)) }))
+  expect("Round 80: no trailing comment in the engine's R code swallows code", !length(hits) || { cat("  ", hits, "\n"); FALSE })
 })
 
 # Round 76: the run-time estimate counts on each pair only the methods it runs, at its own variants (test 3: 52 min shown, 26.5 min real)
