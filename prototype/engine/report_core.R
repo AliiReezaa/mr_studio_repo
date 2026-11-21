@@ -548,7 +548,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   aps <- if (exists("mrapss_pair_read")) Filter(Negate(is.null), lapply(Filter(function(p) !isTRUE(p$mv) && !is.null(p$folder), pairs), function(p) tryCatch(mrapss_pair_read(h, p), error = function(e) NULL))) else list()   # Round 69
   if (length(aps)) { txt$methods <- c(txt$methods, MRAPSS_METHODS_TEXT); txt$results <- c(txt$results, unlist(lapply(aps, mrapss_text))) }
   cau <- if (exists("cause_pair_read")) Filter(Negate(is.null), lapply(Filter(function(p) !isTRUE(p$mv) && !is.null(p$folder), pairs), function(p) tryCatch(cause_pair_read(h, p), error = function(e) NULL))) else list()   # Round 70
-  if (length(cau)) { txt$methods <- c(txt$methods, CAUSE_METHODS_TEXT); txt$results <- c(txt$results, unlist(lapply(cau, cause_text))) }
+  if (length(cau)) { txt$methods <- c(txt$methods, CAUSE_METHODS_TEXT); txt$results <- c(txt$results, unlist(lapply(cau, cause_text))); txt$limitations <- c(txt$limitations, unlist(lapply(cau, cause_ties_text))) }   # Round 87: tied lead variants
   # Round 81: the LD reference of every genome-wide method that gave a result; non-European panels and the analyst's accepted choices for Mixed data
   if (exists("ldref_read")) {
     one <- Filter(function(p) !isTRUE(p$mv) && !is.null(p$folder), pairs); recs <- list()

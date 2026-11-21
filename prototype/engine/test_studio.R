@@ -2049,8 +2049,8 @@ local({
          grepl('if (identical(t, "ldsc")) return(bg_go("ldsc", a))', app, fixed = TRUE) && grepl('bg_start(rq$dir, "run_pair", a, act = "run_all")', app, fixed = TRUE) &&
          grepl("rq$dir <- rv$h$dir", app, fixed = TRUE) && grepl("A run is already going on in", app, fixed = TRUE) && !grepl("rv$h", bodies, fixed = TRUE) && !grepl("run_one(", app, fixed = TRUE))
   cz <- paste(readLines(file.path(args_dir, "cause_core.R"), warn = FALSE), collapse = "\n")
-  expect("Round 83: CAUSE's memory estimate follows the measured peak (6.65 GB for 8.5 million variants), and its script says it needs loo 2.8.0 before it starts (newer loo stops it at the very end)",
-         abs(CAUSE_MEMORY_GB(8479693) - 7.01) < 0.01 && grepl("CAUSE needs loo 2.8.0", cz, fixed = TRUE))
+  expect("Round 83: CAUSE's memory estimate covers the measured peak (7.35 GB for 8.5 million variants in the shipped runtime), and its script says it needs loo 2.8.0 before it starts (newer loo stops it at the very end)",
+         CAUSE_MEMORY_GB(8479693) >= 7.35 && CAUSE_MEMORY_GB(8479693) < 8.5 && grepl("CAUSE needs loo 2.8.0", cz, fixed = TRUE))
   if (nzchar(Sys.which("node"))) {
     f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
     writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
@@ -2128,7 +2128,7 @@ local({
   mi <- list(available_gb = 9.3, total_gb = 16); cz <- paste(readLines(file.path(args_dir, "cause_core.R"), warn = FALSE), collapse = "\n")
   a <- mem_check(CAUSE_MEMORY_GB(8479693), "CAUSE", mi, share = CAUSE_SAFE_SHARE); b <- mem_check(CAUSE_MEMORY_GB(8479693), "CAUSE", mi); c <- mem_check(CAUSE_MEMORY_GB(1.2e7), "CAUSE", mi, share = CAUSE_SAFE_SHARE)
   expect("Round 85: CAUSE on complete GWAS of 8.5 million variants starts with 9.3 GB free (85% rule), the half rule would refuse it, and a larger one is still refused with the memory it needs",
-         isTRUE(a$ok) && !isTRUE(b$ok) && !isTRUE(c$ok) && grepl("starts only when about 10.9 GB is free", c$msg) && grepl('mem_check(CAUSE_MEMORY_GB(rows), "CAUSE", share = CAUSE_SAFE_SHARE)', cz, fixed = TRUE) &&
+         isTRUE(a$ok) && !isTRUE(b$ok) && !isTRUE(c$ok) && grepl("starts only when about 12.4 GB is free", c$msg) && grepl('mem_check(CAUSE_MEMORY_GB(rows), "CAUSE", share = CAUSE_SAFE_SHARE)', cz, fixed = TRUE) &&
          identical(RES_SAFE_SHARE, 0.5))
   # Round 86: MRlap measured on the same complete GWAS (7.55 GB peak; the estimate from the package example said 6.9 GB)
   lp <- paste(readLines(file.path(args_dir, "mrlap_core.R"), warn = FALSE), collapse = "\n")
@@ -2149,6 +2149,35 @@ local({
   expect("Round 86: the draft text of a pair with two intercept estimates (MR-Egger and bootstrapped MR-Egger) is written, with MR-Egger's own intercept",
          n_ic >= 2 && is.list(tx) && any(grepl(sprintf("The MR-Egger intercept was %s", .fnum(eg, 4)), unlist(tx$results), fixed = TRUE)))
 })
+
+# Round 87: lead variants that tie at the smallest P value when CAUSE clumps (ieugwasr then picks one arbitrarily) are stated beside the
+# CAUSE result and in the Limitations of the draft text (the warning was only in the run's log)
+local({
+  d <- tempfile(); dir.create(file.path(d, "04_across_pairs", "cause"), recursive = TRUE); h <- list(dir = d); pr <- list(folder = "P01_X__to__Y", exName = "LDL", outName = "CHD")
+  cd <- file.path(d, "04_across_pairs", "cause"); utils::write.csv(data.frame(gamma = 0.29, gamma_lower = 0.21, gamma_upper = 0.38, p = 4e-4, instruments = 862), file.path(cd, "P01_X__to__Y_results.csv"), row.names = FALSE)
+  w1 <- "3 variants for Se6ATg share the smallest p-value (0), e.g. because of numerical underflow"; w2 <- "2 variants for Ab12Cd share the smallest p-value (0), e.g. because"
+  writeLines(c("Refining grid", "Warning messages:", paste("1:", w1), paste("2:", w2)), file.path(cd, "P01_X__to__Y_job.log"))
+  a <- cause_ties(h, pr); ta <- cause_ties_text(cause_pair_read(h, pr))
+  writeLines(character(), file.path(cd, "P01_X__to__Y_ties.txt")); b <- cause_ties(h, pr)          # a new run with no tie: the empty file wins over the log
+  writeLines("4 variants for Zz share the smallest p-value (1e-200), e.g. because p-values were capped", file.path(cd, "P01_X__to__Y_ties.txt")); cc <- cause_ties(h, pr); tc <- cause_ties_text(cause_pair_read(h, pr))
+  expect("Round 87: the CAUSE tie warning is read from the run (or, for an older run, its log): regions and variants counted, worded for P = 0 and for capped P values; none when the run had none",
+         identical(a$groups, 2L) && identical(a$variants, 5L) && grepl("5 variants in 2 regions shared the smallest P value (P = 0, too small for the computer to represent)", ta, fixed = TRUE) &&
+         grepl("CAUSE for LDL on CHD", ta, fixed = TRUE) && is.null(b) && identical(cc$variants, 4L) && grepl("P = 1e-200, perhaps capped", tc, fixed = TRUE) && grepl("of that region was chosen arbitrarily", tc, fixed = TRUE))
+  cz <- paste(readLines(file.path(args_dir, "cause_core.R"), warn = FALSE), collapse = "\n"); rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n")
+  app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  expect("Round 87: the CAUSE script keeps the clumping's tie warnings in its own file; the draft text's Limitations and the screen message carry the sentence",
+         grepl("cl <- withCallingHandlers(ieugwasr::ld_clump(", cz, fixed = TRUE) && grepl('_ties.txt', cz, fixed = TRUE) && grepl("invokeRestart(\\\"muffleWarning\\\")", cz, fixed = TRUE) &&
+         grepl("txt$limitations <- c(txt$limitations, unlist(lapply(cau, cause_ties_text)))", rc, fixed = TRUE) && grepl("ties = if (is.null(res)) \"\" else paste(cause_ties_text(res)", app, fixed = TRUE))
+  if (nzchar(Sys.which("node"))) {
+    f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
+    writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
+      "const i = src.indexOf(\"case 'cause':\"); const line = src.slice(i, src.indexOf('\\n', i)); const j = src.indexOf('function causeSection('); const body = src.slice(j, src.indexOf('\\nfunction ', j + 10));",
+      "console.log([/ties: m\\.ties \\|\\| ''/.test(line), /R\\.ties \\? '<div role=\"note\"/.test(body)].join(' '));"), f)
+    o <- paste(system2("node", f, stdout = TRUE, stderr = TRUE), collapse = " ")
+    expect("Round 87: on the screen, the CAUSE message keeps the tie sentence and the result shows it as a note", identical(o, "true true"))
+  }
+})
+
 
 # Round 78: a trailing comment must never swallow code (Round 75d turned the rest of the Check screen's result handler into a comment, so the
 # Check screen never finished in build-34). Every line of the screen code with code before "//" is scanned for statements after it.

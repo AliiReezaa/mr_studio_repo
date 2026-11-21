@@ -6,7 +6,7 @@
 # a causal model. It reports the posterior of the causal effect gamma and the P value that the causal model fits better.
 # Steps as in the package vignette: gwas_merge -> est_cause_params -> ld_clump -> cause.
 PIN_CAUSE <- "6257e6c66e6c1518c8750d1e4d2b4d6e42644fa5"
-CAUSE_MEMORY_GB <- function(rows) 1.5 + 0.65 * max(rows, 0, na.rm = TRUE) / 1e6   # Round 83: measured 6.65 GB peak (LDL 2.4 M and CHD 8.5 M variants, macOS); was 1.2 per million (11.7 GB), an estimate
+CAUSE_MEMORY_GB <- function(rows) 1.5 + 0.75 * max(rows, 0, na.rm = TRUE) / 1e6   # Round 87: measured 7.35 GB peak in the shipped runtime (LDL 2.4 M and CHD 8.5 M variants, macOS; 6.65 GB in another R), so 7.9 GB; was 1.2 per million (11.7 GB), an estimate
 CAUSE_SAFE_SHARE <- 0.85   # Round 85: CAUSE starts when its peak fits in 85% of the free memory (half, the rule for estimates, kept a 16 GB Mac from
                            # running it on complete GWAS; its estimate is measured, and it runs at low priority on two threads)
 CAUSE_THREADS <- 2L   # RcppParallel threads; kept low so the computer stays usable
@@ -40,8 +40,11 @@ cause_script <- function(folder, files, labels, bfile, plink, seed, pthr = 1e-3,
     "                A1_cols = c(\"ea\", \"ea\"), A2_cols = c(\"oa\", \"oa\"))",
     "set.seed(seed); varlist <- with(X, sample(snp, size = min(N_SAMPLE, nrow(X)), replace = FALSE))",
     "params <- est_cause_params(X, varlist)",
-    "cl <- ieugwasr::ld_clump(dat = data.frame(rsid = X$snp, pval = X$p1, stringsAsFactors = FALSE), clump_r2 = R2_THRESHOLD, clump_p = P_THRESHOLD,",
-    "                         plink_bin = PLINK, bfile = BFILE)",
+    "# lead variants that share the smallest P value (0 when it underflows) are picked arbitrarily by the clumping; that warning is kept beside the result",
+    "ties <- character()",
+    "cl <- withCallingHandlers(ieugwasr::ld_clump(dat = data.frame(rsid = X$snp, pval = X$p1, stringsAsFactors = FALSE), clump_r2 = R2_THRESHOLD, clump_p = P_THRESHOLD,",
+    "                         plink_bin = PLINK, bfile = BFILE),",
+    "  warning = function(w) if (grepl(\"share the smallest p-value\", conditionMessage(w))) { ties <<- c(ties, conditionMessage(w)); invokeRestart(\"muffleWarning\") })",
     "top_vars <- cl$rsid",
     "set.seed(seed); res <- cause(X = X, variants = top_vars, param_ests = params)",
     "s <- summary(res, ci_size = 0.95); g <- s$quants[[2]]   # causal model: rows median, lower, upper; columns gamma, eta, q",
@@ -54,6 +57,7 @@ cause_script <- function(folder, files, labels, bfile, plink, seed, pthr = 1e-3,
     "utils::write.csv(out, file.path(od, paste0(PAIR, \"_results.csv\")), row.names = FALSE)",
     "utils::write.csv(e, file.path(od, paste0(PAIR, \"_elpd.csv\")), row.names = FALSE)",
     "writeLines(top_vars, file.path(od, paste0(PAIR, \"_variants.txt\")))",
+    "writeLines(ties, file.path(od, paste0(PAIR, \"_ties.txt\")))   # empty: no tie",
     "out")
 }
 
@@ -90,7 +94,24 @@ cause_pair_start <- function(h, pair, root = studies_root(), accept = NULL) {
   invisible(cause_job_read(h, pair))
 }
 cause_pair_read <- function(h, pair) { f <- file.path(h$dir, "04_across_pairs", "cause", paste0(pair$folder, "_results.csv"))
-  if (!file.exists(f)) return(NULL); r <- utils::read.csv(f, stringsAsFactors = FALSE); attr(r, "labels") <- c(x = pair$exName, y = pair$outName); r }
+  if (!file.exists(f)) return(NULL); r <- utils::read.csv(f, stringsAsFactors = FALSE); attr(r, "labels") <- c(x = pair$exName, y = pair$outName); attr(r, "ties") <- cause_ties(h, pair); r }
+#' Round 87: lead variants that shared the smallest P value when CAUSE clumped (ieugwasr then picks one arbitrarily, not by strength).
+#' From the run's _ties.txt; for a run made before it was written, from the warning in the run's log. NULL when there was none.
+cause_ties <- function(h, pair) {
+  d <- file.path(h$dir, "04_across_pairs", "cause"); f <- file.path(d, paste0(pair$folder, "_ties.txt")); lg <- file.path(d, paste0(pair$folder, "_job.log"))
+  txt <- if (file.exists(f)) paste(readLines(f, warn = FALSE), collapse = " ") else if (file.exists(lg)) paste(readLines(lg, warn = FALSE), collapse = " ") else ""
+  m <- unlist(regmatches(txt, gregexpr("[0-9]+ variants for [^ ]+ share the smallest p-value \\([^)]*\\)", txt)))
+  if (!length(m)) return(NULL)
+  list(groups = length(m), variants = sum(as.integer(sub(" variants.*", "", m))), p = unique(sub(".*p-value \\(([^)]*)\\).*", "\\1", m)))
+}
+#' The sentence for the screen and the Limitations of the draft text.
+cause_ties_text <- function(res) {
+  t <- if (is.data.frame(res)) attr(res, "ties") else res; if (is.null(t)) return(character())
+  l <- if (is.data.frame(res)) attr(res, "labels") else NULL; who <- if (!is.null(l)) sprintf(" for %s on %s", l[["x"]], l[["y"]]) else ""
+  why <- if (all(t$p == "0")) "P = 0, too small for the computer to represent" else sprintf("P = %s, perhaps capped by the software that produced the GWAS", paste(t$p, collapse = ", "))
+  sprintf("When CAUSE%s clumped its variants, %d variants in %d region%s shared the smallest P value (%s), so the lead variant of %s was chosen arbitrarily rather than by the strength of association; another choice could change the variants CAUSE used.",
+          who, t$variants, t$groups, if (t$groups == 1) "" else "s", why, if (t$groups == 1) "that region" else "those regions")
+}
 
 CAUSE_METHODS_TEXT <- "The causal effect was also assessed with CAUSE [Morrison 2020], which distinguishes a causal effect from correlated pleiotropy (a shared heritable factor) using variants with exposure P < 1e-3 (clumped at r2 < 0.01 against the 1000 Genomes European panel), with nuisance parameters, including the correlation that sample overlap brings, estimated from a random sample of up to one million variants. The causal model was compared with the sharing model by the expected log predictive density."
 cause_text <- function(res) {

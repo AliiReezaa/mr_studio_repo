@@ -399,7 +399,7 @@ mr_server <- function(engine_dir) {
           r <- if (identical(t, "cause_start")) tryCatch({ if (!requireNamespace("cause", quietly = TRUE)) stop("cause is not installed in this runtime.", call. = FALSE); cause_pair_start(rv$h, p, accept = a$accept) }, error = function(e) e) else NULL
           res <- cause_pair_read(rv$h, p)
           ev("cause", folder = a$folder, job = cause_job_read(rv$h, p), anc = .pair_ldref(p, "cause"), ldref = ldref_read(rv$h, p, "cause"), panel = !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), "EUR.bed")),
-             msg = if (inherits(r, "error")) conditionMessage(r) else "", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else cause_text(res))
+             msg = if (inherits(r, "error")) conditionMessage(r) else "", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else cause_text(res), ties = if (is.null(res)) "" else paste(cause_ties_text(res), collapse = " "))   # Round 87
         },
         mrlap_get = , mrlap_start = {   # Round 68: MRlap, run in a separate process (minutes)
           req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
