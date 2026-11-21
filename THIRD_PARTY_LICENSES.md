@@ -46,7 +46,7 @@ Licences are given as each package's `DESCRIPTION` file states them. "GPL-2 | GP
 
 | Licence | Packages |
 |---|---|
-| MIT | cli, dplyr, mixsqp, purrr, ggplot2, gtable, jsonlite, later, magrittr, mgsub (1.7.3), nanoparquet, plotly, readr, scales, stringr, tidyr |
+| MIT | cli, dplyr, mixsqp, purrr, ggplot2, gtable, jsonlite, later, magrittr, mgsub (1.7.3), nanoparquet, plotly, readr, readxl (Excel import) and its imports cellranger and rematch, scales, stringr, tidyr |
 | GPL-2 | cowplot, doParallel, glmnet, kernlab, numDeriv |
 | GPL-3 | gdata, ggnewscale, rmarkdown, rslurm, shiny, splitstackshape, ggrepel |
 | GPL (>= 2) | digest, expm, gridExtra, httpuv, lattice, lavaan, nortest, pbapply, psych, Rcpp, rootSolve, sfsmisc |
@@ -58,6 +58,12 @@ Licences are given as each package's `DESCRIPTION` file states them. "GPL-2 | GP
 | Apache-2.0 | foreach, iterators |
 | BSD-3-Clause | colorspace |
 | Artistic-2.0 | intervals, matrixStats |
+
+## Reference data in the installer
+
+- **GRCh38 to GRCh37 chain file** (`prototype/engine/data/liftover/GRCh38_to_GRCh37.chain.gz`, 114 KB): Ensembl assembly mapping
+  (ftp.ensembl.org/pub/assembly_mapping/homo_sapiens/), kept to chromosomes 1 to 22, X, Y and MT. Ensembl data are available without
+  restriction on use. Used to convert positions of imported GRCh38 files; checked by SHA-256 in `liftover_core.R`.
 
 ## Not bundled
 

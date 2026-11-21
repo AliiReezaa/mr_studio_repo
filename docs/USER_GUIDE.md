@@ -87,6 +87,30 @@ When you import a file, you say whether it is:
   1000 Genomes panel), or
 - used as an **outcome only**.
 
+Files from other sources (for example a consortium website or a paper's supplementary table) often differ in layout. MR Studio
+handles the common differences and lists every change on the **Check and save** step, before anything is saved:
+
+- **Excel workbooks** (`.xlsx`, `.xls`): the sheet with the table is found (you can pick another), and title, note and footnote
+  rows are left out.
+- **Layout:** comment lines before the heading (`##`, or a heading that starts with `#`), a byte-order mark, decimal commas
+  (`0,05`), and chromosome names such as `chr1` or `23`.
+- **Headings:** case, spaces and punctuation do not matter, and common names are recognised (`MarkerName`, `A1`, `ALT`,
+  `effect_allele`, `StdErr`, `P-value`, `Freq1`, `POS_hg38` and many others). Each match shows how sure it is; check those marked
+  MEDIUM or LOW. Always check which allele the effect belongs to: the app shows your first row and asks.
+- **A minor allele frequency** (`MAF`) is recognised as such and not used as the effect allele frequency.
+- **-log10(P)** columns are recognised and converted.
+- **A missing standard error** is derived from the effect and its P value (SE = |b| / z; Altman and Bland 2011). The P values must
+  be two-sided; rounded P values give approximate standard errors.
+- **Z scores only:** the effect and its standard error are derived per standard deviation of the trait from the Z score, the
+  sample size and an allele frequency (Zhu et al. 2016). Not for binary traits.
+- **No allele frequency:** frequencies can be taken from the 1000 Genomes panel of the file's ancestry (Settings, LD reference
+  panel), matched by rsID and alleles.
+- **GRCh38 positions** are converted to GRCh37 with the Ensembl chain file included in the app; variants that cannot be converted
+  are dropped and counted. A file with positions but no rsIDs needs its genome build.
+
+Your file is never changed. The recipe saved with the data records the file's checksum, the column mapping, your answers and every
+change. For a mediator, choose **Any role (exposure, mediator or outcome)**.
+
 ## A study in seven steps
 
 Choose **All studies**, then start a new study. The left side shows the seven steps. Your progress is saved in the study folder

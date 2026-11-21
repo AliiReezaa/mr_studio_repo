@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "cause_core.R")); source(file.path(args_dir, "fullgwas_core.R")); source(file.path(args_dir, "live_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "liftover_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "cause_core.R")); source(file.path(args_dir, "fullgwas_core.R")); source(file.path(args_dir, "live_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -176,8 +176,8 @@ vb1 <- import_validate(fi, hd$sep, hd$columns, mp, c(fl, list(kind = "binary", n
 vb2 <- import_validate(fi, hd$sep, hd$columns, mp, c(fl, list(kind = "binary")))
 vb3 <- import_validate(fi, hd$sep, hd$columns, mp, c(fl, list(kind = "binary", ncase = "1200", ncontrol = "3400")))
 expect("import: a binary trait needs both case counts as whole numbers, and says what is lost without them", !vb1$ok && vb2$ok && any(grepl("cases and controls", vb2$warnings, fixed = TRUE)) && vb3$ok && !any(grepl("cases and controls", vb3$warnings, fixed = TRUE)))
-mpx <- mp; mpx$se <- NULL; vx <- import_validate(fi, hd$sep, hd$columns, mpx, fl)
-expect("import: a missing required column blocks the import and names it", !vx$ok && any(grepl("Standard error", vx$errors)))
+mpx <- mp; mpx$se <- NULL; mpx$p <- NULL; vx <- import_validate(fi, hd$sep, hd$columns, mpx, fl)   # Round 77: with a P value the SE is derived
+expect("import: a missing required column (SE, with no P value to derive it from) blocks the import and names it", !vx$ok && any(grepl("standard error", vx$errors, ignore.case = TRUE)))
 fm <- tempfile(fileext = ".tsv"); gm <- g; gm$Frq <- pmin(gm$Frq, 0.5); utils::write.table(gm, fm, sep = "\t", quote = FALSE, row.names = FALSE)
 vm <- import_validate(fm, hd$sep, hd$columns, mp, list(frq = "eaf", scope = "selected", scale = "beta", n = ""))
 expect("import: frequencies that look like MAF are flagged when the user says they are effect allele frequencies", any(grepl("minor allele frequency", vm$warnings)))
@@ -192,10 +192,10 @@ expect("import: palindromic variants without a frequency column are reported", v
 set.seed(5); f_un <- tempfile(fileext = ".csv"); writeLines(c("a,b,c,d,e", paste("rs", 1000 + 1:20, ",A,G,", round(runif(20, 0.005, 0.02), 4), ",", signif(runif(20, 0.2, 0.9), 3), sep = "")), f_un)
 h_un <- import_read_head(f_un, "un.csv"); sg_un <- import_suggest(h_un$columns, h_un$rows)
 expect("import: a column of small standard errors is not guessed to be the P value", !identical(sg_un$p$column, "d"))
-expect("import: z-scores are refused for now", !import_validate(fi, hd$sep, hd$columns, mp, list(frq = "eaf", scope = "selected", scale = "z", n = ""))$ok)
+expect("import: Z scores are refused without a Z score column, the sample size and a frequency (Round 77: accepted with them)", !import_validate(fi, hd$sep, hd$columns, mp, list(frq = "eaf", scope = "selected", scale = "z", n = ""))$ok)
 fx_ <- tempfile(fileext = ".txt"); utils::write.table(data.frame(FID = 1, IID = 2, PHENO = 1, rs1 = 0, rs2 = 1), fx_, quote = FALSE, row.names = FALSE)
 expect("import: individual-level data is refused before anything is read", grepl("individual-level", err_of(import_read_head(fx_))))
-expect("import: VCF and zip files are refused with a clear message", grepl("not supported yet", err_of(import_read_head(fi, "x.vcf.gz"))))
+expect("import: VCF and zip files are refused with a clear message", { m <- err_of(import_read_head(fi, "x.vcf.gz")); grepl("not supported here", m) && grepl("Excel", m) && grepl("GWAS-VCF files have their own import", m) })
 rec <- import_save(fi, "bolt.tsv", hd$sep, hd$columns, mp, list(name = "Import test", role = "exposure", frq = "eaf", scale = "beta", scope = "selected", n = ""))
 sd <- file.path(library_dir(), "Import test")
 expect("import: standard copy and recipe are saved, with the checksum of the original", file.exists(file.path(sd, "standardised.parquet")) && !file.exists(file.path(sd, "standardised.csv")) && identical(rec$original$sha256, sha256_file(fi)) && identical(rec$usable_in_runs, TRUE) && identical(rec$usable_as_exposure, FALSE))
@@ -1296,6 +1296,7 @@ expect("Round 57: the mediation script is written to 04_across_pairs, registered
   f <- file.path(h57$dir, "04_across_pairs", "mediation", "mediation.R"); old <- setwd(h57$dir); again <- sys.source(f, envir = new.env()); setwd(old)
   again <- utils::read.csv(file.path(h57$dir, "04_across_pairs", "mediation", "mediation_results.csv"), stringsAsFactors = FALSE)
   file.exists(f) && isTRUE(all.equal(again, res57, check.attributes = FALSE)) && all(c("04_across_pairs/mediation/mediation.R", "04_across_pairs/mediation/mediation_results.csv") %in% manifest_read(h57$dir)$relative_path) })
+expect("Round 76: each mediation row carries its own scale (the exposure on a mediator in its units, proportions as proportions; test 3 labelled them log OR)", all(res57$scale[res57$quantity == "proportion mediated"] == "proportion") && all(res57$scale[res57$quantity != "proportion mediated"] == "beta"))
 expect("Round 57: the check screen can describe every step, a mediator equal to the exposure is refused, and the results text reports the proportions", {
   f1 <- pair_facts("expA", "expC", 5e-8, mediation_pair_input(pr57[[2]]$med)); f2 <- mv_pair_facts(c("expA", "expC"), "outA", 5e-8, mediation_pair_input(pr57[[4]]$med))
   bad <- tryCatch({ mediation_pair_input(list(role = "total", x = "expA", ms = "expA", y = "outA")); "" }, error = function(e) conditionMessage(e)); tx <- mediation_results_text(res57, attr(res57, "spec"))
@@ -1737,7 +1738,7 @@ local({ said <- list(); live_reset()
   expect("Round 75e: a run watched for narration gives exactly the same estimates and replay result as the plain run",
          identical(ea$estimate, eb$estimate) && identical(ea$se, eb$se) && identical(pair_payload(hb$dir, rb$pair_folder)$replay$status, "identical"))
   expect("Round 75e: the Run screen is told when the method scripts start and when the replay check starts, each with why (fast methods finish before the first look)",
-         any(grepl("^Running 3 method scripts", msgs)) && any(grepl("^Replay check", msgs)) && all(nzchar(vapply(said[grepl("^Running|^Replay", msgs)], `[[`, "", "why"))))
+         any(grepl("^Running 3 method scripts", msgs)) && any(grepl("^Replay check: rerunning", msgs)) && all(nzchar(vapply(said[grepl("^Running 3 method scripts|^Replay check: rerunning", msgs)], `[[`, "", "why"))))   # Round 76: only the two start messages (a per-method replay line, said when the first look comes early, has no why by design)
   # a slow method: reported as still running after 45 s, once; a failed one is named
   d <- file.path(tempfile("live"), "pair"); dir.create(file.path(d, "02_scripts"), recursive = TRUE); dir.create(file.path(d, "04_tables")); dir.create(file.path(d, "03_console"))
   file.create(file.path(d, "02_scripts", c("00_run_all.R", "01_ivw_mre.R", "02_presso.R", "03_wm.R"))); said <<- list(); said <- list(); live_reset()
@@ -1748,5 +1749,87 @@ local({ said <- list(); live_reset()
   expect("Round 75e: a finished method is reported with its time, a slow one as still running (once, with why it is slow), a failed one by name",
          any(grepl("finished in 10 s \\(1 of 3\\)", msgs)) && sum(grepl("still running", msgs)) == 1L && grepl("refits the model many times", said[[which(grepl("still running", msgs))]]$why) &&
          any(grepl("MR-PRESSO.*stopped with an error", msgs)) && any(grepl("^Method 3 of 3", msgs))) })
+
+# ---- Round 77: files from other sources (Excel, preambles, decimal commas, MAF and -log10 P headings, derived SE, Z scores, GRCh38) ----
+local({
+  td <- tempfile("imp77"); dir.create(td); set.seed(77)
+  k <- 40; snp <- sprintf("rs%d", 5000 + seq_len(k)); ea <- rep(c("A", "C", "G", "T"), 10); oa <- rep(c("G", "T", "A", "C"), 10)
+  b <- round(stats::runif(k, -0.1, 0.1), 6); se <- round(stats::runif(k, 0.01, 0.02), 6); p <- 2 * stats::pnorm(-abs(b / se)); f <- round(stats::runif(k, 0.05, 0.95), 4)
+  mk <- function(name, lines) { fp <- file.path(td, name); writeLines(lines, fp); fp }
+  head_of <- function(fp) { h <- import_read_head(fp); s <- import_suggest(h$columns, h$rows); list(h = h, s = s, hint = import_hints(h$columns, h$rows, s), map = lapply(s, `[[`, "column")) }
+  facts0 <- list(name = "x", role = "either", kind = "continuous", scale = "beta", ea_ok = "yes", frq = "eaf", strand = "unknown", build = "37", ancestry = "EUR", n = "100000", scope = "selected", independent = "yes")
+  # MAF heading: matched to the frequency column but marked as a minor allele frequency; an EAF heading in the same file wins
+  a <- head_of(mk("maf.tsv", c("SNP\tA1\tA2\tMAF\tBETA\tSE\tP", sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s", snp, ea, oa, pmin(f, 1 - f), b, se, p))))
+  a2 <- head_of(mk("both.tsv", c("SNP\tA1\tA2\tMAF\tEAF\tBETA\tSE\tP", sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s", snp, ea, oa, pmin(f, 1 - f), f, b, se, p))))
+  expect("Round 77: a MAF heading is marked as a minor allele frequency (not used as the effect allele frequency); an EAF heading wins over it",
+         identical(a$hint$frq, "maf") && identical(a2$map$eaf, "EAF") && identical(a2$hint$frq, "eaf"))
+  # -log10 P: hinted, converted, and a plain P column with values above 1 is refused with the reason
+  ml <- mk("mlog.tsv", c("SNP\tA1\tA2\tBETA\tSE\tLOG10P", sprintf("%s\t%s\t%s\t%s\t%s\t%.10g", snp, ea, oa, b, se, -log10(p))))
+  c1 <- head_of(ml); v1 <- import_validate(ml, c1$h$sep, c1$h$columns, c1$map, modifyList(facts0, list(p_scale = c1$hint$p_scale, frq = "none")))
+  v2 <- import_validate(ml, c1$h$sep, c1$h$columns, c1$map, modifyList(facts0, list(p_scale = "p", frq = "none")))
+  expect("Round 77: a -log10(P) column is recognised and converted; read as plain P it is refused with what to choose instead",
+         identical(c1$hint$p_scale, "mlog10") && identical(c1$map$p, "LOG10P") && v1$ok && any(grepl("converted from -log10", unlist(v1$changes))) && !v2$ok && any(grepl("above 1", v2$errors)))
+  # SE from the effect and P (Altman and Bland 2011), including a P value too small for double precision given as -log10(P)
+  nose <- mk("nose.csv", c("rsid,effect_allele,other_allele,beta,pval", sprintf("%s,%s,%s,%s,%.17g", snp, ea, oa, b, p)))
+  c2 <- head_of(nose); fa <- modifyList(facts0, list(name = "Derived SE", frq = "none", p_scale = "p"))
+  r2 <- import_save(c2$h$path, "nose.csv", c2$h$sep, c2$h$columns, c2$map, fa); d2 <- lib_table_read(file.path(library_dir(), "Derived SE"), "standardised")
+  lp <- -400 * log(10); zz <- stats::qnorm(lp - log(2), lower.tail = FALSE, log.p = TRUE)
+  tiny <- .import_transform(data.frame(ea = "A", oa = "G", beta = "0.5", p = "400", stringsAsFactors = FALSE), list(p_scale = "mlog10", scale = "beta"))$d
+  expect("Round 77: the SE is derived from the effect and its P value (exact for unrounded P; also for P below 1e-300 given as -log10 P); the change is recorded",
+         isTRUE(all.equal(d2$se[match(snp, d2$snp)], se, tolerance = 1e-8)) && any(grepl("Altman and Bland", unlist(r2$changes))) && isTRUE(all.equal(tiny$se, 0.5 / zz)) && is.finite(tiny$se))
+  # Z score with N and frequency (Zhu et al. 2016): b = z / sqrt(2f(1-f)(n + z^2)), se = 1 / sqrt(...)
+  n <- 50000; zs <- stats::rnorm(k, 0, 4); den <- sqrt(2 * f * (1 - f) * (n + zs^2))
+  zf <- mk("z.txt", c("ID REF ALT ALT_FREQ ZSCORE N", sprintf("%s %s %s %s %.12g %d", snp, oa, ea, f, zs, n)))
+  c3 <- head_of(zf); m3 <- c3$map
+  r3 <- import_save(c3$h$path, "z.txt", c3$h$sep, c3$h$columns, m3, modifyList(facts0, list(name = "From Z", scale = "z", frq = "eaf", n = "")))
+  d3 <- lib_table_read(file.path(library_dir(), "From Z"), "standardised"); i3 <- match(snp, d3$snp)
+  vb <- import_validate(c3$h$path, c3$h$sep, c3$h$columns, m3, modifyList(facts0, list(scale = "z", kind = "binary")))
+  expect("Round 77: effect sizes and SEs are derived from Z scores with N and the frequency (Zhu 2016); ALT is the effect allele; refused for a binary trait",
+         identical(m3$ea, "ALT") && identical(m3$oa, "REF") && identical(m3$z, "ZSCORE") && identical(c3$hint$scale, "z") && isTRUE(all.equal(d3$beta[i3], zs / den, tolerance = 1e-9)) && isTRUE(all.equal(d3$se[i3], 1 / den, tolerance = 1e-9)) &&
+         !vb$ok && any(grepl("binary trait", vb$errors)))
+  # Preamble, byte-order mark, semicolons with decimal commas, lower-case alleles, chr-prefixed chromosomes
+  pre <- mk("pre.txt", c("﻿## produced by some pipeline", "## build GRCh37", "", "#CHROM;POS;ID;EA;NEA;BETA;SE", sprintf("chr1;%d;%s;%s;%s;%s;%s", 1000 + seq_len(k), snp, tolower(ea), tolower(oa), sub(".", ",", format(b, scientific = FALSE), fixed = TRUE), sub(".", ",", format(se, scientific = FALSE), fixed = TRUE))))
+  c4 <- head_of(pre); v4 <- import_validate(c4$h$path, c4$h$sep, c4$h$columns, c4$map, modifyList(facts0, list(frq = "none")))
+  d4 <- .import_transform(.import_read(c4$h$path, c4$h$sep, c4$h$columns, c4$map), facts0)$d
+  expect("Round 77: comment lines, a byte-order mark, a #-heading, semicolons and decimal commas are handled; alleles upper-cased; chr1 written as 1",
+         identical(c4$h$columns, c("CHROM", "POS", "ID", "EA", "NEA", "BETA", "SE")) && v4$ok && v4$stats$kept == k && isTRUE(all.equal(d4$beta, b)) && all(d4$chr == "1") && all(d4$ea == ea) && length(c4$h$notes) >= 3)
+  # Excel: the results sheet of a workbook, with title, note and footnote rows
+  x <- head_of(file.path(args_dir, "test_fixtures", "messy_gwas.xlsx"))
+  vx <- import_validate(x$h$path, x$h$sep, x$h$columns, x$map, modifyList(facts0, list(p_scale = "p")))
+  expect("Round 77: an Excel workbook is read from its results sheet (title, note and footnote rows left out), every column matched and 30 variants kept",
+         identical(x$h$sheet, "Results") && identical(unname(unlist(x$map[c("snp", "ea", "oa", "eaf", "beta", "se", "p")])), c("MarkerName", "Allele1", "Allele2", "Freq1", "Effect", "StdErr", "P-value")) && vx$ok && vx$stats$kept == 30L && length(x$h$notes) == 3L)
+  # GRCh38 positions: APOE rs7412 and rs429358 (GRCh37 19:45412079 and 19:45411941); a reverse-strand block complements the alleles
+  bl <- liftover_blocks(); rb <- bl[bl$qstrand == "-" & bl$tchr == "1", ][1, ]
+  g38 <- mk("g38.tsv", c("CHR\tBP\tA1\tA2\tBETA\tSE", "19\t44908822\tT\tC\t0.1\t0.01", "19\t44908684\tC\tT\t0.2\t0.01", sprintf("1\t%d\tA\tG\t0.3\t0.01", rb$tstart + 6), "1\t1\tA\tG\t0.4\t0.01"))
+  c5 <- head_of(g38); r5 <- import_save(c5$h$path, "g38.tsv", c5$h$sep, c5$h$columns, c5$map, modifyList(facts0, list(name = "GRCh38 file", build = "38", frq = "none")))
+  d5 <- lib_table_read(file.path(library_dir(), "GRCh38 file"), "standardised"); u5 <- import_validate(c5$h$path, c5$h$sep, c5$h$columns, c5$map, modifyList(facts0, list(build = "unknown")))
+  expect("Round 77: GRCh38 positions are converted to GRCh37 (APOE variants at their known positions), reverse-strand alleles complemented, an unmappable one dropped, the chain recorded",
+         identical(d5$pos[1:2], c(45412079, 45411941)) && identical(d5$ea[3], "T") && identical(d5$oa[3], "C") && nrow(d5) == 3L && identical(r5$liftover$sha256, LIFTOVER_CHAIN$sha256) && identical(r5$build_saved, "GRCh37") &&
+         !u5$ok && any(grepl("genome build must be known", u5$errors)))
+  # Frequencies from the 1000 Genomes panel (synthetic fixture panel), then Z scores to effects
+  old_ld <- Sys.getenv("MRGUI_LD_DIR"); Sys.setenv(MRGUI_LD_DIR = file.path(args_dir, "test_fixtures", "ld_panel")); on.exit(Sys.setenv(MRGUI_LD_DIR = old_ld), add = TRUE)   # the synthetic fixture panel
+  bim <- utils::read.table(file.path(Sys.getenv("MRGUI_LD_DIR"), "EUR.bim"), stringsAsFactors = FALSE)
+  pz <- mk("pz.tsv", c("SNP\tEA\tOA\tZ\tN", sprintf("%s\t%s\t%s\t%s\t%d", bim$V2, bim$V5, bim$V6, round(stats::rnorm(nrow(bim), 0, 3), 4), 20000)))
+  c6 <- head_of(pz); r6 <- tryCatch(import_save(c6$h$path, "pz.tsv", c6$h$sep, c6$h$columns, c6$map, modifyList(facts0, list(name = "Panel freq", scale = "z", frq = "none", eaf_fill = "panel", n = ""))), error = function(e) conditionMessage(e))
+  d6 <- tryCatch(lib_table_read(file.path(library_dir(), "Panel freq"), "standardised"), error = function(e) NULL)
+  expect("Round 77: missing frequencies are taken from the 1000 Genomes panel by rsID and allele, and then used to derive effects from Z scores",
+         is.list(r6) && !is.null(d6) && nrow(d6) >= 1L && all(d6$eaf > 0 & d6$eaf < 1) && any(grepl("1000 Genomes EUR panel", unlist(r6$changes))) && isTRUE(all.equal(d6$se, 1 / sqrt(2 * d6$eaf * (1 - d6$eaf) * (20000 + (d6$beta / d6$se)^2)))))
+})
+
+# Round 76: the run-time estimate counts on each pair only the methods it runs, at its own variants (test 3: 52 min shown, 26.5 min real)
+if (nzchar(Sys.which("node"))) local({
+  js <- tempfile(fileext = ".js"); on.exit(unlink(js))
+  writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath("prototype/engine/ui/studio.js"))),
+    "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
+    "const uni = 'ivw_mre egger wm divw bwmr grip ivw_steiger mrmix wmode_nome smode_nome pwm egger_boot rucker sign pivw maxlik raps mbe robust_ivw cml conmix lasso egger_simex smode mode smed radegger radial presso'.split(' '), mv = 'mvivw mvegger mvmedian mvlasso mvqhet mvcml'.split(' ');",
+    "global.METHODS = uni.map((id) => ({ id })).concat(mv.map((id) => ({ id, mv: true })));",
+    "global.S = { facts: [['a','y',78],['a','m1',75],['a','m2',75],['a|m1','y',142],['a|m2','y',117],['a|m1|m2','y',154]].map((f) => ({ ex_id: f[0], out_id: f[1], instruments: f[2], exposures: f[0].split('|') })) };",
+    "S.pairs = S.facts.map((f) => ({ ex: f.ex_id.indexOf('|') >= 0 ? f.ex_id.split('|') : f.ex_id, out: f.out_id, mv: f.ex_id.indexOf('|') >= 0 }));",
+    "eval(grab('minInst') + grab('pairFact') + grab('estPairSecs'));",
+    "console.log(S.pairs.map((p) => estPairSecs(uni.concat(mv), p)).join(' '));"), js)
+  e <- as.numeric(strsplit(system2("node", js, stdout = TRUE), " ")[[1]]); real <- c(348, 358, 333, 165, 125, 259)
+  expect("Round 76: test 3 pairs estimated within 20% each and the study within 10% of the real 26.5 min (52 min before)",
+         length(e) == 6L && all(abs(e / real - 1) < 0.2) && abs(sum(e) / sum(real) - 1) < 0.1)
+})
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

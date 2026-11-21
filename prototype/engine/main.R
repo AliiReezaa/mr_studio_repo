@@ -34,6 +34,7 @@ watch_parent <- function() {
 source(file.path(args_dir, "studio_core.R"))
 load_contracts(find_contracts_dir(args_dir))
 source(file.path(args_dir, "import_core.R"))
+source(file.path(args_dir, "liftover_core.R"))   # Round 77
 options(mrgui.engine_dir = args_dir)
 source(file.path(args_dir, "opengwas_core.R"))
 source(file.path(args_dir, "ld_core.R"))

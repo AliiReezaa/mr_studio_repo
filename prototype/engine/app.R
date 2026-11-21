@@ -162,10 +162,10 @@ mr_server <- function(engine_dir) {
           return()
         }
         hd <- import_read_head(f$datapath, f$name)
-        rv$imp <- list(path = f$datapath, name = f$name, sep = hd$sep, columns = hd$columns, fingerprint = hd$fingerprint)
-        tm <- template_match(hd$fingerprint)
+        rv$imp <- list(path = hd$path, orig = f$datapath, name = f$name, sep = hd$sep, columns = hd$columns, fingerprint = hd$fingerprint, notes = unlist(hd$notes))   # Round 77: hd$path may be a cleaned copy (Excel and similar)
+        tm <- template_match(hd$fingerprint); sg <- import_suggest(hd$columns, hd$rows)
         ev("import_head", name = hd$name, size = hd$size, sep = hd$sep, columns = as.list(hd$columns), rows = unname(hd$rows),
-           suggest = import_suggest(hd$columns, hd$rows), template = tm)
+           suggest = sg, hints = import_hints(hd$columns, hd$rows, sg), template = tm, notes = hd$notes, sheets = hd$sheets, sheet = hd$sheet)
       }, error = function(e) { rv$imp <- NULL; ev("import_error", msg = conditionMessage(e)) })
     })
 
@@ -180,13 +180,20 @@ mr_server <- function(engine_dir) {
         study_folder = open_in_file_manager(file.path(studies_root(), basename(a$name))),
         library = { ev("library", items = library_list(), templates = template_list(), catalogue = catalogue_all()); ogw_ev() },
         library_folder = { d <- library_dir(); dir.create(d, recursive = TRUE, showWarnings = FALSE); open_in_file_manager(d) },
+        import_sheet = {   # Round 77: another sheet of the same Excel workbook
+          req(rv$imp); hd <- import_read_head(rv$imp$orig, rv$imp$name, sheet = a$sheet)
+          rv$imp <- modifyList(rv$imp, list(path = hd$path, sep = hd$sep, columns = hd$columns, fingerprint = hd$fingerprint, notes = unlist(hd$notes)))
+          sg <- import_suggest(hd$columns, hd$rows)
+          ev("import_head", name = hd$name, size = hd$size, sep = hd$sep, columns = as.list(hd$columns), rows = unname(hd$rows), suggest = sg, hints = import_hints(hd$columns, hd$rows, sg),
+             template = template_match(hd$fingerprint), notes = hd$notes, sheets = hd$sheets, sheet = hd$sheet)
+        },
         import_check = {
           req(rv$imp); v <- import_validate(rv$imp$path, rv$imp$sep, rv$imp$columns, a$mapping, a$facts)
-          ev("import_report", ok = v$ok, errors = as.list(v$errors), warnings = as.list(v$warnings), stats = v$stats)
+          ev("import_report", ok = v$ok, errors = as.list(v$errors), warnings = as.list(v$warnings), changes = as.list(c(rv$imp$notes, unlist(v$changes))), stats = v$stats)
         },
         import_save = {
           req(rv$imp)
-          rec <- import_save(rv$imp$path, rv$imp$name, rv$imp$sep, rv$imp$columns, a$mapping, a$facts)
+          rec <- import_save(rv$imp$path, rv$imp$name, rv$imp$sep, rv$imp$columns, a$mapping, a$facts, orig_path = rv$imp$orig %||% rv$imp$path, prep_notes = rv$imp$notes %||% character())
           tn <- if (nzchar(a$template %||% "")) template_save(a$template, rv$imp$fingerprint, a$mapping, a$facts) else ""
           ev("import_saved", rec = rec, template = tn, items = library_list(), templates = template_list(), catalogue = catalogue_all())
         },
