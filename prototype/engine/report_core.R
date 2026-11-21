@@ -548,6 +548,16 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   if (length(aps)) { txt$methods <- c(txt$methods, MRAPSS_METHODS_TEXT); txt$results <- c(txt$results, unlist(lapply(aps, mrapss_text))) }
   cau <- if (exists("cause_pair_read")) Filter(Negate(is.null), lapply(Filter(function(p) !isTRUE(p$mv) && !is.null(p$folder), pairs), function(p) tryCatch(cause_pair_read(h, p), error = function(e) NULL))) else list()   # Round 70
   if (length(cau)) { txt$methods <- c(txt$methods, CAUSE_METHODS_TEXT); txt$results <- c(txt$results, unlist(lapply(cau, cause_text))) }
+  # Round 81: the LD reference of every genome-wide method that gave a result; non-European panels and the analyst's accepted choices for Mixed data
+  if (exists("ldref_read")) {
+    one <- Filter(function(p) !isTRUE(p$mv) && !is.null(p$folder), pairs); recs <- list()
+    for (m in c("ldsc", "mrlap", "mrapss", "cause")) for (p in one) { rd <- get0(paste0(m, "_pair_read")); if (is.null(rd) || is.null(tryCatch(rd(h, p), error = function(e) NULL))) next
+      r <- tryCatch(ldref_read(h, p, m), error = function(e) NULL); if (!is.null(r)) recs[[length(recs) + 1L]] <- c(r, list(labels = c(p$exName, p$outName))) }
+    for (m in c("cause", "mrapss")) { pp <- unique(unlist(lapply(Filter(function(r) identical(r$method, m), recs), `[[`, "pop")))
+      if (length(pp) && !identical(pp, "EUR")) { hit <- which(txt$methods == get(if (m == "cause") "CAUSE_METHODS_TEXT" else "MRAPSS_METHODS_TEXT"))
+        if (length(hit)) txt$methods[hit] <- sub("the 1000 Genomes European panel", sprintf("the 1000 Genomes %s panel%s", paste(LDREF_POP_NAMES[pp], collapse = " or "), if (length(pp) > 1) ", as recorded for each pair in its LD reference file (04_across_pairs)" else ""), txt$methods[hit], fixed = TRUE) } }
+    txt$limitations <- c(txt$limitations, unlist(lapply(recs, function(r) ldref_limitation(r, r$labels))))
+  }
   used <- unique(c("hemani2018", "burgess2023", "skrivankova2021", if (length(bcm)) "xue2022", if (length(lds)) c("bulik2015a", "bulik2015b", "grotzinger2019"), if (length(lhc)) "darrous2021", if (length(mlp)) "mounier2023", if (length(aps)) "hu2022", if (length(cau)) "morrison2020", if (!is.null(med)) c("carter2021", "carter2019", "sanderson2019"), unlist(METHOD_REFS[unlist(lapply(ctxs, function(x) x$methods))]), if (steiger_any_binary(ctxs)) "lee2012", if (any(vapply(ctxs, function(cx) !is.null(cx$ledger$clump), TRUE))) c("chang2015", "kgp2015")))
   figs <- list(); wmm <- as.numeric(width_mm); wmm <- if (is.finite(wmm) && wmm >= 60) wmm else 180
   if (any(c("figs", "report", "text") %in% items)) {

@@ -1907,6 +1907,72 @@ local({
          identical(.gwas_pop(r), "Mixed") && identical(.gwas_pop(r2), "EUR") && is.null(.gwas_pop(list(source = list(type = "file"), facts = list(ancestry = "EUR")))))
 })
 
+# ---- Round 81: LD-based methods with the panel of the GWAS's ancestry; Mixed data only with the analyst's accepted choice ----
+local({
+  pd <- tempfile("panel81"); ld <- tempfile("ldsc81"); dir.create(pd); file.create(file.path(pd, c("EUR.bed", "EAS.bed")))
+  full <- function(d) { dir.create(d, recursive = TRUE); file.create(file.path(d, c(paste0(1:22, ".l2.ldscore.gz"), paste0(1:22, ".l2.M_5_50")))) }
+  full(file.path(ld, "eur_w_ld_chr")); writeLines("SNP A1 A2", file.path(ld, "w_hm3.snplist"))
+  rc <- function(tr, anc, pop = NULL) list(trait = tr, facts = list(ancestry = anc), source = if (is.null(pop)) list(type = "file") else list(type = "opengwas_vcf", population = pop))
+  eu <- rc("LDL", "EUR", "European"); eu2 <- rc("CHD", "EUR"); mx <- rc("CHD mixed", "", "Mixed"); mx2 <- rc("LDL mixed", "", "Mixed"); ea <- rc("BMI EAS", "EAS"); ea2 <- rc("T2D EAS", "EAS")
+  r1 <- ldref_resolve(list(eu, eu2), "mrlap", NULL, ld, pd)
+  expect("Round 81: two European GWAS use the LDSC authors' European LD scores, with nothing to accept and no Limitations sentence",
+         identical(r1$source, "official") && is.null(r1$accepted) && !length(ldref_limitation(list(method = "mrlap", reference = r1$what, accepted = NULL), c("LDL", "CHD"))))
+  i2 <- ldref_info(list(eu, mx), "cause", ld, pd); e2 <- tryCatch(ldref_resolve(list(eu, mx), "cause", NULL, ld, pd), error = conditionMessage)
+  r2 <- ldref_resolve(list(eu, mx), "cause", list(pop = "EAS", ok = TRUE), ld, pd)
+  expect("Round 81: a GWAS labelled Mixed needs the analyst's acceptance; with one European GWAS the European panel is used whatever was picked, and the acceptance is dated",
+         isTRUE(i2$needs_accept) && i2$fixed && grepl("labelled Mixed", e2) && grepl("I accept this and take responsibility for it", e2, fixed = TRUE) &&
+         identical(r2$pop, "EUR") && identical(basename(r2$bfile), "EUR") && isTRUE(r2$accepted$ok) && grepl("^\\d{4}-\\d\\d-\\d\\d", r2$accepted$at))
+  r3 <- ldref_resolve(list(mx2, mx), "cause", list(pop = "EAS", ok = TRUE), ld, pd)
+  e3 <- tryCatch(ldref_resolve(list(mx2, mx), "ldsc", list(pop = "EAS", ok = TRUE), ld, pd), error = conditionMessage)
+  e3b <- tryCatch(ldref_resolve(list(mx2, mx), "cause", list(pop = "AFR", ok = TRUE), ld, pd), error = conditionMessage)
+  expect("Round 81: for two Mixed GWAS the analyst's panel is used (East Asian for CAUSE); LD scores not computed yet and a panel not installed are refused with what to do",
+         identical(r3$pop, "EAS") && identical(basename(r3$bfile), "EAS") && grepl("LD scores for EAS have not been computed yet.*about 30 minutes", e3) && grepl("AFR panel; install that panel first", e3b))
+  full(file.path(ld, "computed", "EAS")); r4 <- ldref_resolve(list(ea, ea2), "mrapss", NULL, ld, pd)
+  l4 <- ldref_limitation(list(method = "mrapss", reference = r4$what, accepted = NULL), c("BMI EAS", "T2D EAS"))
+  expect("Round 81: two East Asian GWAS use LD scores computed from the East Asian panel and that panel, without acceptance; the Limitations say the scores were computed by MR Studio",
+         identical(r4$source, "EAS") && grepl("computed/EAS$", r4$scores) && identical(basename(r4$bfile), "EAS") && is.null(r4$accepted) &&
+         grepl("computed by MR Studio from the 1000 Genomes Phase 3 EAS panel \\(504 people\\)", l4) && grepl("less precise", l4))
+  ref <- function(a, b, m) ldref_info(list(a, b), m, ld, pd)$refused
+  expect("Round 81: different ancestries, an ancestry without a panel, and LHC-MR with Mixed or non-European data are refused with the reason; LHC-MR on two European GWAS is not",
+         grepl("different ancestries \\(EUR and EAS\\)", ref(eu, ea, "ldsc")) && grepl("Middle Eastern ancestry, which has no 1000 Genomes panel", ref(eu, rc("X", "", "Middle Eastern"), "cause")) &&
+         grepl("UK10K", ref(eu, mx, "lhcmr")) && grepl("UK10K", ref(ea, ea2, "lhcmr")) && !nzchar(ref(eu, eu2, "lhcmr")) && !nzchar(ref(eu, mx, "mrlap")))
+  # saved beside the result; the draft's Limitations sentence names the datasets, the panel, the date and what may be biased
+  h <- list(dir = tempfile("study81")); dir.create(h$dir); old <- get("manifest_register", globalenv()); assign("manifest_register", function(...) invisible(NULL), globalenv())
+  on.exit(assign("manifest_register", old, globalenv()), add = TRUE)
+  pr <- list(folder = "P01_LDL__to__CHD", exName = "LDL", outName = "CHD mixed"); ldref_save(h, pr, r2); back <- ldref_read(h, pr, "cause")
+  lim <- ldref_limitation(back, c("LDL", "CHD mixed"))
+  expect("Round 81: the LD reference and the acceptance are saved beside the result, and the Limitations sentence names the dataset labelled Mixed, the panel, the date and what may be biased",
+         file.exists(file.path(h$dir, "04_across_pairs", "cause", "P01_LDL__to__CHD_ld_reference.json")) && identical(back$pop, "EUR") && isTRUE(back$accepted$ok) &&
+         grepl("CAUSE for LDL → CHD mixed used the 1000 Genomes Phase 3 EUR panel", lim) && grepl("CHD mixed \\(Mixed\\)", lim) && grepl(substr(r2$accepted$at, 1, 10), lim, fixed = TRUE) && grepl("causal and sharing models", lim))
+  # every method uses it: no European-only check is left in the four methods, and each saves its reference
+  src <- paste(unlist(lapply(c("ldsc_core.R", "mrlap_core.R", "mrapss_core.R", "cause_core.R"), function(f) readLines(file.path(args_dir, f), warn = FALSE))), collapse = "\n")
+  expect("Round 81: LDSC, MRlap, MR-APSS and CAUSE resolve their LD reference (no European-only check left) and save it with the result",
+         !grepl("must be of European ancestry", src) && length(gregexpr("ldref_resolve\\(lapply\\(ds", src)[[1]]) == 4L && length(gregexpr("ldref_save\\(h, pair, lr\\)", src)[[1]]) == 4L)
+  # Settings: the copy job's note follows the current pins (SAS showed "differs" while its files matched)
+  pd2 <- tempfile("panel81b"); dir.create(pd2); file.create(file.path(pd2, paste0("SAS", c(".bed", ".bim", ".fam"))))
+  writeLines(jsonlite::toJSON(list(state = "done", mode = "folder", pops = list("SAS"), pinned = FALSE), auto_unbox = TRUE), file.path(pd2, "download_status.json"))
+  om <- get("ld_panel_matches_pin", globalenv()); assign("ld_panel_matches_pin", function(p, dir) TRUE, globalenv()); on.exit(assign("ld_panel_matches_pin", om, globalenv()), add = TRUE)
+  s1 <- ld_panel_status(pd2); assign("ld_panel_matches_pin", function(p, dir) FALSE, globalenv()); s2 <- ld_panel_status(pd2)
+  expect("Round 81: the panel copy note is judged with the current pins (it showed the flag written at install time)", isTRUE(s1$job$pinned) && identical(s2$job$pinned, FALSE))
+  # the screen: a Mixed pair needs the tick before the Run button is offered; the panel used is shown beside the result
+  if (nzchar(Sys.which("node"))) {
+    f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
+    writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
+      "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
+      "const cst = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, src.indexOf(';\\n', i) + 1); };",
+      "global.S = { ldscRef: { official: true, computed: [] } }; global.send = () => 0; global.esc = (x) => String(x);",
+      "eval(cst('POPN') + grab('ldrefState') + grab('ldrefNote'));",
+      "const av = { EUR: { panel: true, scores: true, official: true }, EAS: { panel: true, scores: false, official: false } };",
+      "const R = { anc: { name: 'MRlap', pop: 'EUR', fixed: false, needs_accept: true, unknown: [{ trait: 'CHD', label: 'Mixed' }], refused: '', needs: { scores: true, panel: false }, avail: av, bias: 'the corrected effect' } }, pr = { folder: 'P01' };",
+      "const a = ldrefState('mrlap', pr, R); S.ldacc['mrlap|P01'].ok = true; const b = ldrefState('mrlap', pr, R); S.ldacc['mrlap|P01'] = { pop: 'EAS', ok: true }; const c = ldrefState('mrlap', pr, R);",
+      "const n = ldrefNote({ ldref: { reference: 'the LDSC authors\\' European LD scores', accepted: { at: '2026-11-21 19:30:00' } } });",
+      "console.log(JSON.stringify([a.ok, /labelled Mixed/.test(a.html), /I accept this and take responsibility for it/.test(a.html), b.ok, b.accept, c.ok, /not been computed yet/.test(c.html), /2026-11-21/.test(n)]));"), f)
+    o <- jsonlite::fromJSON(paste(system2("node", f, stdout = TRUE), collapse = ""), simplifyVector = FALSE)
+    expect("Round 81: on the screen, a pair with Mixed data shows the warning and the tick, offers the run only after the tick, sends the panel and the acceptance, and shows the acceptance date beside the result",
+           identical(o[[1]], FALSE) && isTRUE(o[[2]]) && isTRUE(o[[3]]) && isTRUE(o[[4]]) && identical(o[[5]], list(pop = "EUR", ok = TRUE)) && identical(o[[6]], FALSE) && isTRUE(o[[7]]) && isTRUE(o[[8]]))
+  }
+})
+
 # Round 78: a trailing comment must never swallow code (Round 75d turned the rest of the Check screen's result handler into a comment, so the
 # Check screen never finished in build-34). Every line of the screen code with code before "//" is scanned for statements after it.
 local({

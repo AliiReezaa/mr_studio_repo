@@ -20,6 +20,9 @@ mr_ui_for <- function(engine_dir) {
 
 # The Customise panel is generated from the adapters' own parameter schemas (FR-62), so a label or hint is written once.
 #' Settings sent by the screen, checked against the adapters before anything runs (unknown names are dropped, bad values are refused later by the adapter).
+#' Round 81: what an LD-based method needs for a pair (panel, LD scores, the analyst's acceptance for Mixed data); NULL without full GWAS.
+.pair_ldref <- function(p, method) tryCatch({ ids <- full_gwas_ids(c(p$ex, p$out)); if (!all(startsWith(ids, "lib:"))) return(NULL)
+  recs <- lapply(ids, function(i) .lib_recipe(sub("^lib:", "", i))); if (any(vapply(recs, is.null, TRUE))) NULL else ldref_info(recs, method) }, error = function(e) NULL)
 run_params <- function(x) {
   out <- list(ci_level = 0.95)
   x <- as.list(x)
@@ -265,29 +268,29 @@ mr_server <- function(engine_dir) {
           res <- if (identical(t, "ldsc_get")) ldsc_pair_read(rv$h, p) else {
             if (!requireNamespace("GenomicSEM", quietly = TRUE)) { ev("ldsc", folder = a$folder, rows = list(), msg = "GenomicSEM is not installed in this runtime."); return() }
             prev <- vapply(1:2, function(i) suppressWarnings(as.numeric(a$prev[[i]] %||% NA)), 0)
-            tryCatch(ldsc_pair_run(rv$h, p, a$source, prev), error = function(e) e) }
-          if (inherits(res, "error")) { ev("ldsc", folder = a$folder, rows = list(), msg = conditionMessage(res)); return() }
-          ev("ldsc", folder = a$folder, rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else ldsc_text(res))
+            tryCatch(ldsc_pair_run(rv$h, p, a$source, prev, accept = a$accept), error = function(e) e) }
+          if (inherits(res, "error")) { ev("ldsc", folder = a$folder, rows = list(), msg = conditionMessage(res), anc = .pair_ldref(p, "ldsc"), ldref = ldref_read(rv$h, p, "ldsc")); return() }
+          ev("ldsc", folder = a$folder, rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else ldsc_text(res), anc = .pair_ldref(p, "ldsc"), ldref = ldref_read(rv$h, p, "ldsc"))
         },
         mrapss_get = , mrapss_start = {   # Round 69: MR-APSS, run in a separate process (minutes)
           req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
-          r <- if (identical(t, "mrapss_start")) tryCatch({ if (!requireNamespace("MRAPSS", quietly = TRUE)) stop("MRAPSS is not installed in this runtime.", call. = FALSE); mrapss_pair_start(rv$h, p) }, error = function(e) e) else NULL
+          r <- if (identical(t, "mrapss_start")) tryCatch({ if (!requireNamespace("MRAPSS", quietly = TRUE)) stop("MRAPSS is not installed in this runtime.", call. = FALSE); mrapss_pair_start(rv$h, p, accept = a$accept) }, error = function(e) e) else NULL
           res <- mrapss_pair_read(rv$h, p)
-          ev("mrapss", folder = a$folder, job = mrapss_job_read(rv$h, p), ldsc_official = ldsc_ref_status()$official, panel = !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), "EUR.bed")),
+          ev("mrapss", folder = a$folder, job = mrapss_job_read(rv$h, p), anc = .pair_ldref(p, "mrapss"), ldref = ldref_read(rv$h, p, "mrapss"), ldsc_official = ldsc_ref_status()$official, panel = !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), "EUR.bed")),
              msg = if (inherits(r, "error")) conditionMessage(r) else "", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else mrapss_text(res))
         },
         cause_get = , cause_start = {   # Round 70: CAUSE, run in a separate process (minutes)
           req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
-          r <- if (identical(t, "cause_start")) tryCatch({ if (!requireNamespace("cause", quietly = TRUE)) stop("cause is not installed in this runtime.", call. = FALSE); cause_pair_start(rv$h, p) }, error = function(e) e) else NULL
+          r <- if (identical(t, "cause_start")) tryCatch({ if (!requireNamespace("cause", quietly = TRUE)) stop("cause is not installed in this runtime.", call. = FALSE); cause_pair_start(rv$h, p, accept = a$accept) }, error = function(e) e) else NULL
           res <- cause_pair_read(rv$h, p)
-          ev("cause", folder = a$folder, job = cause_job_read(rv$h, p), panel = !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), "EUR.bed")),
+          ev("cause", folder = a$folder, job = cause_job_read(rv$h, p), anc = .pair_ldref(p, "cause"), ldref = ldref_read(rv$h, p, "cause"), panel = !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), "EUR.bed")),
              msg = if (inherits(r, "error")) conditionMessage(r) else "", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else cause_text(res))
         },
         mrlap_get = , mrlap_start = {   # Round 68: MRlap, run in a separate process (minutes)
           req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
-          r <- if (identical(t, "mrlap_start")) tryCatch({ if (!requireNamespace("MRlap", quietly = TRUE)) stop("MRlap is not installed in this runtime.", call. = FALSE); mrlap_pair_start(rv$h, p) }, error = function(e) e) else NULL
+          r <- if (identical(t, "mrlap_start")) tryCatch({ if (!requireNamespace("MRlap", quietly = TRUE)) stop("MRlap is not installed in this runtime.", call. = FALSE); mrlap_pair_start(rv$h, p, accept = a$accept) }, error = function(e) e) else NULL
           res <- mrlap_pair_read(rv$h, p)
-          ev("mrlap", folder = a$folder, job = mrlap_job_read(rv$h, p), ldsc_official = ldsc_ref_status()$official, msg = if (inherits(r, "error")) conditionMessage(r) else "",
+          ev("mrlap", folder = a$folder, job = mrlap_job_read(rv$h, p), anc = .pair_ldref(p, "mrlap"), ldref = ldref_read(rv$h, p, "mrlap"), ldsc_official = ldsc_ref_status()$official, msg = if (inherits(r, "error")) conditionMessage(r) else "",
              rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else mrlap_text(res))
         },
         lhcmr_get = , lhcmr_fetch = , lhcmr_start = {   # Round 65: LHC-MR, run in a separate process (one to two hours)
@@ -295,7 +298,7 @@ mr_server <- function(engine_dir) {
           r <- tryCatch(switch(t, lhcmr_fetch = lhcmr_fetch_start(), lhcmr_start = { if (!requireNamespace("lhcMR", quietly = TRUE)) stop("lhcMR is not installed in this runtime.", call. = FALSE); w <- suppressWarnings(as.integer(a$workers %||% NA)); lhcmr_pair_start(rv$h, p, cores = if (is.na(w)) NULL else w) }, NULL), error = function(e) e)
           res <- lhcmr_pair_read(rv$h, p)
           op <- tryCatch(lhcmr_pair_options(p), error = function(e) NULL); mi <- if (is.null(op)) mem_info() else attr(op, "memory")   # Round 66: only safe settings
-          ev("lhcmr", folder = a$folder, status = lhcmr_status(rv$h, p), memory = mi, options = if (is.null(op) || !nrow(op)) list() else lapply(seq_len(nrow(op)), function(i) as.list(op[i, c("workers", "label", "memory_gb", "hours")])), msg = if (inherits(r, "error")) conditionMessage(r) else "",
+          ev("lhcmr", folder = a$folder, status = lhcmr_status(rv$h, p), anc = .pair_ldref(p, "lhcmr"), memory = mi, options = if (is.null(op) || !nrow(op)) list() else lapply(seq_len(nrow(op)), function(i) as.list(op[i, c("workers", "label", "memory_gb", "hours")])), msg = if (inherits(r, "error")) conditionMessage(r) else "",
              rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else lhcmr_text(res))
         },
         mvcov_compute = {   # Round 55: covariances from the chosen individual-level file, for these exposures in model order

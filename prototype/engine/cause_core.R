@@ -27,7 +27,7 @@ cause_script <- function(folder, files, labels, bfile, plink, seed, pthr = 1e-3,
     "# est_cause_params (nuisance parameters and rho from a random sample of variants), ld_clump (exposure P < 1e-3, r2 < 0.01,",
     "# local PLINK), cause (sharing and causal models compared by their expected log predictive density, ELPD).",
     sprintf("PAIR <- %s", q(folder)), sprintf("TRAITS <- c(%s)   # exposure = %s, outcome = %s", paste(vapply(files, q, ""), collapse = ", "), labels[1], labels[2]),
-    sprintf("BFILE <- %s; PLINK <- %s   # 1000 Genomes EUR panel and PLINK of MR Studio", q(bfile), q(plink)),
+    sprintf("BFILE <- %s; PLINK <- %s   # 1000 Genomes %s panel and PLINK of MR Studio", q(bfile), q(plink), basename(bfile)),   # Round 81: the panel used
     sprintf("seed <- %dL; P_THRESHOLD <- %s; R2_THRESHOLD <- %s; N_SAMPLE <- %s; THREADS <- %dL", as.integer(seed), format(pthr), format(r2), format(nsample, scientific = FALSE), as.integer(threads)),
     "if (!requireNamespace(\"cause\", quietly = TRUE)) stop(\"Package cause is not installed (GitHub jean997/cause).\")",
     "suppressPackageStartupMessages(library(cause)); RcppParallel::setThreadOptions(numThreads = THREADS)",
@@ -54,12 +54,12 @@ cause_script <- function(folder, files, labels, bfile, plink, seed, pthr = 1e-3,
     "out")
 }
 
-cause_pair_prepare <- function(h, pair, root = studies_root()) {
+cause_pair_prepare <- function(h, pair, root = studies_root(), accept = NULL) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("CAUSE is for a pair with one exposure.")
   ids <- full_gwas_ids(c(pair$ex, pair$out), root); if (!all(startsWith(ids, "lib:"))) stop("CAUSE needs the full summary statistics of both traits, imported into the Data library.")
-  if (is.na(plink_bin()) || !file.exists(file.path(ld_panel_dir(), "EUR.bed"))) stop("CAUSE clumps its variants with PLINK and the 1000 Genomes EUR panel; install the panel first (Data library).")
+  if (is.na(plink_bin())) stop("CAUSE clumps its variants with PLINK, which is not available.")
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
-  if (!all(vapply(ds, function(x) toupper(x$recipe$facts$ancestry %||% "EUR"), "") == "EUR")) stop("CAUSE clumps against the European panel here; both GWAS must be of European ancestry.")
+  lr <- ldref_resolve(lapply(ds, `[[`, "recipe"), "cause", accept)   # Round 81: the panel of the GWAS's ancestry, or the analyst's accepted choice
   rows <- vapply(ds, function(x) as.numeric(x$recipe$rows_kept %||% nrow(x$data)), 0)
   if (exists("mem_check")) { mc <- mem_check(CAUSE_MEMORY_GB(rows), "CAUSE"); if (!mc$ok) stop(mc$msg, call. = FALSE) }
   rel <- file.path("02_datasets", "cause"); dir.create(file.path(h$dir, rel), recursive = TRUE, showWarnings = FALSE); files <- character(2)
@@ -70,8 +70,9 @@ cause_pair_prepare <- function(h, pair, root = studies_root()) {
       jf <- sub("\\.tsv\\.gz$", "_preparation.json", f); atomic_write_text(file.path(h$dir, jf), jsonlite::toJSON(c(list(trait = tr, dataset_sha256 = ds[[k]]$recipe$original$sha256), attr(m, "ledger")), auto_unbox = TRUE, pretty = TRUE))
       manifest_register(h$dir, c(f, jf), role = "cause_input") } }
   rd <- file.path("04_across_pairs", "cause"); dir.create(file.path(h$dir, rd), recursive = TRUE, showWarnings = FALSE); sf <- file.path(rd, paste0(pair$folder, ".R"))
-  writeLines(cause_script(pair$folder, files, c(pair$exName, pair$outName), normalizePath(file.path(ld_panel_dir(), "EUR"), winslash = "/", mustWork = FALSE),
+  writeLines(cause_script(pair$folder, files, c(pair$exName, pair$outName), normalizePath(lr$bfile, winslash = "/", mustWork = FALSE),
                           plink_bin(), .seed_of(paste("cause", pair$folder))), file.path(h$dir, sf))
+  ldref_save(h, pair, lr)   # Round 81: the LD reference (and any acceptance) beside the result
   sf
 }
 
@@ -79,9 +80,9 @@ cause_pair_prepare <- function(h, pair, root = studies_root()) {
 cause_job_read <- function(h, pair) { f <- .cause_status_file(h$dir, pair$folder); if (!file.exists(f)) return(NULL); j <- tryCatch(jsonlite::fromJSON(f), error = function(e) NULL)
   if (!is.null(j) && identical(j$state, "running") && !is.null(j$pid) && !.pid_alive(j$pid)) j <- list(state = "stopped", msg = "The run stopped (the app or the computer was closed). Run it again.", time = j$time)
   j }
-cause_pair_start <- function(h, pair, root = studies_root()) {
+cause_pair_start <- function(h, pair, root = studies_root(), accept = NULL) {
   j <- cause_job_read(h, pair); if (!is.null(j) && identical(j$state, "running")) stop("CAUSE is already running for this pair.")
-  sf <- cause_pair_prepare(h, pair, root)
+  sf <- cause_pair_prepare(h, pair, root, accept = accept)
   script_job_start(h$dir, sf, .cause_status_file(h$dir, pair$folder), file.path(h$dir, "04_across_pairs", "cause", paste0(pair$folder, "_job.log")))
   invisible(cause_job_read(h, pair))
 }

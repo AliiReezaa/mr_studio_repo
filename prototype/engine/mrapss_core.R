@@ -24,8 +24,8 @@ mrapss_script <- function(folder, files, labels, ld, bfile, plink, seed, pthr = 
     "# Run from the study folder. Steps as in the package: format_data (HapMap3 variants, MHC removed), est_paras (background: LDSC",
     "# intercepts C and polygenic pleiotropy Omega), clump (instruments at P < 5e-5, local PLINK), MRAPSS (with selection-bias correction).",
     sprintf("PAIR <- %s", q(folder)), sprintf("TRAITS <- c(%s)   # exposure = %s, outcome = %s", paste(vapply(files, q, ""), collapse = ", "), labels[1], labels[2]),
-    sprintf("LD_SCORES <- %s   # LDSC authors' European LD scores", q(paste0(sub("/+$", "", ld), "/"))),
-    sprintf("BFILE <- %s; PLINK <- %s   # 1000 Genomes EUR panel and PLINK of MR Studio", q(bfile), q(plink)),
+    sprintf("LD_SCORES <- %s   # %s", q(paste0(sub("/+$", "", ld), "/")), if (basename(sub("/+$", "", ld)) == "eur_w_ld_chr") "LDSC authors' European LD scores" else sprintf("LD scores computed by MR Studio from the 1000 Genomes %s panel", basename(sub("/+$", "", ld)))),
+    sprintf("BFILE <- %s; PLINK <- %s   # 1000 Genomes %s panel and PLINK of MR Studio", q(bfile), q(plink), basename(bfile)),   # Round 81: the panel used
     sprintf("seed <- %dL; IV_THRESHOLD <- %s", as.integer(seed), format(pthr)),
     "if (!requireNamespace(\"MRAPSS\", quietly = TRUE)) stop(\"Package MRAPSS is not installed (GitHub YangLabHKUST/MR-APSS).\")",
     "suppressPackageStartupMessages(library(MRAPSS))   # its functions use the package's own data sets (w_hm3.snplist, MHC.SNPs)",
@@ -44,13 +44,12 @@ mrapss_script <- function(folder, files, labels, ld, bfile, plink, seed, pthr = 
     "out")
 }
 
-mrapss_pair_prepare <- function(h, pair, root = studies_root(), ldsc = ldsc_ref_dir()) {
+mrapss_pair_prepare <- function(h, pair, root = studies_root(), ldsc = ldsc_ref_dir(), accept = NULL) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("MR-APSS is for a pair with one exposure.")
   ids <- full_gwas_ids(c(pair$ex, pair$out), root); if (!all(startsWith(ids, "lib:"))) stop("MR-APSS needs the full summary statistics of both traits, imported into the Data library.")
-  if (!ldsc_ref_status(ldsc)$official) stop("MR-APSS uses the European LD scores of LDSC; install them first (LD score regression section).")
-  if (is.na(plink_bin()) || !file.exists(file.path(ld_panel_dir(), "EUR.bed"))) stop("MR-APSS clumps its instruments with PLINK and the 1000 Genomes EUR panel; install the panel first (Data library).")
+  if (is.na(plink_bin())) stop("MR-APSS clumps its instruments with PLINK, which is not available.")
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
-  if (!all(vapply(ds, function(x) toupper(x$recipe$facts$ancestry %||% "EUR"), "") == "EUR")) stop("MR-APSS uses European LD scores and panel; both GWAS must be of European ancestry.")
+  lr <- ldref_resolve(lapply(ds, `[[`, "recipe"), "mrapss", accept, ldsc)   # Round 81: LD scores and panel of the GWAS's ancestry, or the analyst's accepted choice
   rows <- vapply(ds, function(x) as.numeric(x$recipe$rows_kept %||% nrow(x$data)), 0)
   if (exists("mem_check")) { mc <- mem_check(MRAPSS_MEMORY_GB(rows), "MR-APSS"); if (!mc$ok) stop(mc$msg, call. = FALSE) }
   rel <- file.path("02_datasets", "mrapss"); dir.create(file.path(h$dir, rel), recursive = TRUE, showWarnings = FALSE); files <- character(2)
@@ -61,8 +60,9 @@ mrapss_pair_prepare <- function(h, pair, root = studies_root(), ldsc = ldsc_ref_
       jf <- sub("\\.tsv\\.gz$", "_preparation.json", f); atomic_write_text(file.path(h$dir, jf), jsonlite::toJSON(c(list(trait = tr, dataset_sha256 = ds[[k]]$recipe$original$sha256), attr(m, "ledger")), auto_unbox = TRUE, pretty = TRUE))
       manifest_register(h$dir, c(f, jf), role = "mrapss_input") } }
   rd <- file.path("04_across_pairs", "mrapss"); dir.create(file.path(h$dir, rd), recursive = TRUE, showWarnings = FALSE); sf <- file.path(rd, paste0(pair$folder, ".R"))
-  writeLines(mrapss_script(pair$folder, files, c(pair$exName, pair$outName), normalizePath(ldsc_ld_folder("official", ldsc), winslash = "/"),
-                           normalizePath(file.path(ld_panel_dir(), "EUR"), winslash = "/", mustWork = FALSE), plink_bin(), .seed_of(paste("mrapss", pair$folder))), file.path(h$dir, sf))
+  writeLines(mrapss_script(pair$folder, files, c(pair$exName, pair$outName), normalizePath(lr$scores, winslash = "/"),
+                           normalizePath(lr$bfile, winslash = "/", mustWork = FALSE), plink_bin(), .seed_of(paste("mrapss", pair$folder))), file.path(h$dir, sf))
+  ldref_save(h, pair, lr)   # Round 81: the LD reference (and any acceptance) beside the result
   sf
 }
 
@@ -70,9 +70,9 @@ mrapss_pair_prepare <- function(h, pair, root = studies_root(), ldsc = ldsc_ref_
 mrapss_job_read <- function(h, pair) { f <- .mrapss_status_file(h$dir, pair$folder); if (!file.exists(f)) return(NULL); j <- tryCatch(jsonlite::fromJSON(f), error = function(e) NULL)
   if (!is.null(j) && identical(j$state, "running") && !is.null(j$pid) && !.pid_alive(j$pid)) j <- list(state = "stopped", msg = "The run stopped (the app or the computer was closed). Run it again.", time = j$time)
   j }
-mrapss_pair_start <- function(h, pair, root = studies_root()) {
+mrapss_pair_start <- function(h, pair, root = studies_root(), accept = NULL) {
   j <- mrapss_job_read(h, pair); if (!is.null(j) && identical(j$state, "running")) stop("MR-APSS is already running for this pair.")
-  sf <- mrapss_pair_prepare(h, pair, root)
+  sf <- mrapss_pair_prepare(h, pair, root, accept = accept)
   script_job_start(h$dir, sf, .mrapss_status_file(h$dir, pair$folder), file.path(h$dir, "04_across_pairs", "mrapss", paste0(pair$folder, "_job.log")))
   invisible(mrapss_job_read(h, pair))
 }

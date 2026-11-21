@@ -217,15 +217,23 @@ These run from a pair's Results page, in the background at low priority, after a
 
 | Analysis | What it adds | Needs |
 |---|---|---|
-| LD score regression | Heritability, genetic correlation, and the cross-trait intercept (a sign of shared participants) | Full GWAS of both traits; European LD scores (34 MB download) |
-| LHC-MR | Effects in both directions with a heritable confounder | Full GWAS of both traits; the LHC-MR LD files (524 MB); several hours |
-| MRlap | IVW corrected for weak instruments, winner's curse and sample overlap | Full GWAS of both traits; European LD scores |
-| MR-APSS | Allows for pleiotropy and sample structure, with more instruments | Full GWAS of both traits; European LD scores; 1000 Genomes panel |
-| CAUSE | Tests a causal effect against correlated pleiotropy (a shared heritable factor) | Full GWAS of both traits; 1000 Genomes panel |
+| LD score regression | Heritability, genetic correlation, and the cross-trait intercept (a sign of shared participants) | Full GWAS of both traits; LD scores of their ancestry (European: 34 MB download; others computed from the panel) |
+| LHC-MR | Effects in both directions with a heritable confounder | Full GWAS of both traits, both European; the LHC-MR LD files (524 MB); several hours |
+| MRlap | IVW corrected for weak instruments, winner's curse and sample overlap | Full GWAS of both traits; LD scores of their ancestry |
+| MR-APSS | Allows for pleiotropy and sample structure, with more instruments | Full GWAS of both traits; LD scores and 1000 Genomes panel of their ancestry |
+| CAUSE | Tests a causal effect against correlated pleiotropy (a shared heritable factor) | Full GWAS of both traits; 1000 Genomes panel of their ancestry |
 
 "Full GWAS" means genome-wide summary statistics with rsIDs and sample size in the Data library: downloaded with **Complete GWAS**
 from OpenGWAS, or imported (a table or a GWAS-VCF file). A pair made from OpenGWAS instrument downloads uses the complete GWAS of the
 same OpenGWAS datasets when you have downloaded them: the Results page offers the downloads it needs.
+
+**Ancestry and LD reference.** These analyses need LD from the same population as the GWAS. Both GWAS must be of one ancestry, and
+its 1000 Genomes panel must be installed (Settings, LD reference panel). For European GWAS the LDSC authors' LD scores are used; for
+another ancestry, the LD score regression section computes LD scores from that panel (about 30 minutes, once for this computer).
+When a GWAS is labelled Mixed by OpenGWAS, or has no ancestry reported, no panel matches it: the section shows a warning, you choose
+one of the installed panels (European is proposed), and the analysis runs only after you tick **I accept this and take responsibility
+for it**. Your choice and the date are saved beside the result and stated in the Limitations of the draft text. LHC-MR uses its
+authors' European LD files, which cannot be replaced, so it needs two European GWAS.
 
 ## Checking the results in R
 

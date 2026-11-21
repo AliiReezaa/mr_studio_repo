@@ -73,6 +73,8 @@ ld_panel_status <- function(dir = ld_panel_dir()) {
   if (!is.null(st) && st$state %in% c("downloading", "verifying", "unpacking", "copying") && !ld_job_active(dir)) { st$state <- "stopped"; st$msg <- if (identical(st$mode, "folder")) "Copying the panel files stopped (for example because MR Studio was closed). Choose the files again to restart." else if (identical(st$mode, "local")) "Checking and unpacking your file stopped (for example because MR Studio was closed). Choose the file again to restart." else "The download stopped (for example because MR Studio was closed). Start it again to continue where it stopped." }
   part <- file.path(dir, "1kg.v3.tgz.part")
   ver <- vapply(pops, function(p) have[[p]] && ld_panel_matches_pin(p, dir), TRUE)
+  # Round 81: the job's "pinned" flag was written when the job ran (with the pins of that version); the note follows the current pins
+  if (!is.null(st) && identical(st$state, "done") && identical(st$mode, "folder")) { jp <- intersect(unlist(st$pops), pops); if (length(jp)) st$pinned <- all(ver[jp]) }
   list(dir = dir, verified = as.list(setNames(ver, pops)), partial_bytes = if (file.exists(part)) file.size(part) else 0, installed = as.list(setNames(have, pops)), bytes = as.list(setNames(ifelse(have, size, 0), pops)),
        total_bytes = sum(size[have]), plink = plink_bin(), plink_version = plink_version(),
        download_bytes = LD_PANEL$bytes, job = st)

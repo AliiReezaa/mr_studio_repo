@@ -96,7 +96,7 @@ lhcmr_pair_run <- function(h, pair, root = studies_root(), dir = lhcmr_ref_dir()
   st <- lhcmr_ref_status(dir); if (!st$ld || !st$rho) stop("The LD files of the LHC-MR authors are not installed yet.")
   if (!ldsc_ref_status(ldsc)$official) stop("LHC-MR uses the European LD scores of LDSC for the cross-trait intercept; install them first.")
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
-  anc <- vapply(ds, function(x) toupper(x$recipe$facts$ancestry %||% "EUR"), ""); if (!all(anc == "EUR")) stop("LHC-MR's LD files are from Europeans (UK10K); both GWAS must be of European ancestry.")
+  i <- ldref_info(lapply(ds, `[[`, "recipe"), "lhcmr", ldsc); if (nzchar(i$refused)) stop(i$refused, call. = FALSE)   # Round 81: European only, with the reason
   ldpos <- NULL; rel <- file.path("02_datasets", "lhcmr"); dir.create(file.path(h$dir, rel), recursive = TRUE, showWarnings = FALSE); files <- character(2)
   for (k in 1:2) { tr <- ds[[k]]$recipe$trait; f <- file.path(rel, paste0(.ldsc_slug(tr), ".tsv.gz")); files[k] <- f
     if (!file.exists(file.path(h$dir, f))) {

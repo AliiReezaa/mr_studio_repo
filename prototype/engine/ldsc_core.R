@@ -157,16 +157,14 @@ ldsc_script <- function(folder, files, labels, ld, ld_what, sprev, pprev) {
 }
 
 #' Prepare both datasets of a pair, write and run its LDSC script. `source` = "official" or a super-population of computed scores.
-ldsc_pair_run <- function(h, pair, source = NULL, pprev = c(NA_real_, NA_real_), root = studies_root(), dir = ldsc_ref_dir()) {
+ldsc_pair_run <- function(h, pair, source = NULL, pprev = c(NA_real_, NA_real_), root = studies_root(), dir = ldsc_ref_dir(), accept = NULL) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("LD score regression is for a pair with one exposure.")
   ids <- full_gwas_ids(c(pair$ex, pair$out), root); if (!all(startsWith(ids, "lib:"))) stop("LD score regression needs the full summary statistics of both traits, imported into the Data library.")
   rows <- vapply(ids, function(i) tryCatch(as.numeric(library_dataset(sub("^lib:", "", i), root)$recipe$rows_kept %||% NA), error = function(e) NA_real_), 0)
   if (exists("mem_check")) { mc <- mem_check(ldsc_memory_gb(rows), "LD score regression"); if (!mc$ok) stop(mc$msg, call. = FALSE) }   # Round 66
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
-  anc <- vapply(ds, function(x) toupper(x$recipe$facts$ancestry %||% "EUR"), "")
-  if (!identical(anc[1], anc[2])) stop(sprintf("The two GWAS are from different ancestries (%s and %s); LD score regression needs one LD reference for both.", anc[1], anc[2]))
-  source <- source %||% if (identical(anc[1], "EUR") && ldsc_ref_status(dir)$official) "official" else anc[1]
-  ld <- ldsc_ld_folder(source, dir); if (!.ldsc_complete(ld)) stop(if (identical(source, "official")) "The European LD scores are not installed yet." else sprintf("LD scores for %s have not been computed yet.", source))
+  lr <- ldref_resolve(lapply(ds, `[[`, "recipe"), "ldsc", if (is.null(source) || identical(source, "official")) accept else utils::modifyList(list(ok = accept$ok), list(pop = source)), dir)   # Round 81
+  source <- lr$source; ld <- lr$scores; if (!.ldsc_complete(ld)) stop(if (identical(source, "official")) "The European LD scores are not installed yet." else sprintf("LD scores for %s have not been computed yet.", source))
   hm3 <- utils::read.table(file.path(dir, "w_hm3.snplist"), header = TRUE, stringsAsFactors = FALSE)
   rel <- file.path("02_datasets", "ldsc"); dir.create(file.path(h$dir, rel), recursive = TRUE, showWarnings = FALSE); files <- character(2); led <- list()
   for (k in 1:2) { tr <- ds[[k]]$recipe$trait; f <- file.path(rel, paste0(.ldsc_slug(tr), ".sumstats.gz")); files[k] <- f
@@ -182,7 +180,7 @@ ldsc_pair_run <- function(h, pair, source = NULL, pprev = c(NA_real_, NA_real_),
   writeLines(ldsc_script(pair$folder, files, c(pair$exName, pair$outName), normalizePath(ld, winslash = "/"), what, sp, pprev), sf)
   old <- setwd(h$dir); res <- tryCatch({ utils::capture.output(sys.source(sf, envir = new.env(parent = globalenv()), keep.source = FALSE))
     utils::read.csv(file.path(rd, paste0(pair$folder, "_results.csv")), stringsAsFactors = FALSE) }, finally = setwd(old))
-  manifest_register(h$dir, file.path(rd, paste0(pair$folder, c(".R", "_results.csv", "_ldsc.log"))), role = "ldsc")
+  manifest_register(h$dir, file.path(rd, paste0(pair$folder, c(".R", "_results.csv", "_ldsc.log"))), role = "ldsc"); ldref_save(h, pair, lr)
   attr(res, "labels") <- c(x = pair$exName, y = pair$outName); attr(res, "source") <- what; res
 }
 
@@ -223,4 +221,85 @@ ldsc_compute_start <- function(pop = "EUR", dir = ldsc_ref_dir(), engine = getOp
   writeLines(jsonlite::toJSON(list(state = "running", pop = pop, pct = 0, chr = NA, msg = "", time = format(Sys.time(), "%Y-%m-%d %H:%M:%S")), auto_unbox = TRUE), .ldsc_job_file(dir))
   rscript_background(c("--vanilla", shQuote(job), shQuote(engine), shQuote(dir), pop), log = file.path(dir, "compute.log"), vars = list(MRGUI_PLINK = plink_bin(), MRGUI_LD_DIR = ld_panel_dir()))
   invisible(ldsc_status(dir))
+}
+
+# Round 81: the LD reference of a pair for the genome-wide methods (LD score regression, MRlap, MR-APSS, CAUSE; LHC-MR is European
+# only). Each needs LD from the same population as the GWAS. A GWAS of one ancestry uses the 1000 Genomes panel of that ancestry
+# (LD scores computed by MR Studio from it when they are not the official European ones). A GWAS that OpenGWAS labels Mixed, or
+# whose ancestry is not reported, has no matching panel: the method runs only when the analyst picks an installed panel (European
+# proposed) and accepts the possible bias; that choice is saved with its date beside the result and stated in the Limitations.
+LDREF_METHODS <- list(ldsc = list(name = "LD score regression", scores = TRUE, panel = FALSE), mrlap = list(name = "MRlap", scores = TRUE, panel = FALSE),
+                      mrapss = list(name = "MR-APSS", scores = TRUE, panel = TRUE), cause = list(name = "CAUSE", scores = FALSE, panel = TRUE),
+                      lhcmr = list(name = "LHC-MR", scores = TRUE, panel = FALSE))
+LDREF_PEOPLE <- c(EUR = 503, EAS = 504, AFR = 661, AMR = 347, SAS = 489)   # 1000 Genomes Phase 3 super-populations
+LDREF_POP_NAMES <- c(EUR = "European", EAS = "East Asian", AFR = "African", AMR = "Admixed American", SAS = "South Asian")
+LDREF_BIAS <- c(ldsc = "the heritabilities, the genetic correlation and the intercepts", mrlap = "the corrected effect", mrapss = "the effect and its interval",
+                cause = "the effect and the comparison of the causal and sharing models", lhcmr = "the estimates")
+
+#' The ancestry of a dataset for an LD reference: list(trait, code = panel code or NA, label = what the source says).
+.ldref_anc <- function(rec) {
+  a <- toupper(rec$facts$ancestry %||% ""); code <- if (a %in% names(LDREF_PEOPLE)) a else NA_character_
+  pop <- rec$source$population %||% if (nzchar(a)) rec$facts$ancestry else NULL
+  lab <- if (!is.na(code)) code else if (length(pop) && !is.na(pop[1]) && nzchar(pop[1])) as.character(pop[1]) else "not reported"
+  list(trait = rec$trait, code = code, label = lab, unknown = is.na(code) && (grepl("^mix", lab, ignore.case = TRUE) || identical(lab, "not reported") || identical(toupper(lab), "NR")))
+}
+#' Which LD references are on this computer: per ancestry, the panel and the LD scores (official European ones or computed).
+ldref_avail <- function(dir = ldsc_ref_dir(), panel = ld_panel_dir()) {
+  st <- ldsc_ref_status(dir)
+  lapply(stats::setNames(names(LDREF_PEOPLE), names(LDREF_PEOPLE)), function(p) list(panel = file.exists(file.path(panel, paste0(p, ".bed"))),
+    scores = (identical(p, "EUR") && isTRUE(st$official)) || p %in% unlist(st$computed), official = identical(p, "EUR") && isTRUE(st$official)))
+}
+#' What a method needs for a pair, before it runs. `recs` = the two recipes (exposure, outcome). Never stops.
+ldref_info <- function(recs, method, dir = ldsc_ref_dir(), panel = ld_panel_dir()) {
+  m <- LDREF_METHODS[[method]]; an <- lapply(recs, .ldref_anc); codes <- unique(stats::na.omit(vapply(an, `[[`, "", "code")))
+  unk <- Filter(function(x) isTRUE(x$unknown), an); other <- Filter(function(x) is.na(x$code) && !isTRUE(x$unknown), an)
+  refused <- ""
+  if (length(other)) refused <- sprintf("\"%s\" is of %s ancestry, which has no 1000 Genomes panel, so %s cannot use a matching LD reference.", other[[1]]$trait, other[[1]]$label, m$name)
+  else if (length(codes) > 1) refused <- sprintf("The two GWAS are of different ancestries (%s and %s); %s needs one LD reference for both.", codes[1], codes[2], m$name)
+  else if (identical(method, "lhcmr") && (length(unk) || !identical(codes, "EUR")))
+    refused <- "LHC-MR uses its authors' LD files, computed from Europeans (UK10K), which cannot be replaced by another panel; it needs two GWAS of European ancestry."
+  list(method = method, name = m$name, pop = if (length(codes)) codes[1] else "EUR", fixed = length(codes) == 1L,
+       unknown = lapply(unk, function(x) list(trait = x$trait, label = x$label)), needs_accept = length(unk) > 0L && !nzchar(refused),
+       refused = refused, needs = list(scores = m$scores, panel = m$panel), avail = ldref_avail(dir, panel), bias = LDREF_BIAS[[method]])
+}
+#' The LD reference a method uses (stops with the reason when it cannot run). `accept` = list(pop, ok) from the screen.
+ldref_resolve <- function(recs, method, accept = NULL, dir = ldsc_ref_dir(), panel = ld_panel_dir()) {
+  i <- ldref_info(recs, method, dir, panel); if (nzchar(i$refused)) stop(i$refused, call. = FALSE)
+  pop <- if (i$fixed || is.null(accept$pop)) i$pop else toupper(as.character(accept$pop))
+  if (!pop %in% names(LDREF_PEOPLE)) stop("Choose one of the 1000 Genomes panels (EUR, EAS, AFR, AMR, SAS).", call. = FALSE)
+  if (i$needs_accept && !isTRUE(as.logical(accept$ok %||% FALSE)))
+    stop(sprintf("%s: there is no LD reference for %s ancestry. Choose a panel and tick \"I accept this and take responsibility for it\" to run %s.",
+                 paste(vapply(i$unknown, function(x) sprintf("\"%s\" is labelled %s", x$trait, x$label), ""), collapse = "; "), if (length(i$unknown) == 1) i$unknown[[1]]$label else "these", i$name), call. = FALSE)
+  av <- i$avail[[pop]]
+  if (i$needs$scores && !av$scores) stop(sprintf("LD scores for %s have not been computed yet. Compute them in the LD score regression section (about 30 minutes, once for this computer).", pop), call. = FALSE)
+  if (i$needs$panel && !av$panel) stop(sprintf("%s clumps with PLINK and the 1000 Genomes %s panel; install that panel first (Settings, LD reference panel).", i$name, pop), call. = FALSE)
+  src <- if (av$official) "official" else pop
+  what <- if (!i$needs$scores) sprintf("the 1000 Genomes Phase 3 %s panel (%d people)", pop, LDREF_PEOPLE[[pop]]) else if (identical(src, "official")) "the LDSC authors' European LD scores" else
+    sprintf("LD scores computed by MR Studio from the 1000 Genomes Phase 3 %s panel (%d people)", pop, LDREF_PEOPLE[[pop]])
+  list(method = method, pop = pop, source = src, scores = if (i$needs$scores) ldsc_ld_folder(src, dir) else NULL, bfile = file.path(panel, pop), what = what,
+       unknown = i$unknown, accepted = if (i$needs_accept) list(ok = TRUE, pop = pop, at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+         statement = "I accept this and take responsibility for it") else NULL)
+}
+.ldref_file <- function(h, pair, method) file.path(h$dir, "04_across_pairs", method, paste0(pair$folder, "_ld_reference.json"))
+#' Save the LD reference of a run (and the analyst's acceptance, when one was needed) next to its results.
+ldref_save <- function(h, pair, r) {
+  f <- .ldref_file(h, pair, r$method); dir.create(dirname(f), recursive = TRUE, showWarnings = FALSE)
+  atomic_write_text(f, jsonlite::toJSON(list(method = r$method, pair = pair$folder, pop = r$pop, reference = r$what, unknown_ancestry = r$unknown, accepted = r$accepted),
+                                        auto_unbox = TRUE, pretty = TRUE, null = "null"))
+  if (exists("manifest_register")) manifest_register(h$dir, file.path("04_across_pairs", r$method, basename(f)), role = "ld_reference")
+  invisible(f)
+}
+ldref_read <- function(h, pair, method) { f <- .ldref_file(h, pair, method); if (!file.exists(f)) NULL else jsonlite::fromJSON(f, simplifyVector = FALSE) }
+#' The Limitations sentence for one method and pair (empty for the official European scores or a panel of the GWAS's own ancestry).
+ldref_limitation <- function(rec, labels) {
+  if (is.null(rec)) return(character())
+  nm <- LDREF_METHODS[[rec$method]]$name; pr <- sprintf("%s for %s → %s", nm, labels[[1]], labels[[2]])
+  if (length(rec$accepted)) {
+    un <- vapply(rec$unknown_ancestry, function(x) sprintf("%s (%s)", x$trait, x$label), "")
+    return(sprintf("%s used %s, although the ancestry of %s has no matching LD reference; the analyst chose this panel and accepted on %s that LD in these samples may differ from it, which can bias %s.",
+                   pr, rec$reference, paste(un, collapse = " and "), substr(rec$accepted$at, 1, 10), LDREF_BIAS[[rec$method]]))
+  }
+  if (grepl("computed by MR Studio", rec$reference))
+    return(sprintf("%s used %s; only the European scores computed this way were compared with the official LDSC scores, and scores from a panel of a few hundred people are less precise.", pr, rec$reference))
+  character()
 }

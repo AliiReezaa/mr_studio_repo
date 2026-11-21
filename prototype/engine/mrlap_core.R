@@ -48,28 +48,29 @@ mrlap_script <- function(folder, files, labels, ld, hm3, seed, pthr = 5e-8) {
 }
 
 #' Prepare both datasets and write the script (fast); the run itself is started in the background by mrlap_pair_start().
-mrlap_pair_prepare <- function(h, pair, root = studies_root(), ldsc = ldsc_ref_dir()) {
+mrlap_pair_prepare <- function(h, pair, root = studies_root(), ldsc = ldsc_ref_dir(), accept = NULL) {
   if (isTRUE(pair$mv) || is.null(pair$folder)) stop("MRlap is for a pair with one exposure.")
   ids <- full_gwas_ids(c(pair$ex, pair$out), root); if (!all(startsWith(ids, "lib:"))) stop("MRlap needs the full summary statistics of both traits, imported into the Data library.")
-  if (!ldsc_ref_status(ldsc)$official) stop("MRlap uses the European LD scores of LDSC; install them first (section above).")
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
-  if (!all(vapply(ds, function(x) toupper(x$recipe$facts$ancestry %||% "EUR"), "") == "EUR")) stop("MRlap uses European LD scores; both GWAS must be of European ancestry.")
+  lr <- ldref_resolve(lapply(ds, `[[`, "recipe"), "mrlap", accept, ldsc)   # Round 81: the LD scores of the GWAS's ancestry, or the analyst's accepted choice
   rows <- vapply(ds, function(x) as.numeric(x$recipe$rows_kept %||% nrow(x$data)), 0)
   if (exists("mem_check")) { mc <- mem_check(MRLAP_MEMORY_GB(rows), "MRlap"); if (!mc$ok) stop(mc$msg, call. = FALSE) }
   rel <- file.path("02_datasets", "mrlap"); dir.create(file.path(h$dir, rel), recursive = TRUE, showWarnings = FALSE); files <- character(2); posmap <- NULL
   for (k in 1:2) { tr <- ds[[k]]$recipe$trait; f <- file.path(rel, paste0(.ldsc_slug(tr), ".tsv.gz")); files[k] <- f
     if (!file.exists(file.path(h$dir, f))) {
       d <- ds[[k]]$data
-      if (is.null(posmap) && (!all(c("chr", "pos") %in% names(d)) || anyNA(d$pos)) && file.exists(file.path(ld_panel_dir(), "EUR.bim"))) {
-        b <- data.table::fread(file.path(ld_panel_dir(), "EUR.bim"), select = c(1, 2, 4), col.names = c("chr", "snp", "pos")); posmap <- as.data.frame(b) }
+      bim <- Find(file.exists, file.path(ld_panel_dir(), paste0(c(lr$pop, "EUR", "EAS", "AFR", "AMR", "SAS"), ".bim")))   # Round 81: positions are the same in every panel
+      if (is.null(posmap) && (!all(c("chr", "pos") %in% names(d)) || anyNA(d$pos)) && !is.null(bim)) {
+        b <- data.table::fread(bim, select = c(1, 2, 4), col.names = c("chr", "snp", "pos")); posmap <- as.data.frame(b) }
       m <- mrlap_prepare(d, posmap)
       if (nrow(m) < 200000L) stop(sprintf("\"%s\" has %s usable variants; MRlap needs genome-wide summary statistics.", tr, format(nrow(m), big.mark = ",")))
       data.table::fwrite(m, file.path(h$dir, f), sep = "\t")
       jf <- sub("\\.tsv\\.gz$", "_preparation.json", f); atomic_write_text(file.path(h$dir, jf), jsonlite::toJSON(c(list(trait = tr, dataset_sha256 = ds[[k]]$recipe$original$sha256), attr(m, "ledger")), auto_unbox = TRUE, pretty = TRUE))
       manifest_register(h$dir, c(f, jf), role = "mrlap_input") } }
   rd <- file.path("04_across_pairs", "mrlap"); dir.create(file.path(h$dir, rd), recursive = TRUE, showWarnings = FALSE); sf <- file.path(rd, paste0(pair$folder, ".R"))
-  writeLines(mrlap_script(pair$folder, files, c(pair$exName, pair$outName), normalizePath(ldsc_ld_folder("official", ldsc), winslash = "/"),
+  writeLines(mrlap_script(pair$folder, files, c(pair$exName, pair$outName), normalizePath(lr$scores, winslash = "/"),
                           normalizePath(file.path(ldsc, "w_hm3.snplist"), winslash = "/"), .seed_of(paste("mrlap", pair$folder)), pair$pthr %||% 5e-8), file.path(h$dir, sf))
+  ldref_save(h, pair, lr)   # Round 81: the LD reference (and any acceptance) beside the result
   sf
 }
 
@@ -86,9 +87,9 @@ script_job_start <- function(study_dir, script, status, log, manifest = characte
 mrlap_job_read <- function(h, pair) { f <- .mrlap_status_file(h$dir, pair$folder); if (!file.exists(f)) return(NULL); j <- tryCatch(jsonlite::fromJSON(f), error = function(e) NULL)
   if (!is.null(j) && identical(j$state, "running") && !is.null(j$pid) && !.pid_alive(j$pid)) j <- list(state = "stopped", msg = "The run stopped (the app or the computer was closed). Run it again.", time = j$time)
   j }
-mrlap_pair_start <- function(h, pair, root = studies_root()) {
+mrlap_pair_start <- function(h, pair, root = studies_root(), accept = NULL) {
   j <- mrlap_job_read(h, pair); if (!is.null(j) && identical(j$state, "running")) stop("MRlap is already running for this pair.")
-  sf <- mrlap_pair_prepare(h, pair, root)
+  sf <- mrlap_pair_prepare(h, pair, root, accept = accept)
   script_job_start(h$dir, sf, .mrlap_status_file(h$dir, pair$folder), file.path(h$dir, "04_across_pairs", "mrlap", paste0(pair$folder, "_job.log")))
   invisible(mrlap_job_read(h, pair))
 }

@@ -1048,17 +1048,51 @@ function ldscSection(pair) {
     return box(line('Genetic correlation, ' + X + ' and ' + Y, v(rg, 3) + ' · P ' + fp(rg.p)) + line('SNP heritability, ' + X + ' (' + (hx.scale || 'observed') + ' scale)', v(hx, 3)) + line('SNP heritability, ' + Y + ' (' + (hy.scale || 'observed') + ' scale)', v(hy, 3)) +
       line('Intercepts, ' + X + ' / ' + Y, fx(g('intercept', X).estimate, 3) + ' / ' + fx(g('intercept', Y).estimate, 3)) + line('Cross-trait intercept', v(ci, 3) + ' · P ' + fp(ci.p)) +
       '<div style="font-size:12px;color:var(--mute)">' + (ci.p < 0.05 ? 'The cross-trait intercept differs from 0: the two GWAS probably share participants (or confounding), so weak-instrument bias in this pair leans towards the observational association. ' : 'The cross-trait intercept is close to 0, which suggests little sample overlap between the two GWAS. ') + rows[0].snps + ' variants. A genetic correlation is not evidence of causation; it can come from pleiotropy as well as from a causal effect.</div>' +
-      '<div style="display:flex;gap:10px">' + btn('Run again', 'ldsc_run') + '</div>');
+      ldrefNote(R) + '<div style="display:flex;gap:10px">' + btn('Run again', 'ldsc_run') + '</div>');
   }
-  const job = L && L.job, busy = job && job.state === 'running', comp = (L && L.computed) || [], ready = L && L.hm3 && (L.official || comp.length);
+  const LR = ldrefState('ldsc', pair, R), job = L && L.job, busy = job && job.state === 'running', comp = (L && L.computed) || [], ready = L && L.hm3 && (R && R.anc ? LR.ok : (L.official || comp.length));   // Round 81
   const st = !L ? 'Checking the LD scores…' : busy ? 'Computing LD scores for ' + esc(job.pop) + ' from the 1000 Genomes panel: ' + (job.pct || 0) + '% (chromosome ' + esc(job.chr == null ? '1' : job.chr) + ' of 22).' :
     (L.official ? 'European LD scores installed. ' : 'European LD scores not installed. ') + (comp.length ? 'Computed from the panel: ' + comp.join(', ') + '. ' : '') + (job && job.state === 'error' ? 'Last computation failed: ' + esc(job.msg) : '');
   const prev = '<div style="display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--mute);align-items:center">Population prevalence, for a binary trait on the liability scale (optional): <label>' + esc(X) + ' <input id="ldsc_prev_x" inputmode="decimal" style="width:70px;height:28px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--text);padding:0 8px"></label><label>' + esc(Y) + ' <input id="ldsc_prev_y" inputmode="decimal" style="width:70px;height:28px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--text);padding:0 8px"></label></div>';
   return box('<div style="font-size:13px">Estimates the SNP heritability of ' + esc(X) + ' and ' + esc(Y) + ', their genetic correlation, and the cross-trait intercept, which shows whether the two GWAS share participants. Needs the full summary statistics of both traits (genome-wide, with rsIDs and sample size) in the Data library.</div>' +
-    (R && R.msg ? '<div style="font-size:13px;color:var(--warn)">' + esc(R.msg) + '</div>' : '') + '<div style="font-size:12px;color:var(--mute)">' + st + '</div>' + (ready ? prev : '') +
+    (R && R.msg ? '<div style="font-size:13px;color:var(--warn)">' + esc(R.msg) + '</div>' : '') + '<div style="font-size:12px;color:var(--mute)">' + st + '</div>' + LR.html + (ready ? prev : '') +
     '<div style="display:flex;flex-wrap:wrap;gap:10px">' + (ready ? btn(R && R.busy ? 'Running…' : 'Run LD score regression', 'ldsc_run', R && R.busy) : '') + (L && !L.official ? btn('Download European LD scores (34 MB)', 'ldsc_fetch', busy) : '') +
     (L && L.official !== undefined ? btn('Compute LD scores from the 1000 Genomes panel', 'ldsc_compute', busy) : '') + '</div>');
 }
+// Round 81: the LD reference a genome-wide method uses for this pair. A GWAS of one ancestry uses the 1000 Genomes panel of that ancestry;
+// for a GWAS labelled Mixed (or with no ancestry reported) the analyst picks an installed panel and accepts the possible bias first.
+const POPN = { EUR: 'European', EAS: 'East Asian', AFR: 'African', AMR: 'Admixed American', SAS: 'South Asian' };
+function ldrefState(method, pair, R) {
+  const A = R && R.anc, none = { html: '', ok: true, accept: null };
+  if (!A) return none;
+  if (A.refused) return { html: '<div style="font-size:13px;color:var(--warn)">' + esc(A.refused) + '</div>', ok: false, accept: null };
+  if (method === 'lhcmr') return none;
+  if (!S.ldscRef && !S._ldrefAsk) { S._ldrefAsk = true; send('ldsc_status', {}); }
+  S.ldacc = S.ldacc || {}; const k = method + '|' + pair.folder, c = S.ldacc[k] || (S.ldacc[k] = { pop: A.pop, ok: false });
+  const L = S.ldscRef || {}, av = (p) => { const x = (A.avail || {})[p] || {}; return { panel: !!x.panel, official: !!x.official || (p === 'EUR' && !!L.official), scores: !!x.scores || (L.computed || []).indexOf(p) >= 0 || (p === 'EUR' && !!L.official) }; };
+  const pop = A.fixed ? A.pop : c.pop, a = av(pop), nd = A.needs || {}, job = L.job, busy = job && job.state === 'running';
+  const ref = (nd.scores ? (a.official ? 'the LDSC authors\' European LD scores' : 'LD scores computed by MR Studio from the 1000 Genomes ' + POPN[pop] + ' panel') : '') + (nd.scores && nd.panel ? ' and ' : '') + (nd.panel ? 'the 1000 Genomes ' + POPN[pop] + ' panel' : '');
+  let h = '';
+  if (A.needs_accept) {
+    const who = (A.unknown || []).map((x) => '"' + esc(x.trait) + '" is labelled ' + esc(x.label === 'not reported' ? 'with no ancestry reported' : x.label)).join('; ');
+    const pick = Object.keys(POPN).filter((p) => av(p).panel).map((p) => { const on = p === pop, s2 = nd.scores && !av(p).scores;
+      return '<button type="button" data-a="ldref_pop" data-v="' + esc(k + '|' + p) + '" aria-pressed="' + on + '" style="padding:6px 10px;border-radius:10px;border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + ';background:' + (on ? 'var(--panel2)' : 'transparent') + ';color:var(--text);font-size:12px">' + POPN[p] + (s2 ? ' <span style="color:var(--mute)">(LD scores not computed yet)</span>' : '') + '</button>'; }).join('');
+    h += '<div role="alert" style="display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:12px;border:1px solid var(--warn);background:var(--panel2);font-size:13px">' +
+      '<div><b>No matching LD reference.</b> ' + who + '. ' + esc(A.name) + ' needs LD from the same population as the GWAS, and no panel matches a sample of mixed or unreported ancestry. You can run it with one of the installed 1000 Genomes panels below; LD in these samples may differ from the panel, which can bias ' + esc(A.bias || 'the estimates') + '. Your choice and your acceptance are saved with the result, with the date, and stated in the Limitations of the draft text.</div>' +
+      (pick ? '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span style="font-size:12px;color:var(--mute)">Panel:</span>' + pick + '</div>' : '<div style="color:var(--warn)">No 1000 Genomes panel is installed (Settings, LD reference panel).</div>') +
+      '<label style="display:flex;gap:8px;align-items:center"><input type="checkbox" data-a="ldref_ok" data-v="' + esc(k) + '"' + (c.ok ? ' checked' : '') + '> I accept this and take responsibility for it</label></div>';
+  }
+  const miss = (nd.scores && !a.scores) || (nd.panel && !a.panel);
+  h += '<div style="font-size:12px;color:var(--mute)">LD reference: ' + ref + '.</div>';
+  if (!a.panel && (nd.panel || (nd.scores && !a.scores))) h += '<div style="font-size:12px;color:var(--warn)">The 1000 Genomes ' + POPN[pop] + ' panel is not installed: install it in Settings, LD reference panel.</div>';
+  else if (nd.scores && !a.scores) h += '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;color:var(--mute)">' + (busy ? 'Computing LD scores for ' + esc(job.pop) + ': ' + (job.pct || 0) + '% (chromosome ' + esc(job.chr == null ? '1' : job.chr) + ' of 22).' :
+    'The LD scores for ' + POPN[pop] + ' have not been computed yet. <button type="button" data-a="ldsc_compute" data-v="' + pop + '" style="height:30px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--text);font-size:12px">Compute them (about 30 minutes, once)</button>') + '</div>';
+  return { html: h, ok: !miss && (!A.needs_accept || c.ok), accept: A.needs_accept ? { pop: pop, ok: !!c.ok } : (A.fixed ? null : { pop: pop }) };
+}
+// The LD reference recorded with a result, shown beside it
+function ldrefNote(R) { const r = R && R.ldref; if (!r || !r.reference) return '';
+  const at = r.accepted && r.accepted.at ? String(r.accepted.at).slice(0, 10) : '';
+  return '<div style="font-size:12px;color:' + (at ? 'var(--warn)' : 'var(--mute)') + '">LD reference: ' + esc(r.reference) + '.' + (at ? ' Chosen for data of mixed or unreported ancestry; you accepted the possible bias on ' + esc(at) + ' (stated in the Limitations of the draft text).' : '') + '</div>'; }
 // Round 65: LHC-MR for the pair (both directions and a latent heritable confounder, from the full GWAS). Runs in the background.
 function lhcmrSection(pair) {
   if (!pair || pair.mv || !pair.folder) return '';
@@ -1076,7 +1110,7 @@ function lhcmrSection(pair) {
       line('Direct heritability, ' + X + ' / ' + Y, fx(g('h2X').estimate, 3) + ' / ' + fx(g('h2Y').estimate, 3)) + line('Cross-trait intercept', fx(g('iXY').estimate, 3)) +
       '<div style="font-size:12px;color:' + (bi ? 'var(--warn)' : 'var(--mute)') + '">' + (bi ? 'At least one parameter had a bimodal jackknife distribution, which the authors read as two competing solutions; interpret with care. ' : '') + 'Effects are per standard deviation, from ' + rows[0].variants + ' variants (every tenth used in the fit); 95% intervals from a 200-block jackknife.</div>');
   }
-  const job = st.job || {}, run = job.state === 'running', fetch = st.fetch && st.fetch.state === 'running', have = st.ld && st.rho;
+  const job = st.job || {}, run = job.state === 'running', fetch = st.fetch && st.fetch.state === 'running', have = st.ld && st.rho, LR = ldrefState('lhcmr', pair, R);   // Round 81: European only, with the reason
   const msg = (R && R.msg) || (job.state === 'error' || job.state === 'stopped' ? job.msg : '') || (st.fetch && st.fetch.state === 'error' ? st.fetch.msg : '');
   const state = !R ? 'Checking…' : run ? 'Running since ' + esc(job.time) + '. This takes one to two hours; you can keep working and come back.' : fetch ? 'Downloading the LD files of the LHC-MR authors: ' + (st.fetched_mb || 0) + ' of about 524 MB.' :
     (have ? 'LD files of the LHC-MR authors installed. ' : 'Needs the LD files of the LHC-MR authors (UK10K, about 524 MB). ') + (st.ldsc_official ? '' : 'Also needs the European LD scores of LDSC (section above).');
@@ -1089,8 +1123,8 @@ function lhcmrSection(pair) {
       '</div><div style="font-size:12px;color:var(--mute)">It runs at low priority, and stops by itself if free memory gets too low.</div></div>'
     : '<div style="font-size:13px;color:var(--warn)">Not enough free memory to run LHC-MR safely now (' + fx(mem.available_gb, 1) + ' GB free of ' + fx(mem.total_gb, 0) + ' GB). Close other programs, then check again.</div>' + btn('Check again', 'lhcmr_recheck')) : '';
   return box('<div style="font-size:13px">Estimates the effect in both directions while modelling a confounder with its own genetic basis, using all variants rather than instruments only. Needs the full summary statistics of both traits (European ancestry, with rsIDs and sample size) in the Data library.</div>' +
-    (msg ? '<div style="font-size:13px;color:var(--warn)">' + esc(msg) + '</div>' : '') + '<div style="font-size:12px;color:var(--mute)">' + state + '</div>' +
-    choose + '<div style="display:flex;flex-wrap:wrap;gap:10px">' + (have && st.ldsc_official && !run && ops.length ? btn('Run LHC-MR', 'lhcmr_start') : '') + (R && !have && !fetch ? btn('Download the LHC-MR LD files (524 MB)', 'lhcmr_fetch') : '') + '</div>');
+    (msg ? '<div style="font-size:13px;color:var(--warn)">' + esc(msg) + '</div>' : '') + '<div style="font-size:12px;color:var(--mute)">' + state + '</div>' + LR.html +
+    (LR.ok ? choose : '') + '<div style="display:flex;flex-wrap:wrap;gap:10px">' + (LR.ok && have && st.ldsc_official && !run && ops.length ? btn('Run LHC-MR', 'lhcmr_start') : '') + (R && !have && !fetch ? btn('Download the LHC-MR LD files (524 MB)', 'lhcmr_fetch') : '') + '</div>');
 }
 function lhcPoll(folder) { clearTimeout(S._lhcT); const R = S.lhc && S.lhc[folder], st = R && R.status; if (st && ((st.job && st.job.state === 'running') || (st.fetch && st.fetch.state === 'running'))) S._lhcT = setTimeout(() => send('lhcmr_get', { folder: folder }), 30000); }
 // Round 68: MRlap, IVW corrected for weak instruments, winner's curse and sample overlap (from the full GWAS of both traits).
@@ -1107,13 +1141,13 @@ function mrlapSection(pair) {
     const line = (lab, r) => '<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;padding:8px 12px;border-radius:10px;background:var(--panel2)"><span style="font-weight:550">' + esc(lab) + '</span><span class="mono" style="white-space:nowrap">' + 'β ' + fx(r.estimate, 3) + ' <span style="color:var(--mute)">(95% CI ' + fx(r.ci_lower, 3) + ' to ' + fx(r.ci_upper, 3) + ')</span> · P ' + fp(r.p) + '</span></div>';
     return box(line('Observed IVW, ' + X + ' → ' + Y, o) + line('Corrected', k) +
       '<div style="font-size:12px;color:' + (d.p < 0.05 ? 'var(--warn)' : 'var(--mute)') + '">' + (d.p < 0.05 ? 'The corrected effect differs from the observed one (P ' + fp(d.p) + '): the corrected effect should be preferred. ' : 'The corrected effect does not differ from the observed one (P ' + fp(d.p) + '), so the IVW estimate is not materially biased by weak instruments, winner\'s curse or overlap. ') +
-      o.instruments + ' instruments chosen by MRlap from the full GWAS (P < 5e-8, 500 kb apart); cross-trait intercept ' + fx(o.int_crosstrait, 3) + '.</div><div>' + btn('Run again', 'mrlap_start') + '</div>');
+      o.instruments + ' instruments chosen by MRlap from the full GWAS (P < 5e-8, 500 kb apart); cross-trait intercept ' + fx(o.int_crosstrait, 3) + '.</div>' + ldrefNote(R) + '<div>' + btn('Run again', 'mrlap_start') + '</div>');
   }
   const msg = (R && R.msg) || (job.state === 'error' || job.state === 'stopped' ? job.msg : '');
-  const ready = R && R.ldsc_official;
-  return box('<div style="font-size:13px">Corrects the IVW estimate for weak-instrument bias and winner\'s curse, allowing for overlap between the two GWAS samples. Needs the full summary statistics of both traits (European ancestry, with rsIDs, positions or the 1000 Genomes panel, and sample size) and the European LD scores (section above).</div>' +
+  const LR = ldrefState('mrlap', pair, R), ready = R && (R.anc ? LR.ok : R.ldsc_official);   // Round 81
+  return box('<div style="font-size:13px">Corrects the IVW estimate for weak-instrument bias and winner\'s curse, allowing for overlap between the two GWAS samples. Needs the full summary statistics of both traits (with rsIDs, positions or the 1000 Genomes panel, and sample size) and LD scores of their ancestry (section above).</div>' + LR.html +
     (msg ? '<div style="font-size:13px;color:var(--warn)">' + esc(msg) + '</div>' : '') +
-    '<div style="font-size:12px;color:var(--mute)">' + (!R ? 'Checking…' : run ? 'Running since ' + esc(job.time) + ' (a few minutes; you can keep working).' : ready ? 'Ready. It runs in the background at low priority, after a check that enough memory is free.' : 'Install the European LD scores first (section above).') + '</div>' +
+    '<div style="font-size:12px;color:var(--mute)">' + (!R ? 'Checking…' : run ? 'Running since ' + esc(job.time) + ' (a few minutes; you can keep working).' : ready ? 'Ready. It runs in the background at low priority, after a check that enough memory is free.' : R.anc ? '' : 'Install the European LD scores first (section above).') + '</div>' +
     (ready && !run ? '<div>' + btn('Run MRlap', 'mrlap_start') + '</div>' : ''));
 }
 function mrlapPoll(folder) { clearTimeout(S._mlT); const R = S.mrlap && S.mrlap[folder]; if (R && R.job && R.job.state === 'running') S._mlT = setTimeout(() => send('mrlap_get', { folder: folder }), 15000); }
@@ -1129,12 +1163,12 @@ function mrapssSection(pair) {
   if (rows.length) {
     const r = rows[0];
     return box('<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;padding:8px 12px;border-radius:10px;background:var(--panel2)"><span style="font-weight:550">' + esc(X + ' → ' + Y) + '</span><span class="mono" style="white-space:nowrap">' + 'β ' + fx(r.estimate, 3) + ' <span style="color:var(--mute)">(95% CI ' + fx(r.ci_lower, 3) + ' to ' + fx(r.ci_upper, 3) + ')</span> · P ' + fp(r.p) + '</span></div>' +
-      '<div style="font-size:12px;color:var(--mute)">' + r.instruments + ' instruments at P &lt; 5e-5 (more than at 5e-8, with the selection bias corrected); background from the full GWAS: sample structure (cross-trait intercept ' + fx(r.c12, 3) + ') and polygenic pleiotropy.</div><div>' + btn('Run again', 'mrapss_start') + '</div>');
+      '<div style="font-size:12px;color:var(--mute)">' + r.instruments + ' instruments at P &lt; 5e-5 (more than at 5e-8, with the selection bias corrected); background from the full GWAS: sample structure (cross-trait intercept ' + fx(r.c12, 3) + ') and polygenic pleiotropy.</div>' + ldrefNote(R) + '<div>' + btn('Run again', 'mrapss_start') + '</div>');
   }
-  const msg = (R && R.msg) || (job.state === 'error' || job.state === 'stopped' ? job.msg : ''), ready = R && R.ldsc_official && R.panel;
-  return box('<div style="font-size:13px">Estimates the effect while allowing for pleiotropy and for sample structure (population stratification, relatedness and sample overlap), using more instruments with the selection bias corrected. Needs the full summary statistics of both traits (European ancestry, rsIDs, sample size), the European LD scores and the 1000 Genomes panel.</div>' +
+  const msg = (R && R.msg) || (job.state === 'error' || job.state === 'stopped' ? job.msg : ''), LR = ldrefState('mrapss', pair, R), ready = R && (R.anc ? LR.ok : R.ldsc_official && R.panel);   // Round 81
+  return box('<div style="font-size:13px">Estimates the effect while allowing for pleiotropy and for sample structure (population stratification, relatedness and sample overlap), using more instruments with the selection bias corrected. Needs the full summary statistics of both traits (rsIDs, sample size), LD scores and the 1000 Genomes panel of their ancestry.</div>' + LR.html +
     (msg ? '<div style="font-size:13px;color:var(--warn)">' + esc(msg) + '</div>' : '') +
-    '<div style="font-size:12px;color:var(--mute)">' + (!R ? 'Checking…' : run ? 'Running since ' + esc(job.time) + ' (a few minutes; you can keep working).' : ready ? 'Ready. It runs in the background at low priority, after a check that enough memory is free.' : (!R.ldsc_official ? 'Install the European LD scores first (LD score regression section). ' : '') + (!R.panel ? 'Install the 1000 Genomes panel (Data library).' : '')) + '</div>' +
+    '<div style="font-size:12px;color:var(--mute)">' + (!R ? 'Checking…' : run ? 'Running since ' + esc(job.time) + ' (a few minutes; you can keep working).' : ready ? 'Ready. It runs in the background at low priority, after a check that enough memory is free.' : R.anc ? '' : (!R.ldsc_official ? 'Install the European LD scores first (LD score regression section). ' : '') + (!R.panel ? 'Install the 1000 Genomes panel (Data library).' : '')) + '</div>' +
     (ready && !run ? '<div>' + btn('Run MR-APSS', 'mrapss_start') + '</div>' : ''));
 }
 function causeSection(pair) {
@@ -1148,12 +1182,12 @@ function causeSection(pair) {
   if (rows.length) {
     const r = rows[0];
     return box('<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;padding:8px 12px;border-radius:10px;background:var(--panel2)"><span style="font-weight:550">' + esc(X + ' → ' + Y) + '</span><span class="mono" style="white-space:nowrap">gamma ' + 'γ ' + fx(r.gamma, 2) + ' <span style="color:var(--mute)">(95% credible interval ' + fx(r.gamma_lower, 2) + ' to ' + fx(r.gamma_upper, 2) + ')</span> · P ' + fp(r.p) + '</span></div>' +
-      '<div style="font-size:12px;color:var(--mute)">' + r.instruments + ' variants at P &lt; 1e-3. P tests whether the causal model fits better than the sharing model, in which a shared heritable factor explains the association (difference in ELPD ' + fx(r.delta_elpd, 2) + ', SE ' + fx(r.se_delta_elpd, 2) + '). Gamma is the posterior median of the causal effect with its 95% credible interval.</div><div>' + btn('Run again', 'cause_start') + '</div>');
+      '<div style="font-size:12px;color:var(--mute)">' + r.instruments + ' variants at P &lt; 1e-3. P tests whether the causal model fits better than the sharing model, in which a shared heritable factor explains the association (difference in ELPD ' + fx(r.delta_elpd, 2) + ', SE ' + fx(r.se_delta_elpd, 2) + '). Gamma is the posterior median of the causal effect with its 95% credible interval.</div>' + ldrefNote(R) + '<div>' + btn('Run again', 'cause_start') + '</div>');
   }
-  const msg = (R && R.msg) || (job.state === 'error' || job.state === 'stopped' ? job.msg : ''), ready = R && R.panel;
-  return box('<div style="font-size:13px">Tests whether the association is better explained by a causal effect than by correlated pleiotropy, a shared heritable factor that affects both traits. Needs the full summary statistics of both traits (European ancestry, rsIDs) and the 1000 Genomes panel.</div>' +
+  const msg = (R && R.msg) || (job.state === 'error' || job.state === 'stopped' ? job.msg : ''), LR = ldrefState('cause', pair, R), ready = R && (R.anc ? LR.ok : R.panel);   // Round 81
+  return box('<div style="font-size:13px">Tests whether the association is better explained by a causal effect than by correlated pleiotropy, a shared heritable factor that affects both traits. Needs the full summary statistics of both traits (rsIDs) and the 1000 Genomes panel of their ancestry.</div>' + LR.html +
     (msg ? '<div style="font-size:13px;color:var(--warn)">' + esc(msg) + '</div>' : '') +
-    '<div style="font-size:12px;color:var(--mute)">' + (!R ? 'Checking…' : run ? 'Running since ' + esc(job.time) + ' (often 10 to 30 minutes; you can keep working).' : ready ? 'Ready. It runs in the background at low priority on two threads, after a check that enough memory is free.' : 'Install the 1000 Genomes panel (Data library).') + '</div>' +
+    '<div style="font-size:12px;color:var(--mute)">' + (!R ? 'Checking…' : run ? 'Running since ' + esc(job.time) + ' (often 10 to 30 minutes; you can keep working).' : ready ? 'Ready. It runs in the background at low priority on two threads, after a check that enough memory is free.' : R.anc ? '' : 'Install the 1000 Genomes panel (Data library).') + '</div>' +
     (ready && !run ? '<div>' + btn('Run CAUSE', 'cause_start') + '</div>' : ''));
 }
 function causePoll(folder) { clearTimeout(S._caT); const R = S.cause && S.cause[folder]; if (R && R.job && R.job.state === 'running') S._caT = setTimeout(() => send('cause_get', { folder: folder }), 15000); }
@@ -1798,15 +1832,17 @@ function onClick(e) {
     case 'run_ties': { const p = curPair(); S.sensBusy = true; render(); send('run_ties', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && m !== 'steiger')), params: S.params }); break; }
     case 'run_eaf': { const p = curPair(), ids = eafFlagged(p); if (!ids.length) break; S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, remove: ids, kind: 'eaf', methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && m !== 'steiger')), params: S.params }); break; }   // Round 34
     case 'ldsc_run': { const pr = S.pairs[S.rp], val = (id) => { const e = document.getElementById(id); const x = e && e.value.trim() ? Number(e.value) : null; return x > 0 && x < 1 ? x : null; };
-      S.ldsc[pr.folder] = { rows: [], busy: true }; render(); send('ldsc', { folder: pr.folder, prev: [val('ldsc_prev_x'), val('ldsc_prev_y')] }); break; }
+      const acc = ldrefState('ldsc', pr, S.ldsc[pr.folder]).accept; S.ldsc[pr.folder] = Object.assign({}, S.ldsc[pr.folder], { rows: [], msg: '', busy: true }); render(); send('ldsc', { folder: pr.folder, prev: [val('ldsc_prev_x'), val('ldsc_prev_y')], accept: acc }); break; }
     case 'ldsc_fetch': send('ldsc_fetch', {}); break;
-    case 'cause_start': { const pr = S.pairs[S.rp]; S.cause[pr.folder] = Object.assign({}, S.cause[pr.folder], { msg: '', job: { state: 'running', time: 'now' } }); render(); send('cause_start', { folder: pr.folder }); break; }
-    case 'mrapss_start': { const pr = S.pairs[S.rp]; S.apss[pr.folder] = Object.assign({}, S.apss[pr.folder], { msg: '', job: { state: 'running', time: 'now' } }); render(); send('mrapss_start', { folder: pr.folder }); break; }
-    case 'mrlap_start': { const pr = S.pairs[S.rp]; S.mrlap[pr.folder] = Object.assign({}, S.mrlap[pr.folder], { msg: '', job: { state: 'running', time: 'now' } }); render(); send('mrlap_start', { folder: pr.folder }); break; }
+    case 'cause_start': { const pr = S.pairs[S.rp]; S.cause[pr.folder] = Object.assign({}, S.cause[pr.folder], { msg: '', job: { state: 'running', time: 'now' } }); render(); send('cause_start', { folder: pr.folder, accept: ldrefState('cause', pr, S.cause[pr.folder]).accept }); break; }
+    case 'mrapss_start': { const pr = S.pairs[S.rp]; S.apss[pr.folder] = Object.assign({}, S.apss[pr.folder], { msg: '', job: { state: 'running', time: 'now' } }); render(); send('mrapss_start', { folder: pr.folder, accept: ldrefState('mrapss', pr, S.apss[pr.folder]).accept }); break; }
+    case 'mrlap_start': { const pr = S.pairs[S.rp]; S.mrlap[pr.folder] = Object.assign({}, S.mrlap[pr.folder], { msg: '', job: { state: 'running', time: 'now' } }); render(); send('mrlap_start', { folder: pr.folder, accept: ldrefState('mrlap', pr, S.mrlap[pr.folder]).accept }); break; }
     case 'lhcmr_start': case 'lhcmr_fetch': { const pr = S.pairs[S.rp]; send(a, { folder: pr.folder, workers: (S.lhcW || {})[pr.folder] }); break; }
     case 'lhcmr_workers': { const pr = S.pairs[S.rp]; S.lhcW = S.lhcW || {}; S.lhcW[pr.folder] = Number(v); render(); break; }
     case 'lhcmr_recheck': { const pr = S.pairs[S.rp]; send('lhcmr_get', { folder: pr.folder }); break; }
-    case 'ldsc_compute': { const pr = S.pairs[S.rp]; send('ldsc_compute', { folder: pr && pr.folder }); break; }
+    case 'ldsc_compute': { const pr = S.pairs[S.rp]; send('ldsc_compute', { folder: pr && pr.folder, pop: v || undefined }); break; }
+    case 'ldref_pop': { const i = v.lastIndexOf('|'), k = v.slice(0, i); S.ldacc = S.ldacc || {}; S.ldacc[k] = { pop: v.slice(i + 1), ok: false }; render(); break; }   // Round 81: a new panel asks for the acceptance again
+    case 'ldref_ok': { S.ldacc = S.ldacc || {}; const c = S.ldacc[v] || {}; S.ldacc[v] = Object.assign({}, c, { ok: !c.ok }); render(); break; }
     case 'to_pair': { const k = S.pairs.findIndex((p) => p.folder === v); if (k >= 0) { S.rp = k; render(); window.scrollTo(0, 0); } break; }
     case 'run_outliers': { const p = curPair(); S.outBusy = true; render(); send('run_outliers', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, params: S.params }); break; }
     case 'out_lookup': { const p = curPair(); S.lkBusy = true; render(); send('outlier_lookup', { folder: p.folder, ex: p.ex, out: p.out }); break; }
@@ -1959,12 +1995,12 @@ function handle(m) {
     case 'import_saved': if (S.imp) { S.imp.saving = false; S.imp.saved = { rec: m.rec, template: m.template }; } S.lib = m.items || []; S.tmpls = m.templates || []; if (m.catalogue) S.cat = m.catalogue; render(); break;
     case 'study_open_failed': S.dialog = { title: 'This study could not be opened', body: m.msg + '\n\nNothing was changed. You can look at the folder yourself, or start a new study.', mono: S.root + '/' + m.name, danger: true, buttons: [{ label: 'Close', a: 'dialog_close' }, { label: 'Show folder', a: 'study_folder', v: m.name, primary: true }] }; render(); break;
     case 'bidir_cml': liveEnd('results'); S.bcml = m.rows || []; render(); break;
-    case 'ldsc': S.ldsc = S.ldsc || {}; S.ldsc[m.folder] = { rows: m.rows || [], msg: m.msg || '', text: m.text || '' }; render(); break;
+    case 'ldsc': S.ldsc = S.ldsc || {}; S.ldsc[m.folder] = { rows: m.rows || [], msg: m.msg || '', text: m.text || '', anc: m.anc || null, ldref: m.ldref || null }; render(); break;
     case 'ldsc_ref': S.ldscRef = m.status; ldscPoll(); render(); break;
-    case 'cause': S.cause = S.cause || {}; S.cause[m.folder] = { rows: m.rows || [], msg: m.msg || '', job: m.job || {}, panel: !!m.panel }; causePoll(m.folder); render(); break;
-    case 'mrapss': S.apss = S.apss || {}; S.apss[m.folder] = { rows: m.rows || [], msg: m.msg || '', job: m.job || {}, ldsc_official: !!m.ldsc_official, panel: !!m.panel }; mrapssPoll(m.folder); render(); break;
-    case 'mrlap': S.mrlap = S.mrlap || {}; S.mrlap[m.folder] = { rows: m.rows || [], msg: m.msg || '', job: m.job || {}, ldsc_official: !!m.ldsc_official }; mrlapPoll(m.folder); render(); break;
-    case 'lhcmr': S.lhc = S.lhc || {}; S.lhc[m.folder] = { rows: m.rows || [], msg: m.msg || '', status: m.status || {}, text: m.text || '', options: m.options || [], memory: m.memory || {} }; lhcPoll(m.folder); render(); break;
+    case 'cause': S.cause = S.cause || {}; S.cause[m.folder] = { rows: m.rows || [], msg: m.msg || '', job: m.job || {}, panel: !!m.panel, anc: m.anc || null, ldref: m.ldref || null }; causePoll(m.folder); render(); break;
+    case 'mrapss': S.apss = S.apss || {}; S.apss[m.folder] = { rows: m.rows || [], msg: m.msg || '', job: m.job || {}, ldsc_official: !!m.ldsc_official, panel: !!m.panel, anc: m.anc || null, ldref: m.ldref || null }; mrapssPoll(m.folder); render(); break;
+    case 'mrlap': S.mrlap = S.mrlap || {}; S.mrlap[m.folder] = { rows: m.rows || [], msg: m.msg || '', job: m.job || {}, ldsc_official: !!m.ldsc_official, anc: m.anc || null, ldref: m.ldref || null }; mrlapPoll(m.folder); render(); break;
+    case 'lhcmr': S.lhc = S.lhc || {}; S.lhc[m.folder] = { rows: m.rows || [], msg: m.msg || '', status: m.status || {}, anc: m.anc || null, text: m.text || '', options: m.options || [], memory: m.memory || {} }; lhcPoll(m.folder); render(); break;
     case 'mediation': liveEnd('results'); S.medRes = (m.rows && m.rows.length) ? { rows: m.rows, spec: m.spec } : null; render(); break;
     case 'mvcov_head': { const cols = m.columns || [], lc = (x) => String(x).toLowerCase(); S.mvc = { name: m.name, columns: cols, busy: false,
       cols: S.ex.map((e) => { const n = lc((((S.cat && S.cat.exposures) || []).find((x) => x.id === e) || {}).name || e); return cols.find((c) => lc(c) === n || lc(c) === lc(e)) || ''; }) }; S.notice = null; render(); break; }
