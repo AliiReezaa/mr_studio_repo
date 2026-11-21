@@ -180,6 +180,11 @@ Run analysis. Each pair is saved as soon as it finishes, so a closed laptop neve
 same numbers as an uninterrupted one. Each method runs on its own: if one fails, the others still finish, and the activity log says
 which failed and why.
 
+The run works in the background, as do the reanalyses on the Results screen (leaving variants out, outliers, ties), mediation,
+bidirectional MR-cML, LD score regression and the publication package. While it runs you can open Studies, look at other studies and
+open the running one again: it shows its Run screen with the progress so far. The Studies list marks it RUNNING. One study runs at a
+time; when a run ends while you are looking at another study, a note says so.
+
 ### 6. Results
 
 For each pair:

@@ -1,7 +1,7 @@
 # Headless tests for the screen logic and the Shiny server (no browser, no desktop shell).
 # Run:  Rscript prototype/engine/test_studio.R        (from the repository root)
 args_dir <- normalizePath(file.path("prototype", "engine"), winslash = "/")
-source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "liftover_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "cause_core.R")); source(file.path(args_dir, "fullgwas_core.R")); source(file.path(args_dir, "live_core.R")); source(file.path(args_dir, "app.R"))
+source(file.path(args_dir, "studio_core.R")); load_contracts(find_contracts_dir(args_dir)); source(file.path(args_dir, "import_core.R")); source(file.path(args_dir, "liftover_core.R")); source(file.path(args_dir, "opengwas_core.R")); source(file.path(args_dir, "ld_core.R")); source(file.path(args_dir, "strobe_core.R")); source(file.path(args_dir, "feasibility_core.R")); source(file.path(args_dir, "report_core.R")); source(file.path(args_dir, "pdf_core.R")); source(file.path(args_dir, "outlier_core.R")); source(file.path(args_dir, "mv_core.R")); source(file.path(args_dir, "mediation_core.R")); source(file.path(args_dir, "bidir_core.R")); source(file.path(args_dir, "resource_core.R")); source(file.path(args_dir, "ldsc_core.R")); source(file.path(args_dir, "lhcmr_runner.R")); source(file.path(args_dir, "lhcmr_core.R")); source(file.path(args_dir, "mrlap_core.R")); source(file.path(args_dir, "mrapss_core.R")); source(file.path(args_dir, "cause_core.R")); source(file.path(args_dir, "fullgwas_core.R")); source(file.path(args_dir, "live_core.R")); source(file.path(args_dir, "bg_core.R")); source(file.path(args_dir, "app.R"))
 root <- file.path(tempfile("studies-"), "MR Studio"); dir.create(root, recursive = TRUE)
 Sys.setenv(MRGUI_STUDIES_DIR = root)
 
@@ -224,22 +224,25 @@ template_delete("Lab layout"); expect("template: deleting removes it", length(te
 html <- as.character(mr_ui_for(args_dir)(NULL))
 expect("page: has the root element, the script and the footer the smoke test looks for", grepl('id="root"', html, fixed = TRUE) && grepl("MR GUI engine prototype", html, fixed = TRUE) && grepl('id="hello"', html, fixed = TRUE))
 expect("page: no external script, only the font stylesheet is remote", !grepl("<script[^>]+src=\"https?://", html))
+options(mrgui.engine_dir = args_dir)   # Round 83: background jobs load the engine from here
 shiny::testServer(mr_server(args_dir), {
   session$setInputs(act = list(t = "init", nonce = 1))
   session$setInputs(act = list(t = "study_create", name = "", aim = "", kind = "basic", nonce = 2))
   expect("server: a blank study name does not crash and creates nothing", is.null(rv$h))
   session$setInputs(act = list(t = "study_create", name = "Server study", aim = "a", kind = "basic", prereg = FALSE, nonce = 3))
   expect("server: creating a study sets the current study", !is.null(rv$h) && grepl("Server study$", rv$h$dir))
-  session$setInputs(act = list(t = "run_pair", i = 0, ex = "expA", out = "outB", methods = list("ivw_mre", "egger"), ci = 0.9, nonce = 4))
+  # Round 83: runs and reanalyses are background jobs; the test waits for them as the app does (passing on their messages)
+  bg_wait <- function(n = 3000L) for (k in seq_len(n)) { later::run_now(0.1); if (!length(bg$jobs)) break }
+  session$setInputs(act = list(t = "run_pair", i = 0, ex = "expA", out = "outB", methods = list("ivw_mre", "egger"), ci = 0.9, nonce = 4)); bg_wait()
   pp <- ui_state_get(rv$h$con, "pairs")
   expect("server: a pair run is recorded in the study database with its labels and folder", length(pp) == 1L && pp[[1]]$ex == "expA" && grepl("^P01_", pp[[1]]$folder))
-  session$setInputs(act = list(t = "run_pair", i = 1, ex = "expB", out = "outB", methods = list("ivw_mre"), ci = 0.95, nonce = 5))
+  session$setInputs(act = list(t = "run_pair", i = 1, ex = "expB", out = "outB", methods = list("ivw_mre"), ci = 0.95, nonce = 5)); bg_wait()
   pf <- studio_pair_folders(rv$h$dir)
   expect("server: a second pair gets its own folder", length(pf) == 2L && grepl("^P02_", pf[2]))
-  session$setInputs(act = list(t = "run_pair", i = 0, ex = "expA", out = "outB", methods = list("ivw_mre", "egger"), ci = 0.9, nonce = 6))
+  session$setInputs(act = list(t = "run_pair", i = 0, ex = "expA", out = "outB", methods = list("ivw_mre", "egger"), ci = 0.9, nonce = 6)); bg_wait()
   expect("server: rerunning a pair with the same settings reuses its folder", length(studio_pair_folders(rv$h$dir)) == 2L && length(ui_state_get(rv$h$con, "pairs")) == 2L)
   # Round 75f: the engine works through the queue itself (the window used to ask for each pair, so a locked screen stopped the run)
-  pump <- function(n = 400L) for (k in seq_len(n)) { later::run_now(0.05); if (is.null(rq$pairs)) break }
+  pump <- function(n = 3000L) for (k in seq_len(n)) { later::run_now(0.1); if (is.null(rq$pairs) && !length(bg$jobs)) break }
   q2 <- list(list(i = 2, ex = "expA", out = "outA", methods = list("ivw_mre"), ci = 0.95), list(i = 3, ex = "expB", out = "outA", methods = list("ivw_mre"), ci = 0.95))
   session$setInputs(act = list(t = "run_all", pairs = q2, total = 4L, study = "Server study", nonce = 7)); pump()
   expect("Round 75f: a queued run finishes every pair by itself, with no request from the window between pairs", is.null(rq$pairs) && length(studio_pair_folders(rv$h$dir)) == 4L && rq$ok == 2L)
@@ -258,7 +261,7 @@ shiny::testServer(mr_server(args_dir), {
   a7 <- list(folder = r7$pair_folder, ex = "expA", out = "expC", pthr = 5e-8)
   plain <- err_of(instrument_table("expA", "expC")); it7 <- instrument_table("expA", "expC", inp = pair_inp(a7))
   n_before <- length(studio_pair_folders(rv$h$dir))
-  session$setInputs(act = list(t = "run_sens", folder = r7$pair_folder, ex = "expA", out = "expC", pthr = 5e-8, remove = list(it7$id[1]), why = "chosen by you", methods = list("ivw_mre", "egger"), nonce = 12))
+  session$setInputs(act = list(t = "run_sens", folder = r7$pair_folder, ex = "expA", out = "expC", pthr = 5e-8, remove = list(it7$id[1]), why = "chosen by you", methods = list("ivw_mre", "egger"), nonce = 12)); bg_wait()
   expect("Round 75g: instrument review and sensitivity reruns of a mediation step use its own datasets (its plain labels cannot build it)",
          !is.na(plain) && nrow(it7) == sum(mi$input$data$mr_keep) && length(studio_pair_folders(rv$h$dir)) == n_before + 1L)
 })
@@ -1885,7 +1888,7 @@ local({
   grp <- regmatches(js, regexpr("const LIVE_GROUP = \\{[^}]*\\}", js)); keys <- regmatches(grp, gregexpr("[a-z_]+(?=: ')", grp, perl = TRUE))[[1]]
   acts <- c("facts", "mv_prepare", "med_prepare", "bidir_prepare", "run_all", "build_package", "ogw_dl_exposure", "ogw_dl_outcome", "run_sens", "run_outliers", "mediation", "bidir_cml", "instruments", "run_ties", "compare_default", "init", "diagnostics")
   expect("Round 80: each action that narrates (two-sample, multivariable, mediation and bidirectional studies, reruns, outliers, publishing, downloads) has its own box group; messages name their action and every action's end is sent",
-         all(acts %in% keys) && grepl('act = getOption("mrstudio.act", "")', app, fixed = TRUE) && grepl('ev("live_end", act = t)', app, fixed = TRUE) && grepl('options(mrstudio.act = "run_all")', app, fixed = TRUE) && !grepl("S\\.live\\b", js))
+         all(acts %in% keys) && grepl('act = getOption("mrstudio.act", "")', app, fixed = TRUE) && grepl('ev("live_end", act = t)', app, fixed = TRUE) && grepl('bg_start(rq$dir, "run_pair", a, act = "run_all")', app, fixed = TRUE) && !grepl("S\\.live\\b", js))
   # the screen's boxes, run in node: a run opens its own box (a new clock) after the Check box closed; news from another action does not land in it
   if (nzchar(Sys.which("node"))) {
     f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
@@ -1972,6 +1975,118 @@ local({
            identical(o[[1]], FALSE) && isTRUE(o[[2]]) && isTRUE(o[[3]]) && isTRUE(o[[4]]) && identical(o[[5]], list(pop = "EUR", ok = TRUE)) && identical(o[[6]], FALSE) && isTRUE(o[[7]]) && isTRUE(o[[8]]))
   }
 })
+
+# Round 82: the European LD scores download in a background R process, with progress, a time limit per connection and resume
+# (it ran inside the app: a stalled connection froze the app at 18 of 34 MB with no sign of progress)
+local({
+  pay <- tempfile(); set.seed(82); writeBin(as.raw(sample(0:255, 300000, TRUE)), pay); md5 <- unname(tools::md5sum(pay))
+  srv <- tempfile(fileext = ".R"); pidf <- tempfile(); port <- httpuv::randomPort()
+  writeLines(c("a <- commandArgs(TRUE); x <- readBin(a[1], 'raw', file.size(a[1])); writeLines(as.character(Sys.getpid()), a[3])",
+    "hd <- list('Content-Type' = 'application/octet-stream')",
+    "httpuv::runServer('127.0.0.1', as.integer(a[2]), list(call = function(req) { r <- if (is.null(req$HTTP_RANGE)) '' else req$HTTP_RANGE",
+    "  if (nzchar(r) && !grepl('norange', req$QUERY_STRING)) { s <- as.numeric(sub('bytes=([0-9]+)-.*', '\\\\1', r)); list(status = 206L, headers = hd, body = x[(s + 1):length(x)]) }",
+    "  else list(status = 200L, headers = hd, body = x) }))"), srv)
+  system2(file.path(R.home("bin"), "Rscript"), c("--vanilla", shQuote(srv), shQuote(pay), port, shQuote(pidf)), wait = FALSE, stdout = FALSE, stderr = FALSE)
+  on.exit(if (file.exists(pidf)) tools::pskill(as.integer(readLines(pidf))), add = TRUE)
+  url <- sprintf("http://127.0.0.1:%d/f.bin", port)
+  for (i in 1:60) { if (isTRUE(tryCatch(curl::curl_fetch_memory(url)$status_code == 200, error = function(e) FALSE))) break; Sys.sleep(0.5) }
+  p1 <- tempfile(); ldsc_download_resume(url, p1)
+  p2 <- tempfile(); writeBin(readBin(pay, "raw", 100000), p2); first <- NA; ldsc_download_resume(url, p2, progress = function(n) if (is.na(first)) first <<- n)
+  p3 <- tempfile(); writeBin(as.raw(rep(7, 100000)), p3); ldsc_download_resume(paste0(url, "?norange"), p3)
+  e <- tryCatch(ldsc_download_resume(sprintf("http://127.0.0.1:%d/f.bin", httpuv::randomPort()), tempfile(), tries = 2L, wait = 0), error = function(e) conditionMessage(e))
+  expect("Round 82: the LD score download continues where it stopped (Range), starts over when the server ignores Range, and stops with a clear message after its attempts",
+         identical(unname(tools::md5sum(p1)), md5) && identical(unname(tools::md5sum(p2)), md5) && isTRUE(first > 100000) && identical(unname(tools::md5sum(p3)), md5) &&
+         grepl("after 2 attempts", e) && grepl("continue where it stopped", e))
+  d <- tempfile(); dir.create(d); .ldsc_fetch_write(d, state = "running", pid = 999999L, done_bytes = 5, bytes = 10)
+  s <- ldsc_fetch_read(d)
+  app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n"); core <- paste(readLines(file.path(args_dir, "ldsc_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 82: the download runs in the background (the app no longer downloads it itself; LD score computation fetches its 5 MB list with the resumable download), and a job ended by closing the app reads as stopped",
+         grepl("ldsc_fetch = { r <- tryCatch(ldsc_fetch_start()", app, fixed = TRUE) && !grepl("ldsc_ref_fetch()", app, fixed = TRUE) && !grepl('ldsc_ref_fetch("hm3", dir)\n', core, fixed = TRUE) &&
+         identical(s$state, "stopped") && grepl("continue where it stopped", s$msg) && "fetch" %in% names(ldsc_status(d)))
+  if (nzchar(Sys.which("node"))) {
+    f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
+    writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
+      "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
+      "global.esc = (x) => String(x); let sent = []; global.send = (a) => sent.push(a); let t = 0; global.setTimeout = (fn, ms) => { t = ms; return 1; }; global.clearTimeout = () => 0;",
+      "eval(grab('ldscFetchUi') + grab('ldscPoll'));",
+      "const a = ldscFetchUi({ fetch: { state: 'running', step: 'downloading', done_bytes: 9437184, bytes: 33357890 } }), b = ldscFetchUi({ fetch: { state: 'error', msg: 'The download stopped after 5 attempts' } }), c = ldscFetchUi({});",
+      "global.S = { ldscRef: { fetch: { state: 'running' } } }; ldscPoll();",
+      "console.log([/9\\.0 of 31\\.8 MB/.test(a) && !/button/.test(a), /Continue the download/.test(b) && /after 5 attempts/.test(b), /34 MB/.test(c), t].join(' '));"), f)
+    o <- paste(system2("node", f, stdout = TRUE), collapse = "")
+    expect("Round 82: on the screen, the download shows the megabytes received, offers to continue after a stop, and is followed every 2 seconds",
+           identical(o, "true true true 2000"))
+  }
+})
+
+
+# Round 83: long analyses run in a background process, so the Studies screen lists and opens studies while a study runs (the engine
+# answered nothing for the minutes a pair took), a run stays with its own study, and the screen keeps a running study's state aside
+local({
+  h <- studio_new("R83 background"); DBI::dbDisconnect(h$con)
+  old <- options(mrgui.engine_dir = args_dir); on.exit(options(old), add = TRUE)
+  job <- bg_start(h$dir, "mediation", list(ci = 0.95), act = "mediation")
+  run_now <- length(bg_running(h$dir)) == 1L && identical(studies_overview()[[which(vapply(studies_overview(), `[[`, "", "name") == "R83 background")]]$status, "RUNNING")
+  for (i in 1:240) { r <- bg_poll(job, 0); if (isTRUE(r$done)) break; Sys.sleep(0.5) }
+  ts <- vapply(r$lines, function(l) jsonlite::parse_json(l)$t, "")
+  expect("Round 83: an analysis runs as a background job of its study (listed as RUNNING meanwhile); its messages arrive, as the screen would get them, and it ends done",
+         run_now && isTRUE(r$done) && isTRUE(r$ok) && all(c("live", "mediation", "live_end") %in% ts) && !length(bg_running(h$dir)) &&
+         identical(jsonlite::parse_json(r$lines[ts == "mediation"])$rows, list()))
+  # a study opened while its job runs keeps the job's task running; with no job, a task left running by a crash goes back to pending
+  h2 <- studio_open("R83 background"); db_upsert_task(h2$con, "t83", "method", "ivw_mre", "1"); DBI::dbExecute(h2$con, "UPDATE tasks SET state = 'running' WHERE task_id = 't83'"); DBI::dbDisconnect(h2$con)
+  fake <- file.path(h$dir, ".engine", "jobs", "run_pair_fake"); dir.create(fake, recursive = TRUE); writeLines(jsonlite::toJSON(list(state = "running", pid = Sys.getpid()), auto_unbox = TRUE), file.path(fake, "status.json"))
+  h3 <- studio_open("R83 background"); kept <- DBI::dbGetQuery(h3$con, "SELECT state FROM tasks WHERE task_id = 't83'")$state; DBI::dbDisconnect(h3$con)
+  unlink(fake, recursive = TRUE); h4 <- studio_open("R83 background"); back <- DBI::dbGetQuery(h4$con, "SELECT state FROM tasks WHERE task_id = 't83'")$state; DBI::dbDisconnect(h4$con)
+  gone <- file.path(h$dir, ".engine", "jobs", "x_gone"); dir.create(gone); file.create(file.path(gone, "events.jsonl")); writeLines('{"state":"running","pid":999999}', file.path(gone, "status.json")); g <- bg_poll(gone, 0)
+  runner <- paste(readLines(file.path(dirname(args_dir), "..", "contracts", "r", "runner.R"), warn = FALSE), collapse = "\n")
+  expect("Round 83: opening a study does not reset the running task of its background job (it still recovers tasks of a crash); a job whose process vanished ends with a message; the database waits for the other process's write",
+         identical(kept, "running") && identical(back, "pending") && isTRUE(g$done) && any(grepl("stopped unexpectedly", g$lines)) &&
+         regexpr("sqliteSetBusyHandler", runner) < regexpr("journal_mode=WAL", runner))
+  app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n"); bodies <- paste(vapply(BG_ACTIONS, function(f) paste(deparse(f), collapse = "\n"), ""), collapse = "\n")
+  expect("Round 83: the run of every kind of study (one pair at a time), the sensitivity, tie and outlier reanalyses, mediation, bidirectional MR-cML, LD score regression and the publication package run in the background; a run stays with its own study",
+         setequal(names(BG_ACTIONS), c("run_pair", "run_sens", "run_outliers", "run_ties", "mediation", "bidir_cml", "build_package", "ldsc")) &&
+         all(vapply(c("mediation", "bidir_cml", "run_sens", "run_outliers", "run_ties", "build_package"), function(k) grepl(sprintf('%s = bg_go("%s", a)', k, k), app, fixed = TRUE), TRUE)) &&
+         grepl('if (identical(t, "ldsc")) return(bg_go("ldsc", a))', app, fixed = TRUE) && grepl('bg_start(rq$dir, "run_pair", a, act = "run_all")', app, fixed = TRUE) &&
+         grepl("rq$dir <- rv$h$dir", app, fixed = TRUE) && grepl("A run is already going on in", app, fixed = TRUE) && !grepl("rv$h", bodies, fixed = TRUE) && !grepl("run_one(", app, fixed = TRUE))
+  cz <- paste(readLines(file.path(args_dir, "cause_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 83: CAUSE's memory estimate follows the measured peak (6.65 GB for 8.5 million variants), and its script says it needs loo 2.8.0 before it starts (newer loo stops it at the very end)",
+         abs(CAUSE_MEMORY_GB(8479693) - 7.01) < 0.01 && grepl("CAUSE needs loo 2.8.0", cz, fixed = TRUE))
+  if (nzchar(Sys.which("node"))) {
+    f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
+    writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
+      "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
+      "const cst = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, i + src.slice(i).search(/;\\r?\\n/) + 1); };",
+      "global.S = { lives: {} }; let sent = [], drawn = 0; global.prevOk = () => false; global.kindMethods = () => []; global.render = () => { if (!S._quiet) drawn++; };",
+      "global.send = (t, p) => { if (S._quiet) { (S._deferred = S._deferred || []).push([t, p]); return; } sent.push(t); };",
+      "global.handle = (m) => { if (m.t === 'pair_done') { S.run.done++; S.payloads[m.folder] = 1; } if (m.t === 'run_queue_done') { S.run.state = 'done'; send('mediation'); } render(); };",
+      "const arr = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, src.indexOf('];', i) + 2); };",
+      "eval(arr('STUDY_KEYS') + arr('PAIR_CACHES') + grab('studySnap') + grab('studyLoad') + grab('studyBusy') + grab('inStudy') + grab('route') + grab('applyStudy'));",
+      "applyStudy({ name: 'A', dir: '/a', pairs: [], payloads: {} }); S.run = { state: 'running', done: 0, total: 2 }; S.ldsc = { P01: { rows: ['A'] } };",
+      "applyStudy({ name: 'B', dir: '/b', pairs: [], payloads: {} }); const freshB = S.name === 'B' && !S.run && !Object.keys(S.ldsc).length;",
+      "drawn = 0; route({ t: 'pair_done', _study: 'A', folder: 'P01' }); route({ t: 'run_queue_done', _study: 'A' }); const quietB = S.name === 'B' && !S.payloads.P01 && sent.length === 0;",
+      "route({ t: 'pair_done', _study: 'Z', folder: 'P09' });",
+      "const back = applyStudy({ name: 'A', dir: '/a', pairs: [], payloads: { P02: 2 } });",
+      "console.log([freshB, quietB, !!S.notice && /\"A\": the run finished/.test(S.notice.msg), back === true && S.run.done === 1 && S.run.state === 'done' && S.payloads.P01 === 1 && S.payloads.P02 === 2 && S.ldsc.P01.rows[0] === 'A', sent.join(','), Object.keys(S.parked).length].join(' '));"), f)
+    o <- paste(system2("node", f, stdout = TRUE, stderr = TRUE), collapse = " ")
+    expect("Round 83: on the screen, a running study is set aside when another is opened (the other starts clean, without the first's results), its news is filed into it without drawing, and opening it again shows it as it is, its requests sent then",
+           identical(o, "true true true true mediation 0"))
+  }
+  if (nzchar(Sys.which("node"))) {
+    f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
+    writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
+      "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
+      "global.S = {}; let sent = 0; global.send = () => { sent++; }; global.STEPS = []; global.liveEndAll = () => 0; global.window = { scrollTo: () => 0 }; global.render = () => 0;",
+      "eval(grab('openStudy') + grab('go'));",
+      "openStudy('A', 'auto'); openStudy('A', 'auto'); const once = sent === 1;",
+      "const ok1 = !!S._opening && S._opening.nav === (S._nav || 0);",
+      "go('outliers'); const late = !(S._opening && S._opening.nav === (S._nav || 0));",
+      "console.log([once, ok1, late, S.screen].join(' '));"), f)
+    o <- paste(system2("node", f, stdout = TRUE, stderr = TRUE), collapse = " ")
+    st <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+    expect("Round 83: a study opens once however often it is clicked, and an answer that arrives after the analyst moved on (clicks queued while the engine was busy) no longer jumps back to Results",
+           identical(o, "true true true outliers") && grepl("if (!w || w.name !== m.name || w.nav !== (S._nav || 0)) break;", st, fixed = TRUE))
+  }
+})
+
 
 # Round 78: a trailing comment must never swallow code (Round 75d turned the rest of the Check screen's result handler into a comment, so the
 # Check screen never finished in build-34). Every line of the screen code with code before "//" is scanned for statements after it.

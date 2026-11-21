@@ -6,7 +6,7 @@
 # a causal model. It reports the posterior of the causal effect gamma and the P value that the causal model fits better.
 # Steps as in the package vignette: gwas_merge -> est_cause_params -> ld_clump -> cause.
 PIN_CAUSE <- "6257e6c66e6c1518c8750d1e4d2b4d6e42644fa5"
-CAUSE_MEMORY_GB <- function(rows) 1.5 + 1.2 * max(rows, 0, na.rm = TRUE) / 1e6
+CAUSE_MEMORY_GB <- function(rows) 1.5 + 0.65 * max(rows, 0, na.rm = TRUE) / 1e6   # Round 83: measured 6.65 GB peak (LDL 2.4 M and CHD 8.5 M variants, macOS); was 1.2 per million (11.7 GB), an estimate
 CAUSE_THREADS <- 2L   # RcppParallel threads; kept low so the computer stays usable
 
 #' CAUSE input for one trait: snp beta se ea oa (the columns gwas_merge() is told to read).
@@ -30,6 +30,7 @@ cause_script <- function(folder, files, labels, bfile, plink, seed, pthr = 1e-3,
     sprintf("BFILE <- %s; PLINK <- %s   # 1000 Genomes %s panel and PLINK of MR Studio", q(bfile), q(plink), basename(bfile)),   # Round 81: the panel used
     sprintf("seed <- %dL; P_THRESHOLD <- %s; R2_THRESHOLD <- %s; N_SAMPLE <- %s; THREADS <- %dL", as.integer(seed), format(pthr), format(r2), format(nsample, scientific = FALSE), as.integer(threads)),
     "if (!requireNamespace(\"cause\", quietly = TRUE)) stop(\"Package cause is not installed (GitHub jean997/cause).\")",
+    "if (utils::packageVersion(\"loo\") >= \"2.9.0\") stop(\"CAUSE needs loo 2.8.0, the version MR Studio uses: from loo 2.9 loo_compare() returns a table that cause cannot read (it stops at the very end). Install it with remotes::install_version('loo', '2.8.0').\")",   # Round 83
     "suppressPackageStartupMessages(library(cause)); RcppParallel::setThreadOptions(numThreads = THREADS)",
     "invisible(loadNamespace(\"ieugwasr\"))   # ieugwasr draws a random number when it loads; loaded before the seed, every run is the same",
     "rd <- function(f) as.data.frame(data.table::fread(f))",

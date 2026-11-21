@@ -64,6 +64,138 @@ param_schemas <- function() {
   ad <- param_adapters(); s <- lapply(ad, one); names(s) <- names(ad); s
 }
 
+# Round 83: the long analyses, as functions of the study (h), the screen's arguments (a) and the message sender (ev). The engine runs
+# them in a background process (bg_core.R), so it stays free for the screen; the code is what the handlers ran before.
+pair_inp_h <- function(h, a) {   # Round 75g: the input of a saved mediation step, rebuilt from its own record
+  rec <- if (!is.null(h) && !is.null(a$folder)) Filter(function(p) identical(p$folder, a$folder), ui_state_get(h$con, "pairs") %||% list()) else list()
+  med <- if (length(rec)) rec[[1]]$med else NULL
+  if (is.null(med)) return(NULL)
+  mediation_pair_input(med, as.numeric(a$pthr %||% rec[[1]]$pthr %||% 5e-8))
+}
+BG_ACTIONS$run_sens <- function(h, a, ev) { t <- "run_sens"
+          req(h)
+          rem <- sort(unlist(a$remove)); parent <- a$folder
+          if (!length(rem)) stop("Choose at least one variant to leave out.")
+          sens <- ui_state_get(h$con, "sens") %||% list()
+          old <- Filter(function(x) identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem), sens)
+          idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(h$dir)) + 1L
+          r <- tryCatch(studio_run_without(h, a$ex, a$out, rem, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params), pthr = as.numeric(a$pthr %||% 5e-8), inp = pair_inp_h(h, a)), error = function(e) e)
+          if (inherits(r, "error")) { ev("sens_done", ok = FALSE, msg = conditionMessage(r)); return() }
+          bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
+          if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }
+          sens <- Filter(function(x) !(identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem)), sens)
+          rec <- list(parent = parent, remove = as.list(rem), folder = r$pair_folder, label = r$label, kept = r$kept)
+          if (identical(a$kind, "eaf")) rec$kind <- "eaf"
+          if (!is.null(a$why)) rec$why <- as.character(a$why)[1]   # Round 72e: why these variants were left out (MVMR review)   # Round 34: without the variants flagged by the allele-frequency check
+          sens[[length(sens) + 1L]] <- rec; ui_state_set(h$con, "sens", sens)
+          ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(h$dir, r$pair_folder), reused = isTRUE(r$reused))
+        }
+
+BG_ACTIONS$run_outliers <- function(h, a, ev) { t <- "run_outliers"   # Round 42: outlier module (FR-90 to FR-102). Every eligible set is analysed as its own labelled pair; the primary stays as it is.
+          req(h)
+          parent <- a$folder; pay <- pair_payload(h$dir, parent)
+          sig <- outlier_signals(pay); trig <- outlier_triggered(sig); sets <- outlier_sets(pay)
+          if (!length(attr(sets, "detectors_run"))) { ev("outliers_done", ok = FALSE, parent = parent, msg = "No outlier detector was run for this pair. Add MR-PRESSO, radial IVW, radial MR-Egger or MR-Lasso on the Methods screen and run again."); return() }
+          prm <- run_params(a$params); sens <- ui_state_get(h$con, "sens") %||% list(); pays <- list(); done <- list()
+          pin <- pair_inp_h(h, a)   # Round 75g: a mediation step's own datasets
+          for (i in which(sets$eligible)) {
+            rem <- sort(sets$ids[[i]]); key <- paste(rem, collapse = ";")
+            if (!is.null(done[[key]])) { pays[[sets$set[i]]] <- done[[key]]$pay; next }
+            old <- Filter(function(x) identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem), sens)
+            idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(h$dir)) + 1L
+            r <- tryCatch(studio_run_without(h, a$ex, a$out, rem, OUTLIER_REANALYSIS, prm$ci_level, idx, params = prm, pthr = as.numeric(a$pthr %||% 5e-8), keep_presso = "presso" %in% trig, keep_loo = any(vapply(pay$diagnostics, function(d) identical(d$method, "loo"), TRUE)), inp = pin), error = function(e) e)
+            if (inherits(r, "error")) { ev("outliers_done", ok = FALSE, parent = parent, msg = paste0(sets$label[i], ": ", conditionMessage(r))); return() }
+            bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
+            if (length(bad)) { ev("outliers_done", ok = FALSE, parent = parent, msg = paste0(sets$label[i], ": some methods did not finish: ", paste(bad, collapse = ", "))); return() }
+            sens <- Filter(function(x) !(identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem)), sens)
+            rec <- list(parent = parent, remove = as.list(rem), folder = r$pair_folder, label = r$label, kept = r$kept, kind = "outlier", sets = as.list(sets$label[vapply(sets$ids, function(x) identical(sort(x), rem), TRUE) & sets$eligible]))
+            sens[[length(sens) + 1L]] <- rec; done[[key]] <- list(pay = pair_payload(h$dir, r$pair_folder), rec = rec); pays[[sets$set[i]]] <- done[[key]]$pay
+          }
+          ui_state_set(h$con, "sens", sens)
+          scen <- outlier_scenarios(pay, sets, pays); sel <- outlier_select(scen, trig)
+          res <- outlier_record(parent, sig, trig, scen, sel, NULL)
+          flds <- list(); for (d in done) for (k in sets$set[vapply(sets$ids, function(x) identical(sort(x), sort(unlist(d$rec$remove))), TRUE) & sets$eligible]) flds[[k]] <- d$rec$folder
+          tryCatch(outlier_write(h$dir, parent, pay, sets, scen, sel, folders = flds), error = function(e) NULL)
+          ol <- Filter(function(x) !identical(x$parent, parent), ui_state_get(h$con, "outliers") %||% list()); ol[[length(ol) + 1L]] <- res; ui_state_set(h$con, "outliers", ol)
+          ev("outliers_done", ok = TRUE, parent = parent, res = res, recs = unname(lapply(done, `[[`, "rec")), payloads = stats::setNames(lapply(done, `[[`, "pay"), vapply(done, function(d) d$rec$folder, "")))
+        }
+
+BG_ACTIONS$run_ties <- function(h, a, ev) { t <- "run_ties"   # Round 28: tie sensitivity analysis (the strongest |beta/SE| as lead where equal P decided it)
+          req(h); parent <- a$folder
+          sens <- ui_state_get(h$con, "sens") %||% list()
+          old <- Filter(function(x) identical(x$parent, parent) && identical(x$kind, "ties"), sens)
+          idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(h$dir)) + 1L
+          r <- tryCatch(studio_run_ties(h, a$ex, a$out, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params), pthr = as.numeric(a$pthr %||% 5e-8)), error = function(e) e)
+          if (inherits(r, "error")) { ev("sens_done", ok = FALSE, msg = conditionMessage(r)); return() }
+          bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
+          if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }
+          tryCatch(save_instrument_selection(h$dir, r$pair_folder, r$selection), error = function(e) NULL)
+          sens <- Filter(function(x) !(identical(x$parent, parent) && identical(x$kind, "ties")), sens)
+          rec <- list(parent = parent, kind = "ties", remove = list(), folder = r$pair_folder, label = r$label, kept = r$kept, regions = r$ties$regions, swaps = list(out = r$ties$out, `in` = r$ties[["in"]]))
+          sens[[length(sens) + 1L]] <- rec; ui_state_set(h$con, "sens", sens)
+          ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(h$dir, r$pair_folder), reused = isTRUE(r$reused))
+        }
+
+BG_ACTIONS$mediation <- function(h, a, ev) { t <- "mediation"   # Round 57: write and run the mediation script over the study's mediation pairs
+          req(h); .say("Mediation: combining the steps into the total, direct and indirect effects and the proportion mediated, with delta-method intervals", "The total effect comes from univariable MR, the direct effect from multivariable MR; the indirect effect is their product (exposure on mediator times mediator on outcome) and also total minus direct.")
+          res <- mediation_run(h, ui_state_get(h$con, "pairs") %||% list(), as.numeric(a$ci %||% 0.95))
+          ev("mediation", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), spec = attr(res, "spec"))   # Shiny sends a data frame by columns
+        }
+
+BG_ACTIONS$bidir_cml <- function(h, a, ev) { t <- "bidir_cml"   # Round 63: bidirectional constrained maximum likelihood over each forward/reverse couple
+          req(h); if (!requireNamespace("BiDirectCausal", quietly = TRUE)) { ev("bidir_cml", rows = list(), msg = "BiDirectCausal is not installed in this runtime."); return() }
+          .say("Bidirectional MR-cML: estimating both directions together for each pair of traits", "Fitting both directions jointly allows for the reverse effect when estimating each one.")
+          res <- bidir_cml_run(h, ui_state_get(h$con, "pairs") %||% list())
+          ev("bidir_cml", rows = unlist(lapply(names(res), function(k) { r <- res[[k]]; if (!is.data.frame(r)) return(list())
+            lapply(seq_len(nrow(r)), function(i) c(list(forward = k), as.list(r[i, , drop = FALSE]))) }), recursive = FALSE), errors = Filter(Negate(is.data.frame), res))
+        }
+
+BG_ACTIONS$build_package <- function(h, a, ev) { t <- "build_package"
+          req(h)
+          r <- tryCatch(build_package(h, unlist(a$items), a$width_mm, a$pub), error = function(e) e)
+          if (inherits(r, "error")) { ev("package_done", ok = FALSE, msg = conditionMessage(r)); return() }
+          ev("package_done", ok = TRUE, folder = r$folder, files = as.list(r$files), notes = as.list(r$notes), simulated = r$simulated, strobe = r$strobe)
+        }
+
+BG_ACTIONS$ldsc <- function(h, a, ev) { t <- "ldsc"
+          req(h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(h$con, "pairs") %||% list()); if (is.null(p)) return()
+          res <- if (identical(t, "ldsc_get")) ldsc_pair_read(h, p) else {
+            if (!requireNamespace("GenomicSEM", quietly = TRUE)) { ev("ldsc", folder = a$folder, rows = list(), msg = "GenomicSEM is not installed in this runtime."); return() }
+            prev <- vapply(1:2, function(i) suppressWarnings(as.numeric(a$prev[[i]] %||% NA)), 0)
+            tryCatch(ldsc_pair_run(h, p, a$source, prev, accept = a$accept), error = function(e) e) }
+          if (inherits(res, "error")) { ev("ldsc", folder = a$folder, rows = list(), msg = conditionMessage(res), anc = .pair_ldref(p, "ldsc"), ldref = ldref_read(h, p, "ldsc")); return() }
+          ev("ldsc", folder = a$folder, rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else ldsc_text(res), anc = .pair_ldref(p, "ldsc"), ldref = ldref_read(h, p, "ldsc"))
+        }
+
+BG_ACTIONS$run_pair <- function(h, a, ev) { t0 <- Sys.time()
+  pair_done <- function(...) { t1 <- Sys.time(); ev("pair_done", ..., started = format(t0, "%H:%M:%S"), finished = format(t1, "%H:%M:%S"), secs = round(as.numeric(difftime(t1, t0, units = "secs")))) }
+      req(h)
+      pt <- as.numeric(a$pthr %||% 5e-8)
+      mvp <- length(unlist(a$ex)) > 1   # Round 50: several exposures in one model
+      inp <- tryCatch(if (!is.null(a$med)) mediation_pair_input(a$med, pt) else if (mvp) mv_pair_input(a$ex, a$out, pt) else pair_input(a$ex, a$out, pt), error = function(e) e)   # Round 57: mediation steps
+      if (mvp && !inherits(inp, "error")) inp <- tryCatch({ inp$input <- mv_with_cov(h, a$ex, inp$input); inp }, error = function(e) e)   # Round 55
+      if (inherits(inp, "error")) { pair_done(i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
+      meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
+      live_reset(); .say(sprintf("Pair %s: %s → %s, %d instruments; preparing the analysis data and writing one R script per method", a$i + 1L, inp$exposure_label, inp$outcome_label, sum(inp$input$data$mr_keep %in% TRUE)), "The scripts and the data are saved in the pair folder, so every result can be rerun in R and checked.")
+      # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
+      old <- Filter(function(p) identical(p$ex, a$ex) && identical(p$out, a$out), ui_state_get(h$con, "pairs") %||% list())
+      idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(h$dir)) + 1L
+      sti <- if (any(c("steiger", "ivw_steiger") %in% meths)) steiger_input(inp, list(x = a$prev$x, y = a$prev$y)) else NULL   # prevalence the analyst entered for a binary trait
+      r <- tryCatch(studio_run(h, inp$exposure_label, inp$outcome_label, inp$input, meths, ci, idx = idx, params = prm, steiger_in = sti), error = function(e) e)
+      if (inherits(r, "error")) { pair_done(i = a$i, ok = FALSE, msg = conditionMessage(r)); return() }
+      bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
+      # Round 70c: each method runs on its own; the pair fails only when no method finished, otherwise it is saved and the failures are named
+      if (length(bad) && length(bad) == length(r$results)) { pair_done(i = a$i, ok = FALSE, msg = paste("No method finished:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
+      if (length(bad)) r$left_out <- c(r$left_out, stats::setNames(vapply(r$results[bad], function(x) paste0("stopped with an error (", gsub("^FAILED [^:]+: ", "", paste(x$messages, collapse = " ")), ")"), ""), bad))
+      tryCatch(save_instrument_selection(h$dir, r$pair_folder, inp$selection), error = function(e) NULL)
+      tryCatch(save_eaf_check(h$dir, r$pair_folder, inp$eaf_rows), error = function(e) NULL)   # Round 33
+      pl <- ui_state_get(h$con, "pairs") %||% list()
+      pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
+      pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), mv = mvp, med = a$med, exNames = if (mvp) as.list(inp$exposure_labels) else NULL, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
+      ui_state_set(h$con, "pairs", pl)
+      pair_done(i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(h$dir, r$pair_folder), left_out = if (length(r$left_out)) paste(sprintf("%s: %s.", names(r$left_out), r$left_out), collapse = " ") else "")
+}
+
 mr_server <- function(engine_dir) {
   function(input, output, session) {
     output$hello <- renderText("connected")
@@ -88,34 +220,7 @@ mr_server <- function(engine_dir) {
     # even when the window was asleep (a locked screen) and receives the news late
     pair_done <- function(...) { t0 <- rq$t_start %||% Sys.time(); t1 <- Sys.time()
       ev("pair_done", ..., started = format(t0, "%H:%M:%S"), finished = format(t1, "%H:%M:%S"), secs = round(as.numeric(difftime(t1, t0, units = "secs")))) }
-    run_one <- function(a) {
-      rq$last_ok <- FALSE
-      req(rv$h)
-      pt <- as.numeric(a$pthr %||% 5e-8)
-      mvp <- length(unlist(a$ex)) > 1   # Round 50: several exposures in one model
-      inp <- tryCatch(if (!is.null(a$med)) mediation_pair_input(a$med, pt) else if (mvp) mv_pair_input(a$ex, a$out, pt) else pair_input(a$ex, a$out, pt), error = function(e) e)   # Round 57: mediation steps
-      if (mvp && !inherits(inp, "error")) inp <- tryCatch({ inp$input <- mv_with_cov(rv$h, a$ex, inp$input); inp }, error = function(e) e)   # Round 55
-      if (inherits(inp, "error")) { pair_done(i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
-      meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
-      live_reset(); .say(sprintf("Pair %s: %s → %s, %d instruments; preparing the analysis data and writing one R script per method", a$i + 1L, inp$exposure_label, inp$outcome_label, sum(inp$input$data$mr_keep %in% TRUE)), "The scripts and the data are saved in the pair folder, so every result can be rerun in R and checked.")
-      # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
-      old <- Filter(function(p) identical(p$ex, a$ex) && identical(p$out, a$out), ui_state_get(rv$h$con, "pairs") %||% list())
-      idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-      sti <- if (any(c("steiger", "ivw_steiger") %in% meths)) steiger_input(inp, list(x = a$prev$x, y = a$prev$y)) else NULL   # prevalence the analyst entered for a binary trait
-      r <- tryCatch(studio_run(rv$h, inp$exposure_label, inp$outcome_label, inp$input, meths, ci, idx = idx, params = prm, steiger_in = sti), error = function(e) e)
-      if (inherits(r, "error")) { pair_done(i = a$i, ok = FALSE, msg = conditionMessage(r)); return() }
-      bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
-      # Round 70c: each method runs on its own; the pair fails only when no method finished, otherwise it is saved and the failures are named
-      if (length(bad) && length(bad) == length(r$results)) { pair_done(i = a$i, ok = FALSE, msg = paste("No method finished:", paste(bad, collapse = ", "), paste(unlist(lapply(r$results[bad], `[[`, "messages")), collapse = " "))); return() }
-      if (length(bad)) r$left_out <- c(r$left_out, stats::setNames(vapply(r$results[bad], function(x) paste0("stopped with an error (", gsub("^FAILED [^:]+: ", "", paste(x$messages, collapse = " ")), ")"), ""), bad))
-      tryCatch(save_instrument_selection(rv$h$dir, r$pair_folder, inp$selection), error = function(e) NULL)
-      tryCatch(save_eaf_check(rv$h$dir, r$pair_folder, inp$eaf_rows), error = function(e) NULL)   # Round 33
-      pl <- ui_state_get(rv$h$con, "pairs") %||% list()
-      pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
-      pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), mv = mvp, med = a$med, exNames = if (mvp) as.list(inp$exposure_labels) else NULL, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
-      ui_state_set(rv$h$con, "pairs", pl)
-      rq$last_ok <- TRUE; pair_done(i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(rv$h$dir, r$pair_folder), left_out = if (length(r$left_out)) paste(sprintf("%s: %s.", names(r$left_out), r$left_out), collapse = " ") else "")
-    }
+    # Round 83: one pair is run by BG_ACTIONS$run_pair in a background process (bg_core.R); the queue below starts it and passes on its messages
     rq <- new.env()
     run_queue_step <- function() {
       if (is.null(rq$pairs)) return(invisible())
@@ -124,13 +229,32 @@ mr_server <- function(engine_dir) {
         stopped <- isTRUE(rq$stop) && rq$k <= length(rq$pairs); rq$pairs <- NULL
         keep_awake_stop()
         if (isTRUE(settings_read()$notify)) notify_done("MR Studio", sprintf("%s %s: %d of %d pair%s saved.", if (nzchar(rq$study)) rq$study else "The analysis", if (stopped) "stopped" else "finished", rq$ok + rq$done_before, rq$total, if (rq$total == 1) "" else "s"))
-        ev("run_queue_done", stopped = stopped); return(invisible()) }
+        evs(rq$name, "run_queue_done", stopped = stopped); return(invisible()) }
       a <- rq$pairs[[rq$k]]; rq$k <- rq$k + 1L; rq$t_start <- Sys.time()
-      old_act <- options(mrstudio.act = "run_all"); on.exit(options(old_act), add = TRUE)   # Round 80: the run's own box on the screen
-      ok <- tryCatch({ shiny::isolate(run_one(a)); TRUE }, error = function(e) { pair_done(i = a$i, ok = FALSE, msg = conditionMessage(e)); FALSE })
-      if (isTRUE(ok) && isTRUE(rq$last_ok)) rq$ok <- rq$ok + 1L
-      later::later(run_queue_step, 0.05); invisible()
+      # Round 83: the pair runs in a background process; its messages reach the screen as it sends them, and the next pair starts when it ends
+      job <- tryCatch(bg_start(rq$dir, "run_pair", a, act = "run_all"), error = function(e) e)
+      if (inherits(job, "error")) { evs(rq$name, "pair_done", i = a$i, ok = FALSE, msg = conditionMessage(job)); later::later(run_queue_step, 0.05); return(invisible()) }
+      bg_watch(job, rq$name, on_line = function(ln) if (startsWith(ln, '{"t":"pair_done"') && isTRUE(jsonlite::parse_json(ln)$ok)) rq$ok <- rq$ok + 1L,
+               on_done = function(r) later::later(run_queue_step, 0.05))
+      invisible()
     }
+    # Round 83: background jobs. Their messages are passed on every half second, tagged with their study, so the screen files them under
+    # that study even when another study is open.
+    bg <- new.env(); bg$jobs <- list()
+    evs <- function(study, t, ...) tryCatch(session$sendCustomMessage("ev", c(list(t = t), list(...), list(`_study` = study))), error = function(e) NULL)
+    bg_tick <- function() {
+      for (job in names(bg$jobs)) { j <- bg$jobs[[job]]
+        r <- tryCatch(bg_poll(job, j$at), error = function(e) list(lines = character(), at = j$at, done = TRUE))
+        for (ln in r$lines) { tryCatch(session$sendCustomMessage("evraw", list(s = j$study, j = ln)), error = function(e) NULL); if (is.function(j$on_line)) tryCatch(j$on_line(ln), error = function(e) NULL) }
+        if (isTRUE(r$done)) { bg$jobs[[job]] <- NULL; bg_studies(); if (is.function(j$on_done)) j$on_done(r) } else bg$jobs[[job]]$at <- r$at }
+      if (length(bg$jobs)) later::later(bg_tick, BG_POLL_S); invisible()
+    }
+    bg_watch <- function(job, study, on_line = NULL, on_done = NULL) {
+      first <- !length(bg$jobs); bg$jobs[[job]] <- list(at = 0, study = study, on_line = on_line, on_done = on_done)
+      if (first) later::later(bg_tick, BG_POLL_S); bg_studies(); invisible(job)
+    }
+    bg_studies <- function() tryCatch(ev("studies", studies = studies_overview(), root = studies_root()), error = function(e) NULL)   # the list shows RUNNING while a job of a study runs
+    bg_go <- function(t, a) { req(rv$h); bg_watch(bg_start(rv$h$dir, t, a, act = t), basename(rv$h$dir)) }
     ogw_ev <- function() ev("ogw_state", token = ogw_token_info(ogw_token_get()), catalogue = ogw_catalogue_status(), offline = isTRUE(settings_read()$offline))
     close_study <- function() { if (!is.null(rv$h)) try(DBI::dbDisconnect(rv$h$con), silent = TRUE); rv$h <- NULL }
     onSessionEnded(function() isolate(close_study()))
@@ -148,7 +272,7 @@ mr_server <- function(engine_dir) {
       pairs <- Filter(function(p) !is.null(p$folder), pairs)
       sens <- ui_state_get(h$con, "sens") %||% list()
       for (sn in sens) if (!is.null(sn$folder) && dir.exists(file.path(h$dir, "03_pairs", sn$folder)) && !is.null(pair_results(h$dir, sn$folder))) payloads[[sn$folder]] <- pair_payload(h$dir, sn$folder)
-      ev(t, name = name, dir = h$dir, root = root, plan = plan, pairs = pairs, sens = sens, mvcov = ui_state_get(h$con, "mv_cov") %||% list(), outliers = ui_state_get(h$con, "outliers") %||% list(), payloads = payloads, overlap = overlap_get(h), to = to, studies = studies_overview(root))
+      ev(t, name = name, dir = h$dir, root = root, plan = plan, pairs = pairs, sens = sens, mvcov = ui_state_get(h$con, "mv_cov") %||% list(), outliers = ui_state_get(h$con, "outliers") %||% list(), payloads = payloads, overlap = overlap_get(h), to = to, jobs = length(bg_running(h$dir)), queue = !is.null(rq$pairs) && identical(rq$dir, h$dir), studies = studies_overview(root))
     }
 
     # Round 55: individual-level file for the MVMR covariances. Only its header is read here; the covariances are computed on request.
@@ -179,7 +303,7 @@ mr_server <- function(engine_dir) {
 
     observeEvent(input$act, {
       a <- input$act; t <- a$t
-      old_act <- options(mrstudio.act = t); on.exit({ options(old_act); if (!identical(t, "run_all")) ev("live_end", act = t) }, add = TRUE)   # Round 80: the screen closes this action's box
+      old_act <- options(mrstudio.act = t); on.exit({ options(old_act); if (!identical(t, "run_all") && !(t %in% names(BG_ACTIONS))) ev("live_end", act = t) }, add = TRUE)   # Round 80: the screen closes this action's box
       tryCatch((function() switch(t,
         init = {
           s <- settings_read(); root <- studies_root()
@@ -247,23 +371,14 @@ mr_server <- function(engine_dir) {
           .say("Running the checks: instrument strength (F statistics), ancestry, sample overlap, units, palindromic variants, allele frequencies and the direction of effect", "Each check is shown with what it means; items marked REVIEW do not stop the study and are written into the limitations.")
           ev("facts", facts = f, feas = feasibility(Filter(function(x) !isTRUE(x$mv), rv$facts), run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list()))
         },
-        mediation = {   # Round 57: write and run the mediation script over the study's mediation pairs
-          req(rv$h); .say("Mediation: combining the steps into the total, direct and indirect effects and the proportion mediated, with delta-method intervals", "The total effect comes from univariable MR, the direct effect from multivariable MR; the indirect effect is their product (exposure on mediator times mediator on outcome) and also total minus direct.")
-          res <- mediation_run(rv$h, ui_state_get(rv$h$con, "pairs") %||% list(), as.numeric(a$ci %||% 0.95))
-          ev("mediation", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), spec = attr(res, "spec"))   # Shiny sends a data frame by columns
-        },
-        bidir_cml = {   # Round 63: bidirectional constrained maximum likelihood over each forward/reverse couple
-          req(rv$h); if (!requireNamespace("BiDirectCausal", quietly = TRUE)) { ev("bidir_cml", rows = list(), msg = "BiDirectCausal is not installed in this runtime."); return() }
-          .say("Bidirectional MR-cML: estimating both directions together for each pair of traits", "Fitting both directions jointly allows for the reverse effect when estimating each one.")
-          res <- bidir_cml_run(rv$h, ui_state_get(rv$h$con, "pairs") %||% list())
-          ev("bidir_cml", rows = unlist(lapply(names(res), function(k) { r <- res[[k]]; if (!is.data.frame(r)) return(list())
-            lapply(seq_len(nrow(r)), function(i) c(list(forward = k), as.list(r[i, , drop = FALSE]))) }), recursive = FALSE), errors = Filter(Negate(is.data.frame), res))
-        },
+        mediation = bg_go("mediation", a),
+        bidir_cml = bg_go("bidir_cml", a),
         ldsc_status = ev("ldsc_ref", status = ldsc_status()),   # Round 64: LD scores and LD score regression
-        ldsc_fetch = { r <- tryCatch(ldsc_ref_fetch(), error = function(e) e); if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ldsc_ref", status = ldsc_status()) },
+        ldsc_fetch = { r <- tryCatch(ldsc_fetch_start(), error = function(e) e);   # Round 82: in the background
+          if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ldsc_ref", status = ldsc_status()) },
         ldsc_compute = { pop <- a$pop %||% tryCatch({ p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); x <- ld_pop_for(library_dataset(sub("^lib:", "", p$ex))$recipe$facts$ancestry); if (is.na(x)) "EUR" else x }, error = function(e) "EUR")
           r <- tryCatch(ldsc_compute_start(pop), error = function(e) e); if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ldsc_ref", status = ldsc_status()) },
-        ldsc_get = , ldsc = {
+        ldsc_get = , ldsc = { if (identical(t, "ldsc")) return(bg_go("ldsc", a))
           req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
           res <- if (identical(t, "ldsc_get")) ldsc_pair_read(rv$h, p) else {
             if (!requireNamespace("GenomicSEM", quietly = TRUE)) { ev("ldsc", folder = a$folder, rows = list(), msg = "GenomicSEM is not installed in this runtime."); return() }
@@ -308,9 +423,10 @@ mr_server <- function(engine_dir) {
           ev("mvcov_saved", mvcov = st)
         },
         mvcov_clear = { req(rv$h); ev("mvcov_saved", mvcov = mv_cov_clear(rv$h, a$ex)) },
-        run_pair = run_one(a),
+        run_pair = bg_go("run_pair", a),   # Round 83: in the background
         run_all = {   # Round 75f: the engine runs the queue of pairs itself (see run_queue_step)
-          req(rv$h); rq$pairs <- a$pairs; rq$k <- 1L; rq$pause <- FALSE; rq$stop <- FALSE; rq$ok <- 0L; rq$total <- as.integer(a$total %||% length(a$pairs)); rq$study <- a$study %||% ""
+          req(rv$h); if (!is.null(rq$pairs)) stop(sprintf("A run is already going on in \"%s\". Wait until it ends, or stop it there, before starting another.", rq$name))
+          rq$dir <- rv$h$dir; rq$name <- basename(rv$h$dir); rq$pairs <- a$pairs; rq$k <- 1L; rq$pause <- FALSE; rq$stop <- FALSE; rq$ok <- 0L; rq$total <- as.integer(a$total %||% length(a$pairs)); rq$study <- a$study %||% ""
           rq$done_before <- rq$total - length(a$pairs); later::later(run_queue_step, 0.05) },
         run_pause = { rq$pause <- isTRUE(a$on); if (!rq$pause && !is.null(rq$pairs)) later::later(run_queue_step, 0.05) },
         run_stop = { rq$stop <- TRUE; if (isTRUE(rq$pause) || is.null(rq$pairs)) { rq$pause <- FALSE; later::later(run_queue_step, 0.05) } },
@@ -321,52 +437,8 @@ mr_server <- function(engine_dir) {
           if (inherits(r, "error")) ev("mv_review", folder = a$folder, error = conditionMessage(r))
           else ev("mv_review", folder = a$folder, q_total = r$q_total, df = r$df, n = r$n, lasso = as.list(r$lasso), rows = lapply(seq_len(nrow(r$rows)), function(i) as.list(r$rows[i, ])))   # Round 75c: every variant, to tick any of them
  },
-        run_sens = {
-          req(rv$h)
-          rem <- sort(unlist(a$remove)); parent <- a$folder
-          if (!length(rem)) stop("Choose at least one variant to leave out.")
-          sens <- ui_state_get(rv$h$con, "sens") %||% list()
-          old <- Filter(function(x) identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem), sens)
-          idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-          r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params), pthr = as.numeric(a$pthr %||% 5e-8), inp = pair_inp(a)), error = function(e) e)
-          if (inherits(r, "error")) { ev("sens_done", ok = FALSE, msg = conditionMessage(r)); return() }
-          bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
-          if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }
-          sens <- Filter(function(x) !(identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem)), sens)
-          rec <- list(parent = parent, remove = as.list(rem), folder = r$pair_folder, label = r$label, kept = r$kept)
-          if (identical(a$kind, "eaf")) rec$kind <- "eaf"
-          if (!is.null(a$why)) rec$why <- as.character(a$why)[1]   # Round 72e: why these variants were left out (MVMR review)   # Round 34: without the variants flagged by the allele-frequency check
-          sens[[length(sens) + 1L]] <- rec; ui_state_set(rv$h$con, "sens", sens)
-          ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(rv$h$dir, r$pair_folder), reused = isTRUE(r$reused))
-        },
-        run_outliers = {   # Round 42: outlier module (FR-90 to FR-102). Every eligible set is analysed as its own labelled pair; the primary stays as it is.
-          req(rv$h)
-          parent <- a$folder; pay <- pair_payload(rv$h$dir, parent)
-          sig <- outlier_signals(pay); trig <- outlier_triggered(sig); sets <- outlier_sets(pay)
-          if (!length(attr(sets, "detectors_run"))) { ev("outliers_done", ok = FALSE, parent = parent, msg = "No outlier detector was run for this pair. Add MR-PRESSO, radial IVW, radial MR-Egger or MR-Lasso on the Methods screen and run again."); return() }
-          prm <- run_params(a$params); sens <- ui_state_get(rv$h$con, "sens") %||% list(); pays <- list(); done <- list()
-          pin <- pair_inp(a)   # Round 75g: a mediation step's own datasets
-          for (i in which(sets$eligible)) {
-            rem <- sort(sets$ids[[i]]); key <- paste(rem, collapse = ";")
-            if (!is.null(done[[key]])) { pays[[sets$set[i]]] <- done[[key]]$pay; next }
-            old <- Filter(function(x) identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem), sens)
-            idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-            r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, OUTLIER_REANALYSIS, prm$ci_level, idx, params = prm, pthr = as.numeric(a$pthr %||% 5e-8), keep_presso = "presso" %in% trig, keep_loo = any(vapply(pay$diagnostics, function(d) identical(d$method, "loo"), TRUE)), inp = pin), error = function(e) e)
-            if (inherits(r, "error")) { ev("outliers_done", ok = FALSE, parent = parent, msg = paste0(sets$label[i], ": ", conditionMessage(r))); return() }
-            bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
-            if (length(bad)) { ev("outliers_done", ok = FALSE, parent = parent, msg = paste0(sets$label[i], ": some methods did not finish: ", paste(bad, collapse = ", "))); return() }
-            sens <- Filter(function(x) !(identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem)), sens)
-            rec <- list(parent = parent, remove = as.list(rem), folder = r$pair_folder, label = r$label, kept = r$kept, kind = "outlier", sets = as.list(sets$label[vapply(sets$ids, function(x) identical(sort(x), rem), TRUE) & sets$eligible]))
-            sens[[length(sens) + 1L]] <- rec; done[[key]] <- list(pay = pair_payload(rv$h$dir, r$pair_folder), rec = rec); pays[[sets$set[i]]] <- done[[key]]$pay
-          }
-          ui_state_set(rv$h$con, "sens", sens)
-          scen <- outlier_scenarios(pay, sets, pays); sel <- outlier_select(scen, trig)
-          res <- outlier_record(parent, sig, trig, scen, sel, NULL)
-          flds <- list(); for (d in done) for (k in sets$set[vapply(sets$ids, function(x) identical(sort(x), sort(unlist(d$rec$remove))), TRUE) & sets$eligible]) flds[[k]] <- d$rec$folder
-          tryCatch(outlier_write(rv$h$dir, parent, pay, sets, scen, sel, folders = flds), error = function(e) NULL)
-          ol <- Filter(function(x) !identical(x$parent, parent), ui_state_get(rv$h$con, "outliers") %||% list()); ol[[length(ol) + 1L]] <- res; ui_state_set(rv$h$con, "outliers", ol)
-          ev("outliers_done", ok = TRUE, parent = parent, res = res, recs = unname(lapply(done, `[[`, "rec")), payloads = stats::setNames(lapply(done, `[[`, "pay"), vapply(done, function(d) d$rec$folder, "")))
-        },
+        run_sens = bg_go("run_sens", a),
+        run_outliers = bg_go("run_outliers", a),
         outlier_lookup = {   # Round 49 (FR-106, FR-112): nearest gene (Ensembl) and other-trait associations (OpenGWAS) of the flagged variants
           req(rv$h)
           ol <- ui_state_get(rv$h$con, "outliers") %||% list(); j <- which(vapply(ol, function(x) identical(x$parent, a$folder), TRUE))
@@ -386,27 +458,8 @@ mr_server <- function(engine_dir) {
           tryCatch(outlier_write_choice(rv$h$dir, ol[[j[1]]]), error = function(e) NULL)
           ev("outliers_chosen", parent = a$folder, res = ol[[j[1]]])
         },
-        run_ties = {   # Round 28: tie sensitivity analysis (the strongest |beta/SE| as lead where equal P decided it)
-          req(rv$h); parent <- a$folder
-          sens <- ui_state_get(rv$h$con, "sens") %||% list()
-          old <- Filter(function(x) identical(x$parent, parent) && identical(x$kind, "ties"), sens)
-          idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-          r <- tryCatch(studio_run_ties(rv$h, a$ex, a$out, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params), pthr = as.numeric(a$pthr %||% 5e-8)), error = function(e) e)
-          if (inherits(r, "error")) { ev("sens_done", ok = FALSE, msg = conditionMessage(r)); return() }
-          bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
-          if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }
-          tryCatch(save_instrument_selection(rv$h$dir, r$pair_folder, r$selection), error = function(e) NULL)
-          sens <- Filter(function(x) !(identical(x$parent, parent) && identical(x$kind, "ties")), sens)
-          rec <- list(parent = parent, kind = "ties", remove = list(), folder = r$pair_folder, label = r$label, kept = r$kept, regions = r$ties$regions, swaps = list(out = r$ties$out, `in` = r$ties[["in"]]))
-          sens[[length(sens) + 1L]] <- rec; ui_state_set(rv$h$con, "sens", sens)
-          ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(rv$h$dir, r$pair_folder), reused = isTRUE(r$reused))
-        },
-        build_package = {
-          req(rv$h)
-          r <- tryCatch(build_package(rv$h, unlist(a$items), a$width_mm, a$pub), error = function(e) e)
-          if (inherits(r, "error")) { ev("package_done", ok = FALSE, msg = conditionMessage(r)); return() }
-          ev("package_done", ok = TRUE, folder = r$folder, files = as.list(r$files), notes = as.list(r$notes), simulated = r$simulated, strobe = r$strobe)
-        },
+        run_ties = bg_go("run_ties", a),
+        build_package = bg_go("build_package", a),
         open_package = { req(rv$h); open_in_file_manager(file.path(rv$h$dir, "05_publication", a$folder)) },
         open_folder = { req(rv$h); open_in_file_manager(rv$h$dir) },
         med_prepare = {   # Round 72c: the mediators of a mediation study in both forms, and its multivariable sets, from OpenGWAS where needed

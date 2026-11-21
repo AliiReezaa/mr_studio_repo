@@ -29,6 +29,7 @@ blob_get_text <- function(root, hash) {
 db_open <- function(root) {
   dir.create(root, recursive = TRUE, showWarnings = FALSE)
   con <- DBI::dbConnect(RSQLite::SQLite(), file.path(root, "project.sqlite"))
+  RSQLite::sqliteSetBusyHandler(con, 15000L)   # Round 83: a background job and the app may write to the same study; wait up to 15 s (set first: the pragmas below lock too)
   DBI::dbExecute(con, "PRAGMA journal_mode=WAL")
   DBI::dbExecute(con, "PRAGMA synchronous=FULL")
   DBI::dbExecute(con, "PRAGMA foreign_keys=ON")

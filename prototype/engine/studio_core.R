@@ -95,7 +95,7 @@ studio_open <- function(name, root = studies_root()) {
   if (!file.exists(file.path(dir, ".engine", "project.sqlite"))) stop("This folder is not a study: ", dir)
   study <- normalizePath(dir, winslash = "/", mustWork = TRUE)
   con <- db_open(file.path(study, ".engine"))
-  db_recover(con)    # a task left "running" by a crash goes back to pending (contracts C8)
+  if (!exists("bg_running", mode = "function") || !length(bg_running(study))) db_recover(con)    # a task left "running" by a crash goes back to pending (contracts C8); not while a background job of the study runs (Round 83)
   list(dir = study, con = con)
 }
 
@@ -594,7 +594,8 @@ studies_overview <- function(root = studies_root()) {
     has_res <- any(vapply(pf, function(p) length(Sys.glob(file.path(dir, "03_pairs", p, "04_tables", "*_estimates.csv"))) > 0, logical(1)))
     nmeth <- length(unique(unlist(lapply(pf, function(p) sub("_estimates\\.csv$", "", basename(Sys.glob(file.path(dir, "03_pairs", p, "04_tables", "*_estimates.csv"))))))))
     mt <- file.mtime(file.path(dir, ".engine", "project.sqlite"))
-    list(name = n, status = if (has_res) "COMPLETE" else "DRAFT", pairs = length(pf), methods = nmeth, when = age_label(mt), mtime = as.numeric(mt))
+    # Round 83: RUNNING while an analysis of the study runs in the background
+    list(name = n, status = if (exists("bg_running", mode = "function") && length(bg_running(file.path(root, n)))) "RUNNING" else if (has_res) "COMPLETE" else "DRAFT", pairs = length(pf), methods = nmeth, when = age_label(mt), mtime = as.numeric(mt))
   })
   out[order(-vapply(out, function(x) x$mtime, 0))]
 }

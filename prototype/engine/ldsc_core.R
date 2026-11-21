@@ -202,14 +202,16 @@ ldsc_text <- function(res) {
 # ---- Background computation (separate R process, progress in a file), so the app stays usable for the 10 to 30 minutes it takes ----
 .ldsc_job_file <- function(dir) file.path(dir, "compute_status.json")
 ldsc_job_read <- function(dir = ldsc_ref_dir()) { f <- .ldsc_job_file(dir); if (!file.exists(f)) return(NULL); tryCatch(jsonlite::fromJSON(f), error = function(e) NULL) }
-ldsc_status <- function(dir = ldsc_ref_dir()) c(ldsc_ref_status(dir), list(job = ldsc_job_read(dir), genomicsem = requireNamespace("GenomicSEM", quietly = TRUE)))
+ldsc_status <- function(dir = ldsc_ref_dir()) c(ldsc_ref_status(dir), list(job = ldsc_job_read(dir), fetch = if (exists("ldsc_fetch_read")) ldsc_fetch_read(dir), genomicsem = requireNamespace("GenomicSEM", quietly = TRUE)))
 #' Map positions (cM) of the official files, used for 1 cM windows when they are installed.
 ldsc_official_cm <- function(dir = ldsc_ref_dir()) { d <- ldsc_ld_folder("official", dir); if (!.ldsc_complete(d)) return(NULL)
   unlist(lapply(1:22, function(c) { o <- utils::read.table(gzfile(file.path(d, paste0(c, ".l2.ldscore.gz"))), header = TRUE, stringsAsFactors = FALSE); stats::setNames(o$CM, o$SNP) })) }
 ldsc_compute_start <- function(pop = "EUR", dir = ldsc_ref_dir(), engine = getOption("mrgui.engine_dir", "")) {
   j <- ldsc_job_read(dir); if (!is.null(j) && identical(j$state, "running")) stop("LD scores are already being computed.")
   if (exists("mem_check")) { mc <- mem_check(LDSCORE_MEMORY_GB, "Computing LD scores"); if (!mc$ok) stop(mc$msg, call. = FALSE) }   # Round 66
-  if (!file.exists(file.path(dir, "w_hm3.snplist"))) ldsc_ref_fetch("hm3", dir)
+  if (!file.exists(file.path(dir, "w_hm3.snplist"))) { r <- LDSC_REF$hm3; f <- file.path(dir, basename(dirname(r$url)))   # 5 MB; resumable, never hangs (Round 82)
+    if (!(file.exists(f) && identical(.ldsc_md5(f), r$md5))) { ldsc_download_resume(r$url, paste0(f, ".part"), tries = 3L, stall = 30); file.rename(paste0(f, ".part"), f) }
+    ldsc_ref_fetch("hm3", dir, files = list(hm3 = f)) }
   job <- file.path(dir, "compute_job.R")
   writeLines(c("a <- commandArgs(TRUE); engine <- a[1]; dir <- a[2]; pop <- a[3]",
     "st <- function(state, pct = 0, chr = NA, msg = '') writeLines(jsonlite::toJSON(list(state = state, pop = pop, pct = pct, chr = chr, msg = msg, time = format(Sys.time(), '%Y-%m-%d %H:%M:%S')), auto_unbox = TRUE), file.path(dir, 'compute_status.json'))",
@@ -220,6 +222,81 @@ ldsc_compute_start <- function(pop = "EUR", dir = ldsc_ref_dir(), engine = getOp
     "}, error = function(e) st('error', msg = conditionMessage(e)))"), job)
   writeLines(jsonlite::toJSON(list(state = "running", pop = pop, pct = 0, chr = NA, msg = "", time = format(Sys.time(), "%Y-%m-%d %H:%M:%S")), auto_unbox = TRUE), .ldsc_job_file(dir))
   rscript_background(c("--vanilla", shQuote(job), shQuote(engine), shQuote(dir), pop), log = file.path(dir, "compute.log"), vars = list(MRGUI_PLINK = plink_bin(), MRGUI_LD_DIR = ld_panel_dir()))
+  invisible(ldsc_status(dir))
+}
+
+
+# Round 82: the download of the LDSC authors' files runs in a separate R process, like the computation above. Before, it ran inside
+# the app with no time limit: a connection that stalled (seen on 2026-11-21, at 18 of 34 MB for over 35 minutes) froze the app with
+# no sign of progress. Now the screen shows the megabytes received; a connection slower than 1 kB/s for 60 s is dropped and tried
+# again (5 attempts, each continuing where the last one stopped, with an HTTP Range request); what arrived is kept in a .part file,
+# so clicking Download again after an error, or after the app was closed, continues from there. The MD5 is checked before install.
+.ldsc_fetch_file <- function(dir) file.path(dir, "fetch_status.json")
+.ldsc_fetch_write <- function(dir, ...) { f <- .ldsc_fetch_file(dir); s <- if (file.exists(f)) tryCatch(jsonlite::fromJSON(f, simplifyVector = FALSE), error = function(e) list()) else list()
+  s[names(list(...))] <- list(...); s$time <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+  tmp <- paste0(f, ".tmp"); writeLines(jsonlite::toJSON(s, auto_unbox = TRUE, null = "null", digits = NA), tmp); file.rename(tmp, f); invisible(s) }
+.ldsc_alive <- function(pid) if (is.null(pid)) TRUE else if (exists(".fg_alive", mode = "function")) .fg_alive(pid) else TRUE
+#' State of the reference download: NULL when none was started; state running, done, error or stopped; done_bytes and bytes.
+ldsc_fetch_read <- function(dir = ldsc_ref_dir()) {
+  f <- .ldsc_fetch_file(dir); if (!file.exists(f)) return(NULL)
+  s <- tryCatch(jsonlite::fromJSON(f, simplifyVector = FALSE), error = function(e) NULL); if (is.null(s)) return(NULL)
+  if (identical(s$state, "running") && !is.null(s$pid) && !.ldsc_alive(s$pid))
+    s <- modifyList(s, list(state = "stopped", msg = "The download stopped when MR Studio or the computer was closed. Click Download to continue where it stopped."))
+  s
+}
+#' Download `url` into `part`, continuing where an earlier attempt stopped. A connection below 1 kB/s for `stall` seconds is dropped
+#' and tried again, up to `tries` attempts. A server that ignores the Range request (status 200) gives the whole file again: the part
+#' is then started over. Returns TRUE, or stops with the last error.
+ldsc_download_resume <- function(url, part, progress = NULL, tries = 5L, wait = 5, stall = 60) {
+  last <- ""
+  for (k in seq_len(tries)) {
+    have <- if (file.exists(part)) file.size(part) else 0
+    h <- curl::new_handle(followlocation = TRUE, connecttimeout = 30, low_speed_limit = 1000, low_speed_time = stall)
+    if (have > 0) curl::handle_setheaders(h, Range = sprintf("bytes=%.0f-", have))
+    con <- NULL; out <- NULL
+    r <- tryCatch({
+      con <- curl::curl(url, handle = h); open(con, "rb"); code <- curl::handle_data(h)$status_code
+      if (code == 416 && have > 0) TRUE else {                       # nothing left to send: the part is complete
+        if (code >= 400) stop("the server answered ", code)
+        if (have > 0 && code != 206) have <- 0                       # Range ignored: start over
+        out <- file(part, if (have > 0) "ab" else "wb")
+        repeat { b <- readBin(con, "raw", 262144L); if (!length(b)) break; writeBin(b, out); have <- have + length(b); if (!is.null(progress)) progress(have) }
+        TRUE }
+    }, error = function(e) conditionMessage(e), finally = { if (!is.null(out)) try(close(out), silent = TRUE); if (!is.null(con)) try(close(con), silent = TRUE) })
+    if (isTRUE(r)) return(invisible(TRUE))
+    last <- r; if (k < tries) Sys.sleep(wait * k)
+  }
+  stop(sprintf("The download stopped after %d attempts (%s). What arrived is kept: click Download again to continue where it stopped.", tries, last), call. = FALSE)
+}
+#' The job itself (background R process): downloads what is missing (HapMap3 list, European LD scores), checks, installs.
+ldsc_fetch_job_run <- function(dir, what = c("hm3", "w_ld"), tries = 5L, wait = 5, stall = 60) {
+  .ldsc_fetch_write(dir, pid = Sys.getpid())
+  tryCatch({
+    st0 <- ldsc_ref_status(dir); need <- what[!c(hm3 = isTRUE(st0$hm3), w_ld = isTRUE(st0$official))[what]]
+    total <- sum(vapply(need, function(w) LDSC_REF[[w]]$bytes, 0)); base <- 0; t0 <- 0
+    .ldsc_fetch_write(dir, state = "running", step = "downloading", bytes = total, done_bytes = 0, msg = "")
+    for (w in need) {
+      r <- LDSC_REF[[w]]; f <- file.path(dir, basename(dirname(r$url))); part <- paste0(f, ".part")
+      if (!(file.exists(f) && identical(.ldsc_md5(f), r$md5))) {
+        ldsc_download_resume(r$url, part, tries = tries, wait = wait, stall = stall, progress = function(n) {
+          if (as.numeric(Sys.time()) - t0 >= 1) { t0 <<- as.numeric(Sys.time()); .ldsc_fetch_write(dir, done_bytes = base + n) } })
+        if (!identical(.ldsc_md5(part), r$md5)) { unlink(part); stop(sprintf("The downloaded %s is not the pinned file (MD5 differs); it was removed. Click Download to try again.", r$what), call. = FALSE) }
+        file.rename(part, f)
+      }
+      base <- base + r$bytes; .ldsc_fetch_write(dir, step = "installing", done_bytes = base)
+      ldsc_ref_fetch(w, dir, files = stats::setNames(list(f), w))
+    }
+    .ldsc_fetch_write(dir, state = "done", step = "done", done_bytes = total, msg = "")
+  }, error = function(e) .ldsc_fetch_write(dir, state = "error", msg = conditionMessage(e)))
+  invisible(ldsc_fetch_read(dir))
+}
+#' Start the download in the background (the app stays usable). Stops when one is already running.
+ldsc_fetch_start <- function(dir = ldsc_ref_dir(), engine = getOption("mrgui.engine_dir", "")) {
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  j <- ldsc_fetch_read(dir); if (!is.null(j) && identical(j$state, "running")) stop("The LD scores are already being downloaded.", call. = FALSE)
+  unlink(.ldsc_fetch_file(dir)); .ldsc_fetch_write(dir, state = "running", step = "starting", bytes = NULL, done_bytes = 0, msg = "")
+  code <- sprintf("`%%||%%` <- function(a, b) if (is.null(a)) b else a; source(file.path(%s, 'ldsc_core.R')); ldsc_fetch_job_run(%s)", deparse(engine), deparse(normalizePath(dir, winslash = "/")))
+  rscript_background(c("--vanilla", "-e", shQuote(code)), log = file.path(dir, "fetch.log"))
   invisible(ldsc_status(dir))
 }
 

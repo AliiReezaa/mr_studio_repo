@@ -107,7 +107,7 @@ const esc = (x) => String(x == null ? '' : x).replace(/[&<>"']/g, (c) => ({ '&':
 // Round 75d: the Check screen narrates the background work live. Each step the engine reports is typed out, with a one-sentence
 // explanation; a pulsing dot and two clocks (the whole check, and the current step) show that the app is still working.
 const LIVE_START = ['facts', 'mv_prepare', 'med_prepare', 'bidir_prepare', 'run_pair', 'run_all', 'build_package', 'ogw_dl_exposure', 'ogw_dl_outcome', 'run_sens', 'mediation', 'bidir_cml', 'run_outliers'];   // Round 75e: every wait
-const send = (t, p) => { if (LIVE_START.indexOf(t) >= 0) { const g = LIVE_GROUP[t]; if (!(S.lives[g] && S.lives[g].open)) liveOpen(g); } Shiny.setInputValue('act', Object.assign({ t: t, nonce: Math.random() }, p || {}), { priority: 'event' }); };
+const send = (t, p) => { if (S._quiet) { (S._deferred = S._deferred || []).push([t, p]); return; } if (LIVE_START.indexOf(t) >= 0) { const g = LIVE_GROUP[t]; if (!(S.lives[g] && S.lives[g].open)) liveOpen(g); } Shiny.setInputValue('act', Object.assign({ t: t, nonce: Math.random() }, p || {}), { priority: 'event' }); };
 const C = () => THEMES[S.theme] || THEMES.aurora;
 const svg = (d, s, sw) => '<svg width="' + (s || 18) + '" height="' + (s || 18) + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + (sw || 1.8) + '" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="' + d + '"></path></svg>';
 const cta = (label, a, v, extra) => '<button type="button" class="cta" data-a="' + a + '" data-v="' + esc(v || '') + '" style="display:flex;align-items:center;justify-content:center;gap:8px;height:48px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;font-size:14px;padding:0 24px;' + (extra || '') + '">' + label + '</button>';
@@ -171,7 +171,7 @@ function vHome() {
     '<section style="display:flex;flex-wrap:wrap;gap:20px;align-items:stretch">' + resume + start + '</section>' + studyGrid(st.slice(0, 8), 'Recent studies') + DEMO_NOTE);
 }
 function studyGrid(list, title) {
-  const tone = (s) => s === 'COMPLETE' ? 'var(--accent)' : (s === 'PAUSED' ? 'var(--warn)' : 'var(--mute)');
+  const tone = (s) => s === 'COMPLETE' ? 'var(--accent)' : (s === 'PAUSED' || s === 'RUNNING' ? 'var(--warn)' : 'var(--mute)');
   const cards = list.map((s) => '<button type="button" class="card" data-a="open" data-v="' + esc(s.name) + '" style="box-sizing:border-box;padding:20px;border-radius:16px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;align-items:flex-start;gap:8px;text-align:left;color:var(--text)"><span class="mono" style="font-size:11px;color:' + tone(s.status) + '">' + s.status + '</span><span style="font-size:16px;font-weight:600;letter-spacing:-0.01em">' + esc(s.name) + '</span><span style="font-size:13px;color:var(--mute)">' + s.pairs + ' pair' + (s.pairs === 1 ? '' : 's') + ' · ' + s.methods + ' method' + (s.methods === 1 ? '' : 's') + ' · ' + esc(s.when) + '</span></button>').join('');
   return '<section><h2 style="margin:0 0 14px;font-size:13px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;color:var(--mute)">' + title + '</h2>' + (list.length ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px">' + cards + '</div>' : '<div style="color:var(--mute)">No studies yet. Your studies are kept in <span class="mono">' + esc(S.root) + '</span>.</div>') + '</section>';
 }
@@ -1056,7 +1056,7 @@ function ldscSection(pair) {
   const prev = '<div style="display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:var(--mute);align-items:center">Population prevalence, for a binary trait on the liability scale (optional): <label>' + esc(X) + ' <input id="ldsc_prev_x" inputmode="decimal" style="width:70px;height:28px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--text);padding:0 8px"></label><label>' + esc(Y) + ' <input id="ldsc_prev_y" inputmode="decimal" style="width:70px;height:28px;border-radius:8px;border:1px solid var(--line);background:transparent;color:var(--text);padding:0 8px"></label></div>';
   return box('<div style="font-size:13px">Estimates the SNP heritability of ' + esc(X) + ' and ' + esc(Y) + ', their genetic correlation, and the cross-trait intercept, which shows whether the two GWAS share participants. Needs the full summary statistics of both traits (genome-wide, with rsIDs and sample size) in the Data library.</div>' +
     (R && R.msg ? '<div style="font-size:13px;color:var(--warn)">' + esc(R.msg) + '</div>' : '') + '<div style="font-size:12px;color:var(--mute)">' + st + '</div>' + LR.html + (ready ? prev : '') +
-    '<div style="display:flex;flex-wrap:wrap;gap:10px">' + (ready ? btn(R && R.busy ? 'Running…' : 'Run LD score regression', 'ldsc_run', R && R.busy) : '') + (L && !L.official ? btn('Download European LD scores (34 MB)', 'ldsc_fetch', busy) : '') +
+    '<div style="display:flex;flex-wrap:wrap;gap:10px">' + (ready ? btn(R && R.busy ? 'Running…' : 'Run LD score regression', 'ldsc_run', R && R.busy) : '') + (L && !L.official ? ldscFetchUi(L) : '') +
     (L && L.official !== undefined ? btn('Compute LD scores from the 1000 Genomes panel', 'ldsc_compute', busy) : '') + '</div>');
 }
 // Round 81: the LD reference a genome-wide method uses for this pair. A GWAS of one ancestry uses the 1000 Genomes panel of that ancestry;
@@ -1071,12 +1071,12 @@ function ldrefState(method, pair, R) {
   S.ldacc = S.ldacc || {}; const k = method + '|' + pair.folder, c = S.ldacc[k] || (S.ldacc[k] = { pop: A.pop, ok: false });
   const L = S.ldscRef || {}, av = (p) => { const x = (A.avail || {})[p] || {}; return { panel: !!x.panel, official: !!x.official || (p === 'EUR' && !!L.official), scores: !!x.scores || (L.computed || []).indexOf(p) >= 0 || (p === 'EUR' && !!L.official) }; };
   const pop = A.fixed ? A.pop : c.pop, a = av(pop), nd = A.needs || {}, job = L.job, busy = job && job.state === 'running';
-  const ref = (nd.scores ? (a.official ? 'the LDSC authors\' European LD scores' : 'LD scores computed by MR Studio from the 1000 Genomes ' + POPN[pop] + ' panel') : '') + (nd.scores && nd.panel ? ' and ' : '') + (nd.panel ? 'the 1000 Genomes ' + POPN[pop] + ' panel' : '');
+  const ref = (nd.scores ? (a.official ? 'the LDSC authors\' European LD scores' : pop === 'EUR' && !a.scores ? 'European LD scores (download or compute them below)' : 'LD scores computed by MR Studio from the 1000 Genomes ' + POPN[pop] + ' panel') : '') + (nd.scores && nd.panel ? ' and ' : '') + (nd.panel ? 'the 1000 Genomes ' + POPN[pop] + ' panel' : '');
   let h = '';
   if (A.needs_accept) {
     const who = (A.unknown || []).map((x) => '"' + esc(x.trait) + '" is labelled ' + esc(x.label === 'not reported' ? 'with no ancestry reported' : x.label)).join('; ');
     const pick = Object.keys(POPN).filter((p) => av(p).panel).map((p) => { const on = p === pop, s2 = nd.scores && !av(p).scores;
-      return '<button type="button" data-a="ldref_pop" data-v="' + esc(k + '|' + p) + '" aria-pressed="' + on + '" style="padding:6px 10px;border-radius:10px;border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + ';background:' + (on ? 'var(--panel2)' : 'transparent') + ';color:var(--text);font-size:12px">' + POPN[p] + (s2 ? ' <span style="color:var(--mute)">(LD scores not computed yet)</span>' : '') + '</button>'; }).join('');
+      return '<button type="button" data-a="ldref_pop" data-v="' + esc(k + '|' + p) + '" aria-pressed="' + on + '" style="padding:6px 10px;border-radius:10px;border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + ';background:' + (on ? 'var(--panel2)' : 'transparent') + ';color:var(--text);font-size:12px">' + POPN[p] + (s2 ? ' <span style="color:var(--mute)">(LD scores ' + (p === 'EUR' ? 'not downloaded or computed' : 'not computed') + ' yet)</span>' : '') + '</button>'; }).join('');
     h += '<div role="alert" style="display:flex;flex-direction:column;gap:8px;padding:12px 14px;border-radius:12px;border:1px solid var(--warn);background:var(--panel2);font-size:13px">' +
       '<div><b>No matching LD reference.</b> ' + who + '. ' + esc(A.name) + ' needs LD from the same population as the GWAS, and no panel matches a sample of mixed or unreported ancestry. You can run it with one of the installed 1000 Genomes panels below; LD in these samples may differ from the panel, which can bias ' + esc(A.bias || 'the estimates') + '. Your choice and your acceptance are saved with the result, with the date, and stated in the Limitations of the draft text.</div>' +
       (pick ? '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span style="font-size:12px;color:var(--mute)">Panel:</span>' + pick + '</div>' : '<div style="color:var(--warn)">No 1000 Genomes panel is installed (Settings, LD reference panel).</div>') +
@@ -1086,7 +1086,7 @@ function ldrefState(method, pair, R) {
   h += '<div style="font-size:12px;color:var(--mute)">LD reference: ' + ref + '.</div>';
   if (!a.panel && (nd.panel || (nd.scores && !a.scores))) h += '<div style="font-size:12px;color:var(--warn)">The 1000 Genomes ' + POPN[pop] + ' panel is not installed: install it in Settings, LD reference panel.</div>';
   else if (nd.scores && !a.scores) h += '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:12px;color:var(--mute)">' + (busy ? 'Computing LD scores for ' + esc(job.pop) + ': ' + (job.pct || 0) + '% (chromosome ' + esc(job.chr == null ? '1' : job.chr) + ' of 22).' :
-    'The LD scores for ' + POPN[pop] + ' have not been computed yet. <button type="button" data-a="ldsc_compute" data-v="' + pop + '" style="height:30px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--text);font-size:12px">Compute them (about 30 minutes, once)</button>') + '</div>';
+    (pop === 'EUR' ? 'The European LD scores are not on this computer yet. ' + ldscFetchUi(L) + ' or ' : 'The LD scores for ' + POPN[pop] + ' have not been computed yet. ') + '<button type="button" data-a="ldsc_compute" data-v="' + pop + '" style="height:30px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--text);font-size:12px">Compute them (about 30 minutes, once)</button>') + '</div>';
   return { html: h, ok: !miss && (!A.needs_accept || c.ok), accept: A.needs_accept ? { pop: pop, ok: !!c.ok } : (A.fixed ? null : { pop: pop }) };
 }
 // The LD reference recorded with a result, shown beside it
@@ -1210,7 +1210,13 @@ function fullGwasSections(pair) {
     (other.length ? '<div style="font-size:12px;color:var(--mute)">' + other.map((x) => '"' + esc(x.name) + '"').join(' and ') + (other.length > 1 ? ' are' : ' is') + ' not a complete GWAS. Import the complete summary statistics (Data library, Import a GWAS file: a genome-wide table with rsIDs and sample size, or a GWAS-VCF file) and use them in a pair.</div>' : '') + '</section>';
 }
 function mrapssPoll(folder) { clearTimeout(S._apT); const R = S.apss && S.apss[folder]; if (R && R.job && R.job.state === 'running') S._apT = setTimeout(() => send('mrapss_get', { folder: folder }), 15000); }
-function ldscPoll() { clearTimeout(S._ldscT); const j = S.ldscRef && S.ldscRef.job; if (j && j.state === 'running') S._ldscT = setTimeout(() => send('ldsc_status', {}), 5000); }
+function ldscPoll() { clearTimeout(S._ldscT); const j = S.ldscRef && S.ldscRef.job, f = S.ldscRef && S.ldscRef.fetch;
+  if (f && f.state === 'running') S._ldscT = setTimeout(() => send('ldsc_status', {}), 2000); else if (j && j.state === 'running') S._ldscT = setTimeout(() => send('ldsc_status', {}), 5000); }
+// Round 82: the download of the European LD scores runs in the background: its progress, or the button (to continue after a stop)
+function ldscFetchUi(L) { const f = L && L.fetch, mb = (b) => (Number(b || 0) / 1048576).toFixed(1);
+  if (f && f.state === 'running') return '<span style="font-size:12px;color:var(--mute)">' + (f.step === 'installing' ? 'Installing the European LD scores…' : f.step === 'starting' ? 'Starting the download…' : 'Downloading the European LD scores: ' + mb(f.done_bytes) + ' of ' + mb(f.bytes) + ' MB.') + '</span>';
+  const again = f && (f.state === 'error' || f.state === 'stopped');
+  return (again ? '<span style="font-size:12px;color:var(--warn)">' + esc(f.msg || 'The download stopped.') + '</span> ' : '') + '<button type="button" data-a="ldsc_fetch" style="height:30px;padding:0 12px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--text);font-size:12px">' + (again ? 'Continue the download' : 'Download the LDSC authors\' European LD scores (34 MB)') + '</button>'; }
 // Rules that need results (feasibility engine R25 to R27), shown under the summary tiles when any fired.
 // Round 72e: when heterogeneity is flagged, the options a researcher has, each with a way to do it in the app. Heterogeneity is reported, never
 // removed from the main result: every option below is a sensitivity analysis or a check of whether it changes the conclusion.
@@ -1626,6 +1632,7 @@ function view() {
   }
 }
 function render() {
+  if (S._quiet) return;   // Round 83: a parked study's news is being filed
   const c = C(), r = $root(); if (!r) return;
   r.setAttribute('style', Object.keys(c).map((k) => '--' + k + ':' + c[k] + ';').join('') + 'display:flex;flex-wrap:wrap;min-height:100vh;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.45');
   r.innerHTML = view() + vDialog() + vLost() + vFgPanel() + vVcfPanel();
@@ -1635,7 +1642,12 @@ function render() {
   else if (!modal && modalOpen) { modalOpen = false; if (lastTrig) { const q = '[data-a="' + lastTrig.a + '"]' + (lastTrig.v ? '[data-v="' + String(lastTrig.v).replace(/"/g, '\\"') + '"]' : ''); const b = r.querySelector(q); if (b) b.focus(); } }
   if (focusId) { const e = document.getElementById(focusId); if (e) { e.focus(); try { e.setSelectionRange(e.value.length, e.value.length); } catch (x) { } } }
 }
+// Round 83: a study opens once per click, and the engine's answer moves the screen only if the analyst is still waiting for it. A late
+// answer (clicks queued while the engine was busy) reloaded the study and jumped back to Results from wherever the analyst had gone.
+function openStudy(name, to) { if (S._opening && S._opening.name === name) return; S._opening = { name: name, nav: S._nav || 0 }; send('study_open', { name: name, to: to }); }
 function go(screen) {
+  if (S._quiet) return;
+  S._nav = (S._nav || 0) + 1;
   S.screen = screen; S.notice = null; const i = STEPS.findIndex((s) => s[1] === screen); if (i > S.maxStep) S.maxStep = i;
   // Round 72c: a bidirectional study prepares its reverse pairs first (OpenGWAS downloads of each trait in the other role)
   const unprepared = (S.pairs || []).filter((p) => p.rev && !p.revReady);
@@ -1745,8 +1757,7 @@ function onClick(e) {
     case 'theme_more': S.themeMenu = false; go('settings'); break;
     case 'nav': if (v === 'home' || v === 'studies' || v === 'library' || v === 'settings') go(v); else if (STEPS.findIndex((s) => s[1] === v) <= S.maxStep) { if (v === 'run' && (!S.run)) break; go(v); } break;
     case 'new': S.back = null; S.med = []; S.medRes = null; S.factsBusy = false; S.study = null; S.name = ''; S.aim = ''; S.ex = []; S.out = []; S.pairs = []; S.run = null; S.payloads = {}; S.sens = []; S.outl = {}; S.maxStep = 0; S.facts = null; S.pkg = null; S.pkgBusy = false; S.err = null; go('question'); break;
-    case 'open': send('study_open', { name: v, to: 'auto' }); break;
-    case 'open_results': send('study_open', { name: v, to: 'results' }); break;
+    case 'open': case 'open_results': openStudy(v, a === 'open' ? 'auto' : 'results'); break;
     case 'sfilter': S.sf = v; render(); break;
     case 'study_folder': send('study_folder', { name: v }); break;
     case 'dismiss': S.notice = null; render(); break;
@@ -1927,7 +1938,30 @@ function onInput(e) {
 }
 function paramVal(t) { const v = parseFloat(t.value); return t.getAttribute('data-pct') ? Math.round(v * 10) / 1000 : v; }
 function onChange(e) { const t = e.target; if (t.getAttribute && t.getAttribute('data-mvc') != null && S.mvc) { S.mvc.cols[Number(t.getAttribute('data-mvc'))] = t.value; render(); return; } if (t.getAttribute && t.getAttribute('data-prev')) { if (String(t.value).trim() && !prevOk(S.prev[t.getAttribute('data-prev')])) S.notice = { kind: 'err', msg: 'The prevalence must be a percentage above 0 and below 100, for example 6.2.' }; render(); return; } if (t.id === 'og_where' || t.id === 'og_pop' || t.id === 'og_p' || t.id === 'og_r2' || t.id === 'og_kb') { ogwPanelSync(); return; } if (t.id === 'ogw_pop' || t.id === 'ogw_kind') { if (t.id === 'ogw_pop') S.ogw.pop = t.value; else S.ogw.kind = t.value; ogwSearch(); return; } if (t.getAttribute && t.getAttribute('data-map')) { const r = t.getAttribute('data-map'); S.imp.mapping[r] = t.value; S.imp.conf[r] = undefined; render(); return; } if (t.getAttribute && t.getAttribute('data-param')) { const k = t.getAttribute('data-param'), sch = schOf(k), val = paramVal(t); if (sch && !(isFinite(val) && val >= sch.min && val <= sch.max)) { const pc = t.getAttribute('data-pct'); S.notice = { kind: 'err', msg: sch.label + ' must be between ' + (pc ? sch.min * 100 + '%' : sch.min) + ' and ' + (pc ? sch.max * 100 + '%' : sch.max) + '. The previous value was kept.' }; } render(); } }
+// Round 83: a study whose analyses are running is parked when another study is opened: its screen state is kept, the engine's news
+// about it (tagged with its name) is filed into it while it is away, and opening it again shows it as it is, the run still going.
+const STUDY_KEYS = ['study', 'name', 'aim', 'prereg', 'kind', 'overlap', 'ovl', 'pairs', 'ex', 'out', 'med', 'medRes', 'bcml', 'steiger', 'loo', 'methods', 'prev', 'params', 'mvcov', 'mvc', 'payloads', 'sens', 'outl', 'outBusy', 'inst', 'sel', 'facts', 'factsBusy', 'run', 'pkg', 'pkgBusy', 'maxStep', 'sensBusy', 'lkBusy', 'medBusy', 'revBusy', 'mvBusy', 'cmp', 'cmpBusy', 'lives', 'rp', 'ldsc', 'lhc', 'lhcW', 'mrlap', 'apss', 'cause', 'fullst', 'mvrev', 'mvsel', 'ldacc', '_deferred'];
+const PAIR_CACHES = ['ldsc', 'lhc', 'lhcW', 'mrlap', 'apss', 'cause', 'fullst', 'mvrev', 'mvsel', 'ldacc'];   // keyed by pair folder: P01_... exists in many studies
+function studySnap() { const o = {}; STUDY_KEYS.forEach((k) => { o[k] = S[k]; }); return o; }
+function studyLoad(o) { STUDY_KEYS.forEach((k) => { S[k] = o[k]; }); }
+function studyBusy() { const ld = (x) => Object.keys(x || {}).some((f) => x[f] && x[f].busy);
+  return !!((S.run && S.run.state !== 'done') || S.sensBusy || S.outBusy || S.pkgBusy || S.cmpBusy || ld(S.ldsc)); }
+// news for a study that is not open: filed into its parked state (nothing is drawn, requests wait until it is open again)
+function inStudy(name, fn) { const P = (S.parked || {})[name]; if (!P) return false; const cur = studySnap(); studyLoad(P); S._quiet = true;
+  try { fn(); } finally { S.parked[name] = studySnap(); S._quiet = false; studyLoad(cur); } return true; }
+function route(m) {
+  if (!m || !m._study || !S.study || m._study === S.study.name) { handle(m); return; }
+  if (!inStudy(m._study, () => handle(m))) return;
+  const P = S.parked[m._study];
+  if (m.t === 'run_queue_done') { S.notice = { kind: 'ok', msg: '"' + m._study + '": the run ' + (m.stopped ? 'was stopped' : 'finished') + ' (' + ((P.run && P.run.done) || 0) + ' of ' + ((P.run && P.run.total) || 0) + ' pairs saved). Open the study to see the results.' }; render(); }
+  else if (/_done$/.test(m.t) || m.t === 'mediation' || m.t === 'bidir_cml' || m.t === 'ldsc') { if (S.screen === 'home' || S.screen === 'studies') render(); }
+}
 function applyStudy(m) {
+  S.parked = S.parked || {};
+  if (S.study && S.study.name !== m.name && studyBusy()) S.parked[S.study.name] = studySnap();
+  const P = S.parked[m.name]; delete S.parked[m.name];
+  if (P) { studyLoad(P); Object.assign(S.payloads, m.payloads || {}); S.study = { name: m.name, dir: m.dir }; const d = S._deferred || []; S._deferred = []; d.forEach((x) => send(x[0], x[1])); return true; }
+  PAIR_CACHES.forEach((k) => { S[k] = {}; }); S.lives = {};
   S.study = { name: m.name, dir: m.dir }; S.root = m.root || S.root; S.overlap = Array.isArray(m.overlap) ? {} : (m.overlap || {}); S.ovl = null;
   const plan = m.plan || {}; S.name = m.name; S.aim = plan.aim || ''; S.prereg = !!plan.prereg; S.kind = plan.kind || 'basic';
   const pairs = m.pairs || []; S.pairs = pairs.map((p) => ({ ex: p.ex, out: p.out, exName: p.exName, outName: p.outName, folder: p.folder, pthr: p.pthr || null, rev: !!p.rev, mv: !!p.mv, exNames: p.exNames || null, med: p.med || null }));
@@ -1950,7 +1984,8 @@ function handle(m) {
     case 'init': S.ld = m.ld || null; ldPoll(); S.fgjobs = [].concat(m.fgjobs || []); fgPoll(); S.lib = m.library || []; S.tmpls = m.templates || []; S.settings = m.settings; S.theme = m.settings.theme; S.studies = m.studies; S.cat = m.catalogue; S.schemas = m.schemas; S.root = m.root; S.diag = m.diag; go(m.settings.setup_done ? 'home' : 'setup'); break;
     case 'studies': S.studies = m.studies; S.root = m.root || S.root; if (S.screen === 'home' || S.screen === 'studies') render(); break;
     case 'study_created': applyStudy(m); S.studies = m.studies || S.studies; go('data'); break;
-    case 'study_opened': applyStudy(m); if (m.to === 'results' || (m.to === 'auto' && Object.keys(S.payloads).length)) { S.rp = 0; go('results'); } else if (m.to === 'auto' && S.pairs.length) go('data'); else go(S.pairs.length ? 'data' : 'question'); break;
+    case 'study_opened': { const w = S._opening; S._opening = null; if (!w || w.name !== m.name || w.nav !== (S._nav || 0)) break; }   // not (or no longer) waited for
+      if (applyStudy(m) && S.run && S.run.state !== 'done') { go('run'); break; } if (m.to === 'results' || (m.to === 'auto' && Object.keys(S.payloads).length)) { S.rp = 0; go('results'); } else if (m.to === 'auto' && S.pairs.length) go('data'); else go(S.pairs.length ? 'data' : 'question'); break;
     case 'overlap': S.overlap = Array.isArray(m.overlap) ? {} : (m.overlap || {}); S.ovl = null; if (S.facts) send('feas', { params: S.params }); if (S.screen === 'check') render(); break;
     case 'med_ready': { const r = m.r || {}; S.revErr = S.revErr || []; S.revNote = S.revNote || [];
       (S.pairs || []).forEach((p) => { if (!p.med) return; p.medReady = true; if (!r.ok) return; const ms = [].concat(p.med.ms), mo = [].concat(r.m_out || []), mi = [].concat(r.m_inst || []);
@@ -1993,7 +2028,7 @@ function handle(m) {
     case 'import_error': if (S.imp) S.imp.busy = false; S.notice = { kind: 'err', msg: m.msg }; render(); break;
     case 'import_report': if (S.imp) { S.imp.report = { ok: m.ok, errors: [].concat(m.errors || []), warnings: [].concat(m.warnings || []), changes: [].concat(m.changes || []), stats: m.stats || {} }; render(); } break;
     case 'import_saved': if (S.imp) { S.imp.saving = false; S.imp.saved = { rec: m.rec, template: m.template }; } S.lib = m.items || []; S.tmpls = m.templates || []; if (m.catalogue) S.cat = m.catalogue; render(); break;
-    case 'study_open_failed': S.dialog = { title: 'This study could not be opened', body: m.msg + '\n\nNothing was changed. You can look at the folder yourself, or start a new study.', mono: S.root + '/' + m.name, danger: true, buttons: [{ label: 'Close', a: 'dialog_close' }, { label: 'Show folder', a: 'study_folder', v: m.name, primary: true }] }; render(); break;
+    case 'study_open_failed': S._opening = null; S.dialog = { title: 'This study could not be opened', body: m.msg + '\n\nNothing was changed. You can look at the folder yourself, or start a new study.', mono: S.root + '/' + m.name, danger: true, buttons: [{ label: 'Close', a: 'dialog_close' }, { label: 'Show folder', a: 'study_folder', v: m.name, primary: true }] }; render(); break;
     case 'bidir_cml': liveEnd('results'); S.bcml = m.rows || []; render(); break;
     case 'ldsc': S.ldsc = S.ldsc || {}; S.ldsc[m.folder] = { rows: m.rows || [], msg: m.msg || '', text: m.text || '', anc: m.anc || null, ldref: m.ldref || null }; render(); break;
     case 'ldsc_ref': S.ldscRef = m.status; ldscPoll(); render(); break;
@@ -2006,7 +2041,8 @@ function handle(m) {
       cols: S.ex.map((e) => { const n = lc((((S.cat && S.cat.exposures) || []).find((x) => x.id === e) || {}).name || e); return cols.find((c) => lc(c) === n || lc(c) === lc(e)) || ''; }) }; S.notice = null; render(); break; }
     case 'mvcov_error': S.mvc = null; err(m.msg); break;
     case 'mvcov_saved': S.mvcov = m.mvcov || []; S.mvc = null; render(); break;
-    case 'error': liveEndAll(S.run && S.run.state === 'running' ? 'run' : null); if (S.mvc) S.mvc.busy = false; S.sensBusy = false; S.outBusy = false; S.lkBusy = false; if (S.imp) S.imp.saving = false; err(m.msg); break;
+    case 'error': if (/^A run is already going on in /.test(m.msg || '') && S.run && !(S.run.results || []).some((x) => x)) { S.run = null; liveEndAll('run'); go('methods'); err(m.msg); break; }   // Round 83: one study runs at a time
+      liveEndAll(S.run && S.run.state === 'running' ? 'run' : null); if (S.mvc) S.mvc.busy = false; S.sensBusy = false; S.outBusy = false; S.lkBusy = false; if (S.imp) S.imp.saving = false; err(m.msg); break;
     case 'ogw_state': S.ogw.token = m.token || { set: false }; S.ogw.cat = m.catalogue || { have: false }; S.ogw.offline = !!m.offline; if (S.screen === 'library' || S.screen === 'settings' || S.screen === 'setup') render(); break;
     case 'ogw_token': S.ogw.tokBusy = false; if (m.ok) S.ogw.token = m.token || { set: false }; S.ogw.tokMsg = { ok: !!m.ok, text: m.msg }; render(); break;
     case 'ogw_token_tested': S.ogw.tokBusy = false; S.ogw.tokMsg = { ok: !!m.ok, text: m.msg }; render(); break;
@@ -2052,7 +2088,8 @@ document.addEventListener('DOMContentLoaded', function () {
     if ((e.key === 'Enter' || e.key === ' ') && e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button' && e.target.tagName !== 'BUTTON') { e.preventDefault(); e.target.click(); }
   });
   jQuery(document).on('shiny:connected', function () { send('init'); });
-  Shiny.addCustomMessageHandler('ev', handle);
+  Shiny.addCustomMessageHandler('ev', route);   // Round 83: news tagged with another study goes to that study
+  Shiny.addCustomMessageHandler('evraw', (o) => { let m; try { m = JSON.parse(o.j); } catch (e) { return; } m._study = o.s; route(m); });   // a background job's messages, as it wrote them
   jQuery(document).on('shiny:disconnected', function () { S.lost = true; render(); });
   render();
 });

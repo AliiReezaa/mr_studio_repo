@@ -55,6 +55,7 @@ source(file.path(args_dir, "mrapss_core.R"))
 source(file.path(args_dir, "cause_core.R"))
 source(file.path(args_dir, "fullgwas_core.R"))
 source(file.path(args_dir, "live_core.R"))
+source(file.path(args_dir, "bg_core.R"))   # Round 83: long analyses in a background process
 source(file.path(args_dir, "app.R"))
 ui <- mr_ui_for(args_dir)
 server <- mr_server(args_dir)
