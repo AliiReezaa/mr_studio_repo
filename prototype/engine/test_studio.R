@@ -1986,16 +1986,17 @@ local({
     "httpuv::runServer('127.0.0.1', as.integer(a[2]), list(call = function(req) { r <- if (is.null(req$HTTP_RANGE)) '' else req$HTTP_RANGE",
     "  if (nzchar(r) && !grepl('norange', req$QUERY_STRING)) { s <- as.numeric(sub('bytes=([0-9]+)-.*', '\\\\1', r)); list(status = 206L, headers = hd, body = x[(s + 1):length(x)]) }",
     "  else list(status = 200L, headers = hd, body = x) }))"), srv)
-  system2(file.path(R.home("bin"), "Rscript"), c("--vanilla", shQuote(srv), shQuote(pay), port, shQuote(pidf)), wait = FALSE, stdout = FALSE, stderr = FALSE)
+  rscript_background(c("--vanilla", shQuote(srv), shQuote(pay), port, shQuote(pidf)), log = tempfile())   # as the app starts R (a moved runtime needs RHOME; plain Rscript failed on the CI Macs)
   on.exit(if (file.exists(pidf)) tools::pskill(as.integer(readLines(pidf))), add = TRUE)
   url <- sprintf("http://127.0.0.1:%d/f.bin", port)
-  for (i in 1:60) { if (isTRUE(tryCatch(curl::curl_fetch_memory(url)$status_code == 200, error = function(e) FALSE))) break; Sys.sleep(0.5) }
-  p1 <- tempfile(); ldsc_download_resume(url, p1)
-  p2 <- tempfile(); writeBin(readBin(pay, "raw", 100000), p2); first <- NA; ldsc_download_resume(url, p2, progress = function(n) if (is.na(first)) first <<- n)
-  p3 <- tempfile(); writeBin(as.raw(rep(7, 100000)), p3); ldsc_download_resume(paste0(url, "?norange"), p3)
+  up <- FALSE; for (i in 1:240) { if (isTRUE(tryCatch(curl::curl_fetch_memory(url)$status_code == 200, error = function(e) FALSE))) { up <- TRUE; break }; Sys.sleep(0.5) }
+  dl <- function(...) tryCatch({ ldsc_download_resume(...); TRUE }, error = function(e) { cat("   download test:", conditionMessage(e), "\n"); FALSE })
+  p1 <- tempfile(); ok1 <- dl(url, p1)
+  p2 <- tempfile(); writeBin(readBin(pay, "raw", 100000), p2); first <- NA; ok2 <- dl(url, p2, progress = function(n) if (is.na(first)) first <<- n)
+  p3 <- tempfile(); writeBin(as.raw(rep(7, 100000)), p3); ok3 <- dl(paste0(url, "?norange"), p3)
   e <- tryCatch(ldsc_download_resume(sprintf("http://127.0.0.1:%d/f.bin", httpuv::randomPort()), tempfile(), tries = 2L, wait = 0), error = function(e) conditionMessage(e))
   expect("Round 82: the LD score download continues where it stopped (Range), starts over when the server ignores Range, and stops with a clear message after its attempts",
-         identical(unname(tools::md5sum(p1)), md5) && identical(unname(tools::md5sum(p2)), md5) && isTRUE(first > 100000) && identical(unname(tools::md5sum(p3)), md5) &&
+         up && ok1 && ok2 && ok3 && identical(unname(tools::md5sum(p1)), md5) && identical(unname(tools::md5sum(p2)), md5) && isTRUE(first > 100000) && identical(unname(tools::md5sum(p3)), md5) &&
          grepl("after 2 attempts", e) && grepl("continue where it stopped", e))
   d <- tempfile(); dir.create(d); .ldsc_fetch_write(d, state = "running", pid = 999999L, done_bytes = 5, bytes = 10)
   s <- ldsc_fetch_read(d)
@@ -2129,6 +2130,24 @@ local({
   expect("Round 85: CAUSE on complete GWAS of 8.5 million variants starts with 9.3 GB free (85% rule), the half rule would refuse it, and a larger one is still refused with the memory it needs",
          isTRUE(a$ok) && !isTRUE(b$ok) && !isTRUE(c$ok) && grepl("starts only when about 10.9 GB is free", c$msg) && grepl('mem_check(CAUSE_MEMORY_GB(rows), "CAUSE", share = CAUSE_SAFE_SHARE)', cz, fixed = TRUE) &&
          identical(RES_SAFE_SHARE, 0.5))
+  # Round 86: MRlap measured on the same complete GWAS (7.55 GB peak; the estimate from the package example said 6.9 GB)
+  lp <- paste(readLines(file.path(args_dir, "mrlap_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 86: MRlap's memory estimate covers its measured peak on complete GWAS (7.55 GB for 8.5 million variants) and, measured, starts at 85% of the free memory",
+         MRLAP_MEMORY_GB(8479693) >= 7.55 && MRLAP_MEMORY_GB(8479693) < 8.5 && isTRUE(mem_check(MRLAP_MEMORY_GB(8479693), "MRlap", list(available_gb = 9.6, total_gb = 16), share = MRLAP_SAFE_SHARE)$ok) &&
+         grepl('mem_check(MRLAP_MEMORY_GB(rows), "MRlap", share = MRLAP_SAFE_SHARE)', lp, fixed = TRUE))
+})
+
+# Round 86: the draft text of a pair run with MR-Egger and another method that estimates an intercept stopped with an
+# error ("the condition has length > 1"); bootstrapped MR-Egger and MR-GRIP have one too. It reports MR-Egger's own intercept
+local({
+  h <- studio_new("R86 two intercepts"); on.exit(DBI::dbDisconnect(h$con), add = TRUE)
+  r <- studio_run(h, "expA", "outB", pair_input("expA", "outB")$input, c("ivw_mre", "egger", "egger_boot"), idx = 1L, params = list(ci_level = 0.95))
+  ui_state_set(h$con, "pairs", list(list(ex = "expA", out = "outB", exName = r$exposure_label %||% "expA", outName = r$outcome_label %||% "outB", folder = r$pair_folder, methods = list("ivw_mre", "egger", "egger_boot"))))
+  cx <- pair_context(h, ui_state_get(h$con, "pairs")[[1]]); n_ic <- sum(cx$est$estimand == "pleiotropy_intercept")
+  eg <- cx$est$estimate[cx$est$estimand == "pleiotropy_intercept" & cx$est$method == "egger"]
+  tx <- tryCatch(report_text(list(cx), "R86"), error = function(e) conditionMessage(e))
+  expect("Round 86: the draft text of a pair with two intercept estimates (MR-Egger and bootstrapped MR-Egger) is written, with MR-Egger's own intercept",
+         n_ic >= 2 && is.list(tx) && any(grepl(sprintf("The MR-Egger intercept was %s", .fnum(eg, 4)), unlist(tx$results), fixed = TRUE)))
 })
 
 # Round 78: a trailing comment must never swallow code (Round 75d turned the rest of the Check screen's result handler into a comment, so the

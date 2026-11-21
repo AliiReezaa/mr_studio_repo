@@ -4,7 +4,8 @@
 # overlap), and the LDSC authors' LD scores and HapMap3 list (ldsc_core.R). The standard error of the corrected effect comes from a
 # simulation (random draws), so the script sets the seed and replays exactly.
 PIN_MRLAP <- "660f026864f8bfbbad5a8206bdff7d58f5d5d05b"
-MRLAP_MEMORY_GB <- function(rows) 1.0 + 0.7 * max(rows, 0, na.rm = TRUE) / 1e6   # measured 1.8 GB on the package example (1.15 million variants)
+MRLAP_MEMORY_GB <- function(rows) 1.0 + 0.8 * max(rows, 0, na.rm = TRUE) / 1e6   # Round 86: measured 7.55 GB on complete GWAS (LDL 2.4 M, CHD 8.5 M variants, macOS); 0.7 per million, from the package example (1.15 million variants, 1.8 GB), gave 6.9 GB
+MRLAP_SAFE_SHARE <- 0.85   # Round 86: measured on real data, like CAUSE (Round 85): starts when its peak fits in 85% of the free memory
 
 #' MRlap's input for one trait: rsid chr pos a1 a2 beta se N. Positions come from the dataset, or from the 1000 Genomes panel's .bim
 #' (`posmap`, rsID -> chr/pos) when the dataset has none; variants without a position are left out.
@@ -54,7 +55,7 @@ mrlap_pair_prepare <- function(h, pair, root = studies_root(), ldsc = ldsc_ref_d
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
   lr <- ldref_resolve(lapply(ds, `[[`, "recipe"), "mrlap", accept, ldsc)   # Round 81: the LD scores of the GWAS's ancestry, or the analyst's accepted choice
   rows <- vapply(ds, function(x) as.numeric(x$recipe$rows_kept %||% nrow(x$data)), 0)
-  if (exists("mem_check")) { mc <- mem_check(MRLAP_MEMORY_GB(rows), "MRlap"); if (!mc$ok) stop(mc$msg, call. = FALSE) }
+  if (exists("mem_check")) { mc <- mem_check(MRLAP_MEMORY_GB(rows), "MRlap", share = MRLAP_SAFE_SHARE); if (!mc$ok) stop(mc$msg, call. = FALSE) }
   rel <- file.path("02_datasets", "mrlap"); dir.create(file.path(h$dir, rel), recursive = TRUE, showWarnings = FALSE); files <- character(2); posmap <- NULL
   for (k in 1:2) { tr <- ds[[k]]$recipe$trait; f <- file.path(rel, paste0(.ldsc_slug(tr), ".tsv.gz")); files[k] <- f
     if (!file.exists(file.path(h$dir, f))) {
