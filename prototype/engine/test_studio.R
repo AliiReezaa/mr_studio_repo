@@ -1816,6 +1816,19 @@ local({
          is.list(r6) && !is.null(d6) && nrow(d6) >= 1L && all(d6$eaf > 0 & d6$eaf < 1) && any(grepl("1000 Genomes EUR panel", unlist(r6$changes))) && isTRUE(all.equal(d6$se, 1 / sqrt(2 * d6$eaf * (1 - d6$eaf) * (20000 + (d6$beta / d6$se)^2)))))
 })
 
+# Round 78: a trailing comment must never swallow code (Round 75d turned the rest of the Check screen's result handler into a comment, so the
+# Check screen never finished in build-34). Every line of the screen code with code before "//" is scanned for statements after it.
+local({
+  L <- readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8")
+  bad <- which(vapply(L, function(l) {
+    m <- gregexpr("(?<![:'\"\\\\])//", l, perl = TRUE)[[1]]; if (m[1] < 0) return(FALSE)
+    for (k in m) { before <- substr(l, 1, k - 1); q <- function(ch) lengths(regmatches(before, gregexpr(ch, before, fixed = TRUE)))
+      if (q("'") %% 2 || q('"') %% 2 || q("`") %% 2) next
+      after <- substr(l, k + 2, nchar(l)); return(grepl("\\S", before) && grepl("(break;|render\\(\\);|\\bS\\.[A-Za-z]+ = )", after)) }
+    FALSE }, TRUE))
+  expect("Round 78: no trailing comment in the screen code swallows statements (the bug that kept the Check screen from finishing)", !length(bad) || { cat("  lines:", bad, "\n"); FALSE })
+})
+
 # Round 76: the run-time estimate counts on each pair only the methods it runs, at its own variants (test 3: 52 min shown, 26.5 min real)
 if (nzchar(Sys.which("node"))) local({
   js <- tempfile(fileext = ".js"); on.exit(unlink(js))

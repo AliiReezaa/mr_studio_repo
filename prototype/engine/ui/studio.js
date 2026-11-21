@@ -825,6 +825,18 @@ function checks() {
   if ((S.revNote || []).length) out.push(['Prepared from OpenGWAS', 'Data the study needs was downloaded with the settings of your own downloads. ' + S.revNote.join(' '), 'PASS']);   // Round 72c
   return out;
 }
+// Round 78: no OpenGWAS token (said before preparing data from OpenGWAS) and reverse pairs that could not be prepared (with Try again)
+function prepFailOut() { S.revFailed = (S.revFailed || []).concat((S.pairs || []).filter((p) => p.revFail)); S.pairs = (S.pairs || []).filter((p) => !p.revFail); }
+const tokenMissing = () => !(S.ogw && S.ogw.token && S.ogw.token.set) && !(S.ogw && S.ogw.offline);
+function tokenNote() { return '<div role="alert" style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 18px;border-radius:14px;background:var(--panel2);border:1px solid var(--warn)"><span class="mono" style="font-size:11px;color:var(--warn)">NO OPENGWAS TOKEN</span><span style="flex:1 1 320px;font-size:13px">No OpenGWAS access token is set. Data that is not yet in your Data library cannot be downloaded, so this step will stop with a message. The token is free: create it at api.opengwas.io, then paste it in Settings, under OpenGWAS access token.</span>' + cta('Open Settings', 'go_settings', '', 'height:40px;padding:0 18px') + '</div>'; }
+function revFailNote() {
+  const F = S.revFailed || []; if (!F.length) return '';
+  const tok = F.some((p) => /access token/i.test(p.revFail || ''));
+  return '<div role="alert" style="display:flex;flex-direction:column;gap:10px;padding:16px 18px;border-radius:14px;background:var(--panel2);border:1px solid var(--warn)"><span class="mono" style="font-size:11px;color:var(--warn)">DATA NOT PREPARED</span>' +
+    F.map((p) => '<div style="font-size:13px"><b>' + esc(p.exName + ' → ' + p.outName) + '</b>: ' + esc(p.revFail) + '</div>').join('') +
+    '<div style="font-size:13px;color:var(--mute)">' + (F.length === 1 ? 'This pair is' : 'These pairs are') + ' left out of the study until the data is prepared, so nothing runs on the wrong data; any other pairs can continue. ' + (tok ? 'Paste your OpenGWAS access token in Settings, come back to this screen and choose Try again.' : 'Fix the problem and choose Try again.') + '</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:10px">' + (tok ? cta('Open Settings', 'go_settings', '', 'height:40px;padding:0 18px') : '') + cta('Try again', 'rev_retry', '', 'height:40px;padding:0 18px') + '</div></div>';
+}
 function vCheck() {
   // Round 72e: while data is prepared from OpenGWAS or checked, say so (it showed "0 of 0 passed. Everything is in order")
   if (S.factsBusy || (!S.facts && (S.pairs || []).length)) {
@@ -833,8 +845,9 @@ function vCheck() {
       : S.revBusy ? 'Preparing the reverse direction on OpenGWAS: each outcome as an exposure, and each exposure looked up at its instruments.'
       : 'Checking the data and the instruments of every pair.';
     return frame('study', 'check', '<header style="max-width:680px">' + eyebrow('STEP 3 OF 7 · CHECK') + h1('Check the data before choosing methods') + '</header>' +
-      vLive(what));
+      ((S.revBusy || S.mvBusy || S.medBusy) && tokenMissing() ? tokenNote() : '') + vLive(what));
   }
+  if (!(S.pairs || []).length && (S.revFailed || []).length) return frame('study', 'check', '<header style="max-width:680px">' + eyebrow('STEP 3 OF 7 · CHECK') + h1('Check the data before choosing methods') + '</header>' + revFailNote());   // Round 78: nothing left to check
   const none = !!S.facts && !S.facts.length && S.factErr.length > 0;   // Round 31: every pair failed the data check
   const C6 = checks(), passed = C6.filter((c) => c[2] === 'PASS').length, rev = C6.filter((c) => c[2] === 'REVIEW').length, nb = C6.filter((c) => c[2] === 'NOT BUILT' || c[2] === 'NOT RUN').length;
   const items = C6.map((k) => { const w = k[2] === 'REVIEW', nbk = k[2] === 'NOT BUILT' || k[2] === 'NOT RUN';
@@ -847,7 +860,7 @@ function vCheck() {
     cta('Continue to methods' + svg(IC.arrow, 16, 2.2), 'c_next')) + '</aside></div>' + DEMO_NOTE;
   const L = S.live, lsum = L && !L.open && L.lines.length ? '<details style="box-sizing:border-box;padding:14px 18px;border-radius:14px;background:var(--panel2);font-size:13px"><summary style="cursor:pointer;font-weight:550">What the app did in the background (' + L.lines.length + ' step' + (L.lines.length === 1 ? '' : 's') + ', ' + mmss((L.end || Date.now()) - L.t0) + ')</summary><ol style="margin:10px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:8px">' +
     L.lines.map((x) => '<li>' + esc(x.msg) + (x.why ? '<div style="font-size:12px;color:var(--mute)">' + esc(x.why) + '</div>' : '') + '</li>').join('') + '</ol></details>' : '';
-  return frame('study', 'check', main + lsum) + vOverlap();
+  return frame('study', 'check', revFailNote() + main + lsum) + vOverlap();
 }
 function vOverlap() {
   const d = S.ovl; if (!d) return '';
@@ -1581,7 +1594,7 @@ function medCandidates(ex, out) {
   const b = out.filter((r) => ok(r) && isLib(r.id) && r.src === 'OpenGWAS' && !a.some((x) => x.id === r.id));
   return a.concat(b);
 }
-function buildPairs() { S.pairs = []; S.revErr = []; S.revNote = [];
+function buildPairs() { S.pairs = []; S.revErr = []; S.revNote = []; S.revFailed = [];
   if (S.kind === 'mediation') {   // Round 57: total, exposure on each mediator, MVMR of exposure and each mediator, and all together
     const nmx = (id) => ((S.cat.exposures.concat(S.cat.outcomes)).find((r) => r.id === id) || {}).name || id, x = S.ex[0], y = S.out[0], ms = S.med.slice(), pt = isLib(x) ? pthrNum() : null, base = { x: x, ms: ms, y: y };
     S.pairs.push({ ex: x, out: y, exName: nmx(x), outName: nmx(y), folder: null, pthr: pt, med: Object.assign({ role: 'total' }, base) });
@@ -1702,6 +1715,8 @@ function onClick(e) {
     case 'steiger_toggle': e.stopPropagation(); S.steiger = !S.steiger; render(); break;
     case 'loo_toggle': e.stopPropagation(); S.loo = !S.loo; render(); break;
     case 'c_next': S.maxStep = Math.max(S.maxStep, 3); go('methods'); break;
+    case 'go_settings': go('settings'); break;   // Round 78
+    case 'rev_retry': { const F = S.revFailed || []; F.forEach((p) => { if (p.rev) p.revReady = false; if (p.mv && !p.med) p.mvReady = false; if (p.med) p.medReady = false; delete p.revFail; }); S.pairs = S.pairs.concat(F); S.revFailed = []; S.revErr = []; S.facts = null; go('check'); break; }
     case 'm_next': if (S.kind === 'mediation' && (S.methods.indexOf('ivw_mre') < 0 || S.methods.indexOf('mvivw') < 0)) { S.notice = { kind: 'err', msg: 'Mediation needs IVW (for the total effect and the effect on each mediator) and MVMR-IVW (for the direct effects). Select both.' }; render(); break; } startRun(); break;
     case 'to_check': go('check'); break;
     case 'ovl_open': S.ovl = { items: (S.facts || []).map((x) => { const o = S.overlap[ovKey(x)] || {}; return { ex: x.ex_id, out: x.out_id, name: x.exposure + ' and ' + x.outcome, answer: o.answer || '', pct: o.pct != null ? String(o.pct) : '', note: o.note || '' }; }) }; render(); break;
@@ -1872,17 +1887,19 @@ function handle(m) {
     case 'med_ready': { const r = m.r || {}; S.revErr = S.revErr || []; S.revNote = S.revNote || [];
       (S.pairs || []).forEach((p) => { if (!p.med) return; p.medReady = true; if (!r.ok) return; const ms = [].concat(p.med.ms), mo = [].concat(r.m_out || []), mi = [].concat(r.m_inst || []);
         if (p.med.m != null) { const j = ms.indexOf(p.med.m); if (j >= 0) { p.med.m_out = mo[j]; p.med.m_inst = mi[j]; } } p.med.ms_inst = mi; });
-      if (r.ok) (r.notes || []).forEach((n) => S.revNote.push('Mediation: ' + n + '.')); else S.revErr.push(r.msg);
+      if (r.ok) (r.notes || []).forEach((n) => S.revNote.push('Mediation: ' + n + '.')); else { S.revErr.push(r.msg); (S.pairs || []).forEach((p) => { if (p.med) p.revFail = r.msg; }); prepFailOut(); }   // Round 78
       S.medBusy = false; S.factsBusy = false; S.facts = null; go(S.screen); break; }   // Round 72e: continue to the checks
     case 'mv_ready': { const un = (S.pairs || []).filter((p) => p.mv && !p.mvReady && [].concat(p.ex).every(isLib)); S.revErr = S.revErr || []; S.revNote = S.revNote || [];
-      (m.rows || []).forEach((r, i) => { const p = un[i]; if (!p) return; p.mvReady = true; if (r.ok) { if (r.note) S.revNote.push(p.exName + ' → ' + p.outName + ': ' + r.note + '.'); } else S.revErr.push(r.msg); });
+      (m.rows || []).forEach((r, i) => { const p = un[i]; if (!p) return; p.mvReady = true; if (r.ok) { if (r.note) S.revNote.push(p.exName + ' → ' + p.outName + ': ' + r.note + '.'); } else { S.revErr.push(r.msg); p.revFail = r.msg; } }); prepFailOut();   // Round 78
       S.mvBusy = false; S.factsBusy = false; S.facts = null; go(S.screen); break; }   // Round 72e: continue to the checks
     case 'bidir_ready': { const un = (S.pairs || []).filter((p) => p.rev && !p.revReady); S.revErr = []; S.revNote = [];
       (m.rows || []).forEach((r, i) => { const p = un[i]; if (!p) return; p.revReady = true;
         if (r.ok) { p.ex = r.ex; p.out = r.out; if (r.exName) p.exName = r.exName; if (r.outName) p.outName = r.outName; if (r.note) S.revNote.push(p.exName + ' → ' + p.outName + ': ' + r.note + '.'); }
-        else S.revErr.push(r.msg); });
+        else { S.revErr.push(r.msg); p.revFail = r.msg; } });
+      // Round 78: a reverse pair that could not be prepared leaves the study (it would otherwise run on the forward pair's datasets) until Try again
+      prepFailOut();
       S.revBusy = false; S.factsBusy = false; S.facts = null; go(S.screen); break; }   // Round 72e: continue to the checks
-    case 'facts': S.factsBusy = false; liveEnd();   // Round 75d S.factErr = Array.from(new Set(m.facts.filter((f) => f.error).map((f) => f.error).concat(S.revErr || []))); S.facts = m.facts.filter((f) => !f.error); S.feas = m.feas || null; if (S.screen === 'methods' || S.screen === 'check') render(); break;
+    case 'facts': S.factsBusy = false; liveEnd(); S.factErr = Array.from(new Set(m.facts.filter((f) => f.error).map((f) => f.error).concat(S.revErr || []))); S.facts = m.facts.filter((f) => !f.error); S.feas = m.feas || null; if (S.screen === 'methods' || S.screen === 'check') render(); break;   // Round 75d: narration ends; Round 78: a comment had swallowed this whole line
     case 'feas': S.feas = m.feas || null; if (S.screen === 'methods') render(); break;
     case 'pair_done': { const r = S.run; if (!r) break; const p = S.pairs[m.i]; r.times.push((Date.now() - r.t0) / 1000); (r.ests = r.ests || []).push(estPairSecs(S.methods, p)); r.results[m.i] = { ok: m.ok };
       if (m.ok) { p.folder = m.folder; S.payloads[m.folder] = m.payload; if (m.left_out) r.log.push('Pair ' + (m.i + 1) + ': ' + m.left_out); if (!p.ledger) { const fz = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out); if (fz && fz.ledger) p.ledger = fz.ledger; } /* Round 34: the instrument record right after a run, not only after reopening */ r.log.push('Pair ' + (m.i + 1) + ': ' + (m.reused ? 'nothing changed, saved results reused' : 'done') + (m.payload.replay ? ', replay ' + m.payload.replay.status : '')); } else { r.failed++; r.log.push('Pair ' + (m.i + 1) + ' failed: ' + String(m.msg).replace(/\s+/g, ' ').slice(0, 220)); }
