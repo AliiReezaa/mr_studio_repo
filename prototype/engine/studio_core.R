@@ -439,8 +439,9 @@ IVW_MODEL_NAMES <- c(mre_floor = "IVW (multiplicative random effects)", mre = "I
 pair_settings <- function(study, pair_folder) {
   out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, alpha_correction = "bonferroni", lso_fraction = 0.3, lso_repeats = 200, mv_model = "default", mv_orient = 1, mv_iter = 10000, mv_qhet_ci = "jackknife", mv_qhet_iter = 1000, mv_cml_dp = "dp", mv_cml_pert = 200, ml_model = "default", ml_psi = 0, mbe_weighting = "weighted", mbe_stderror = "delta", mbe_phi = 1, mbe_iter = 10000, cml_dp = "dp", cml_pert = 200, rob_variant = "both", piv_lambda = 1, piv_disp = "balanced", piv_ci = "fieller", eb_nboot = 1000, pwm_nboot = 1000, pwm_penk = 20, smn_nboot = 1000, smn_phi = 1, wmn_nboot = 1000, wmn_phi = 1, grip_variant = "standard", rk_variant = "point", rk_stat = "median", rk_nboot = 1000, mv_r_1_2 = 0, mv_r_1_3 = 0, mv_r_1_4 = 0, mv_r_1_5 = 0, mv_r_1_6 = 0, mv_r_2_3 = 0, mv_r_2_4 = 0, mv_r_2_5 = 0, mv_r_2_6 = 0, mv_r_3_4 = 0, mv_r_3_5 = 0, mv_r_3_6 = 0, mv_r_4_5 = 0, mv_r_4_6 = 0, mv_r_5_6 = 0, weights = "1", tol = 1e-4, r_xxo = 1, r_yyo = 1, dispersion = "balanced", raps_dispersion = "balanced", loss = "huber", psi = 0, ci_step = 0.01, lasso_dist = "normal", simex_b = 100)
   for (f in Sys.glob(file.path(study, "03_pairs", pair_folder, "02_scripts", "[0-9]*_*.R"))) {
+    lns <- readLines(f, warn = FALSE)   # Round 84: once per script (it was read again for every setting, about 775 reads for 31 methods)
     for (k in names(out)) {
-      ln <- grep(paste0("^", k, " <- "), readLines(f, warn = FALSE), value = TRUE)
+      ln <- grep(paste0("^", k, " <- "), lns, value = TRUE)
       if (length(ln)) { v <- sub(paste0("^", k, " <- "), "", ln[1]); out[[k]] <- if (k %in% c("ivw_model", "mv_model", "mv_qhet_ci", "mv_cml_dp", "ml_model", "mbe_weighting", "mbe_stderror", "cml_dp", "rob_variant", "piv_disp", "piv_ci", "rk_variant", "rk_stat", "grip_variant", "alpha_correction", "weights", "dispersion", "raps_dispersion", "loss", "lasso_dist")) gsub("\"", "", v) else as.numeric(v) }
     }
   }
@@ -601,7 +602,26 @@ studies_overview <- function(root = studies_root()) {
 }
 
 #' Everything the Results screen needs for one pair, read back from the delivered files.
+# Round 84: a pair's results are built once per session and kept while its files stay the same (names, sizes, modification times of
+# the four folders the build reads). Opening a study rebuilt every pair from its files each time (0.1 to 0.3 s a pair).
+.PAY_CACHE <- new.env(parent = emptyenv())
+.pay_sig <- function(pd) { f <- list.files(file.path(pd, c("01_data", "02_scripts", "04_tables", "07_replay_check")), full.names = TRUE, recursive = TRUE)
+  if (!length(f)) return("")
+  i <- file.info(f, extra_cols = FALSE); paste(f, i$size, format(as.numeric(i$mtime), digits = 17), sep = "\t", collapse = "\n") }
 pair_payload <- function(study, pair_folder) {
+  pd <- file.path(study, "03_pairs", pair_folder); sig <- .pay_sig(pd); hit <- .PAY_CACHE[[pd]]
+  if (!is.null(hit) && identical(hit$sig, sig)) return(hit$pay)
+  pay <- .pair_payload_build(study, pair_folder); assign(pd, list(sig = sig, pay = pay), envir = .PAY_CACHE); pay
+}
+#' The same results as JSON, made once and kept with them (embedded as is in the message that opens a study; converting the results
+#' took 0.3 to 0.7 s on every opening).
+pair_payload_json <- function(study, pair_folder) {
+  pay <- pair_payload(study, pair_folder); pd <- file.path(study, "03_pairs", pair_folder); hit <- .PAY_CACHE[[pd]]
+  if (is.null(hit)) return(shiny:::toJSON(pay))
+  if (is.null(hit$json)) { hit$json <- shiny:::toJSON(pay); assign(pd, hit, envir = .PAY_CACHE) }
+  hit$json
+}
+.pair_payload_build <- function(study, pair_folder) {
   pd <- file.path(study, "03_pairs", pair_folder)
   rd <- function(f) if (file.exists(f)) utils::read.csv(f, stringsAsFactors = FALSE) else NULL
   est <- list(); dg <- list()

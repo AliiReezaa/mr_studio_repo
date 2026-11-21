@@ -16,7 +16,7 @@ LHCMR_HLA <- c(28.5e6, 33.5e6)
 
 lhcmr_ref_dir <- function() file.path(ldsc_ref_dir(), "lhcmr")
 lhcmr_ref_status <- function(dir = lhcmr_ref_dir()) list(dir = dir, ld = file.exists(file.path(dir, LHCMR_REF$ld$file)), rho = file.exists(file.path(dir, LHCMR_REF$rho$file)),
-                                                         package = requireNamespace("lhcMR", quietly = TRUE))
+                                                         package = nzchar(system.file(package = "lhcMR")))   # Round 84: installed? (loading it took 1.7 s on the first Results page)
 lhcmr_ref_fetch <- function(dir = lhcmr_ref_dir(), files = NULL) {
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
   for (w in c("ld", "rho")) { r <- LHCMR_REF[[w]]; f <- file.path(dir, r$file)
@@ -140,7 +140,7 @@ lhcmr_job_read <- function(h, pair) { f <- .lhcmr_status_file(h$dir, pair$folder
 .pid_alive <- function(pid) if (.Platform$OS.type == "windows") any(grepl(paste0(" ", pid, " "), tryCatch(system2("tasklist", c("/FI", shQuote(paste("PID eq", pid))), stdout = TRUE), error = function(e) ""))) else isTRUE(tryCatch(tools::pskill(as.integer(pid), 0L), error = function(e) FALSE))
 #' Upper bound of the variants LHC-MR will use for a pair (the smaller dataset, capped at the authors' LD file), read from the recipes.
 lhcmr_variants_bound <- function(pair, root = studies_root()) {
-  r <- vapply(full_gwas_ids(c(pair$ex, pair$out), root), function(i) tryCatch(as.numeric(library_dataset(sub("^lib:", "", i), root)$recipe$rows_kept %||% NA), error = function(e) NA_real_), 0)
+  r <- vapply(full_gwas_ids(c(pair$ex, pair$out), root), function(i) tryCatch(as.numeric(library_recipe(sub("^lib:", "", i), root)$rows_kept %||% NA), error = function(e) NA_real_), 0)
   min(c(r[is.finite(r)], 4.65e6))
 }
 #' The settings offered for a pair now (only safe ones), with the memory read.

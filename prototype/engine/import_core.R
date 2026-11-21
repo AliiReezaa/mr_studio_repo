@@ -585,3 +585,10 @@ library_dataset <- function(trait, root = studies_root()) {
   rec <- jsonlite::fromJSON(rf, simplifyVector = FALSE)
   list(recipe = rec, data = lib_table_read(dir, "standardised"), dir = dir)
 }
+#' Round 84: the recipe of a Data library dataset, without reading its table (a complete GWAS has millions of rows: reading one to know
+#' its variant count held up the Results page for 10 to 14 s).
+library_recipe <- function(trait, root = studies_root()) {
+  rf <- file.path(library_dir(root), basename(trait), "recipe.json")
+  if (!file.exists(rf)) stop("The dataset \"", trait, "\" is not in the Data library any more.")
+  jsonlite::fromJSON(rf, simplifyVector = FALSE)
+}

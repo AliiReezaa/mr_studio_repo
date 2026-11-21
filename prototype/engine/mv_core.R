@@ -76,7 +76,7 @@ mv_pair_input <- function(exp_ids, out_id, pthr = 5e-8) {
   if (length(exp_ids) > 6) stop("Multivariable MR in MR Studio takes at most six exposures.")
   if (length(unique(c(lib, startsWith(out_id, "lib:")))) > 1) stop("Simulated traits cannot be mixed with imported ones. Choose only simulated or only imported datasets.")
   if (all(lib)) {   # Round 72c: OpenGWAS instrument downloads use their prepared multivariable set
-    rs <- lapply(exp_ids, function(e) tryCatch(library_dataset(sub("^lib:", "", e))$recipe, error = function(z) NULL))
+    rs <- lapply(exp_ids, function(e) tryCatch(library_recipe(sub("^lib:", "", e)), error = function(z) NULL))
     if (all(vapply(rs, function(r) !is.null(r) && .is_ogw_instruments(r), TRUE))) return(ogw_mv_input(exp_ids, out_id))
     library_mv_input(exp_ids, out_id, pthr) } else demo_mv_input(exp_ids, out_id)
 }
@@ -227,7 +227,7 @@ ogw_mv_find <- function(exp_ids, out_id, root = studies_root()) {
   for (nm in list.dirs(library_dir(root), recursive = FALSE, full.names = FALSE)) {
     r <- tryCatch(jsonlite::fromJSON(file.path(library_dir(root), nm, "recipe.json"), simplifyVector = FALSE), error = function(e) NULL)
     if (!is.null(r) && identical(r$source$type, "opengwas_mv") && identical(unname(unlist(r$source$exposure_names)), unname(ex)) && identical(r$source$outcome_name, ou) &&
-        identical(unname(unlist(r$source$exposure_sha)), unname(vapply(ex, function(e) tryCatch(library_dataset(e, root)$recipe$original$sha256 %||% "", error = function(z) "?"), "")))) return(nm)
+        identical(unname(unlist(r$source$exposure_sha)), unname(vapply(ex, function(e) tryCatch(library_recipe(e, root)$original$sha256 %||% "", error = function(z) "?"), "")))) return(nm)
   }
   NULL
 }

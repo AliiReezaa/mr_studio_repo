@@ -33,11 +33,11 @@ mem_info <- function() {
 }
 
 #' Whether a run needing `need_gb` at its peak may start now. Returns list(ok, msg) with the numbers in the message.
-mem_check <- function(need_gb, what, mi = mem_info()) {
+mem_check <- function(need_gb, what, mi = mem_info(), share = RES_SAFE_SHARE) {   # Round 85: share, for an estimate measured on real data
   if (!is.finite(mi$available_gb)) return(list(ok = TRUE, msg = "", unknown = TRUE))
-  if (need_gb <= RES_SAFE_SHARE * mi$available_gb) return(list(ok = TRUE, msg = ""))
+  if (need_gb <= share * mi$available_gb) return(list(ok = TRUE, msg = ""))
   list(ok = FALSE, msg = sprintf("%s needs about %.1f GB of memory at its peak, and %.1f GB is free now (%.0f GB in total). To keep the computer responsive it starts only when about %.1f GB is free: close other programs, then try again.",
-                                  what, need_gb, mi$available_gb, mi$total_gb, need_gb / RES_SAFE_SHARE))
+                                  what, need_gb, mi$available_gb, mi$total_gb, need_gb / share))
 }
 
 #' Start Rscript in the background with the environment it needs: RHOME, because a moved (installed) runtime's Rscript has no valid

@@ -202,7 +202,7 @@ ldsc_text <- function(res) {
 # ---- Background computation (separate R process, progress in a file), so the app stays usable for the 10 to 30 minutes it takes ----
 .ldsc_job_file <- function(dir) file.path(dir, "compute_status.json")
 ldsc_job_read <- function(dir = ldsc_ref_dir()) { f <- .ldsc_job_file(dir); if (!file.exists(f)) return(NULL); tryCatch(jsonlite::fromJSON(f), error = function(e) NULL) }
-ldsc_status <- function(dir = ldsc_ref_dir()) c(ldsc_ref_status(dir), list(job = ldsc_job_read(dir), fetch = if (exists("ldsc_fetch_read")) ldsc_fetch_read(dir), genomicsem = requireNamespace("GenomicSEM", quietly = TRUE)))
+ldsc_status <- function(dir = ldsc_ref_dir()) c(ldsc_ref_status(dir), list(job = ldsc_job_read(dir), fetch = if (exists("ldsc_fetch_read")) ldsc_fetch_read(dir), genomicsem = nzchar(system.file(package = "GenomicSEM"))))
 #' Map positions (cM) of the official files, used for 1 cM windows when they are installed.
 ldsc_official_cm <- function(dir = ldsc_ref_dir()) { d <- ldsc_ld_folder("official", dir); if (!.ldsc_complete(d)) return(NULL)
   unlist(lapply(1:22, function(c) { o <- utils::read.table(gzfile(file.path(d, paste0(c, ".l2.ldscore.gz"))), header = TRUE, stringsAsFactors = FALSE); stats::setNames(o$CM, o$SNP) })) }

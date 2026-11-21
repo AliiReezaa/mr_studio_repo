@@ -266,12 +266,12 @@ mr_server <- function(engine_dir) {
       pl <- ui_state_get(h$con, "pairs") %||% list()
       payloads <- list()
       pairs <- lapply(pl, function(p) {
-        if (!is.null(p$folder) && dir.exists(file.path(h$dir, "03_pairs", p$folder)) && !is.null(pair_results(h$dir, p$folder))) payloads[[p$folder]] <<- pair_payload(h$dir, p$folder)
+        if (!is.null(p$folder) && dir.exists(file.path(h$dir, "03_pairs", p$folder)) && !is.null(pair_results(h$dir, p$folder))) payloads[[p$folder]] <<- pair_payload_json(h$dir, p$folder)
         p
       })
       pairs <- Filter(function(p) !is.null(p$folder), pairs)
       sens <- ui_state_get(h$con, "sens") %||% list()
-      for (sn in sens) if (!is.null(sn$folder) && dir.exists(file.path(h$dir, "03_pairs", sn$folder)) && !is.null(pair_results(h$dir, sn$folder))) payloads[[sn$folder]] <- pair_payload(h$dir, sn$folder)
+      for (sn in sens) if (!is.null(sn$folder) && dir.exists(file.path(h$dir, "03_pairs", sn$folder)) && !is.null(pair_results(h$dir, sn$folder))) payloads[[sn$folder]] <- pair_payload_json(h$dir, sn$folder)
       ev(t, name = name, dir = h$dir, root = root, plan = plan, pairs = pairs, sens = sens, mvcov = ui_state_get(h$con, "mv_cov") %||% list(), outliers = ui_state_get(h$con, "outliers") %||% list(), payloads = payloads, overlap = overlap_get(h), to = to, jobs = length(bg_running(h$dir)), queue = !is.null(rq$pairs) && identical(rq$dir, h$dir), studies = studies_overview(root))
     }
 
@@ -376,7 +376,7 @@ mr_server <- function(engine_dir) {
         ldsc_status = ev("ldsc_ref", status = ldsc_status()),   # Round 64: LD scores and LD score regression
         ldsc_fetch = { r <- tryCatch(ldsc_fetch_start(), error = function(e) e);   # Round 82: in the background
           if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ldsc_ref", status = ldsc_status()) },
-        ldsc_compute = { pop <- a$pop %||% tryCatch({ p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); x <- ld_pop_for(library_dataset(sub("^lib:", "", p$ex))$recipe$facts$ancestry); if (is.na(x)) "EUR" else x }, error = function(e) "EUR")
+        ldsc_compute = { pop <- a$pop %||% tryCatch({ p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); x <- ld_pop_for(library_recipe(sub("^lib:", "", p$ex))$facts$ancestry); if (is.na(x)) "EUR" else x }, error = function(e) "EUR")
           r <- tryCatch(ldsc_compute_start(pop), error = function(e) e); if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ldsc_ref", status = ldsc_status()) },
         ldsc_get = , ldsc = { if (identical(t, "ldsc")) return(bg_go("ldsc", a))
           req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
@@ -443,7 +443,7 @@ mr_server <- function(engine_dir) {
           req(rv$h)
           ol <- ui_state_get(rv$h$con, "outliers") %||% list(); j <- which(vapply(ol, function(x) identical(x$parent, a$folder), TRUE))
           if (!length(j)) return(invisible())
-          own <- unlist(lapply(c(a$ex, a$out), function(id) if (startsWith(id %||% "", "lib:")) tryCatch(library_dataset(sub("^lib:", "", id))$recipe$source$id, error = function(e) NULL)))   # the pair's own GWAS are not "other" traits
+          own <- unlist(lapply(c(a$ex, a$out), function(id) if (startsWith(id %||% "", "lib:")) tryCatch(library_recipe(sub("^lib:", "", id))$source$id, error = function(e) NULL)))   # the pair's own GWAS are not "other" traits
           lk <- tryCatch(outlier_lookup(ol[[j[1]]], ogw_token_get(), exclude = own), error = function(e) e)
           if (inherits(lk, "error")) { ev("outlier_lookup_done", ok = FALSE, parent = a$folder, msg = conditionMessage(lk)); return() }
           ol[[j[1]]]$lookup <- list(rows = unname(lapply(seq_len(nrow(lk$rows)), function(i) as.list(lk$rows[i, , drop = FALSE]))), notes = as.list(lk$notes), date = lk$date, skipped = as.list(lk$skipped), sources = as.list(lk$sources))
@@ -467,7 +467,7 @@ mr_server <- function(engine_dir) {
           ev("med_ready", r = r) },
         mv_prepare = {   # Round 72c: multivariable sets from OpenGWAS downloads (no-op for imported full summary statistics)
           rows <- lapply(a$sets, function(q) tryCatch({ ex <- unlist(q[[1]]); out <- q[[2]]
-              rs <- lapply(ex, function(e) tryCatch(library_dataset(sub("^lib:", "", e))$recipe, error = function(z) NULL))
+              rs <- lapply(ex, function(e) tryCatch(library_recipe(sub("^lib:", "", e)), error = function(z) NULL))
               if (all(startsWith(ex, "lib:")) && all(vapply(rs, function(r) !is.null(r) && .is_ogw_instruments(r), TRUE))) {
                 r <- ogw_mv_build(ex, out, ogw_token_get(), isTRUE(settings_read()$offline)); list(ok = TRUE, note = if (isTRUE(r$reused)) "" else sprintf("prepared \"%s\": %d joint instruments (clumped on %s); every exposure and the outcome were looked up on OpenGWAS at all of them, so the exposure an outcome download was made for does not matter", r$name, r$ledger$final, r$ledger$clumped_where)) }
               else list(ok = TRUE, note = "") }, error = function(e) list(ok = FALSE, msg = conditionMessage(e))))

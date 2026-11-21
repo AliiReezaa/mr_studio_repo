@@ -2088,6 +2088,49 @@ local({
 })
 
 
+# Round 84: opening a study is fast. Each script is read once for the settings (it was read again for every setting), a pair's results
+# are kept while its files stay the same, their JSON is made once, and the status checks no longer load packages to see if they exist.
+local({
+  h <- studio_new("R84 fast open"); on.exit(DBI::dbDisconnect(h$con), add = TRUE)
+  r <- studio_run(h, "expA", "outB", pair_input("expA", "outB")$input, c("ivw_mre", "egger", "wm"), idx = 1L, params = list(ci_level = 0.95))
+  fo <- r$pair_folder; pd <- file.path(h$dir, "03_pairs", fo)
+  b0 <- .pair_payload_build(h$dir, fo); p1 <- pair_payload(h$dir, fo)
+  t0 <- Sys.time(); p2 <- pair_payload(h$dir, fo); fast <- as.numeric(Sys.time() - t0, units = "secs") < 0.05
+  ef <- file.path(pd, "04_tables", "wm_estimates.csv"); keep <- readLines(ef); e <- utils::read.csv(ef); e$estimate[1] <- 123.25; Sys.sleep(1.1); utils::write.csv(e, ef, row.names = FALSE)
+  p3 <- pair_payload(h$dir, fo); writeLines(keep, ef); Sys.sleep(1.1); Sys.setFileTime(ef, Sys.time()); p4 <- pair_payload(h$dir, fo)
+  wm3 <- Filter(function(x) identical(x$method, "wm"), p3$estimates)[[1]]$estimate
+  expect("Round 84: a pair's results are built once and kept while its files stay the same; a changed file builds them again; they equal a fresh build",
+         identical(p1, b0) && identical(p2, b0) && fast && identical(wm3, 123.25) && identical(p4, b0))
+  expect("Round 84: the results' JSON is made once and is what Shiny would send for them",
+         identical(as.character(pair_payload_json(h$dir, fo)), as.character(shiny:::toJSON(b0))) && identical(pair_payload_json(h$dir, fo), pair_payload_json(h$dir, fo)))
+  sc <- paste(readLines(file.path(args_dir, "studio_core.R"), warn = FALSE), collapse = "\n"); i <- regexpr("pair_settings <- function", sc, fixed = TRUE)
+  ps <- substr(sc, i, i + regexpr("\n}\n", substr(sc, i, nchar(sc)), fixed = TRUE))
+  app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  lh <- paste(readLines(file.path(args_dir, "lhcmr_core.R"), warn = FALSE), collapse = "\n"); ld <- paste(readLines(file.path(args_dir, "ldsc_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 84: settings read each script once; opening a study sends the kept JSON; the LHC-MR and LDSC status checks see whether a package is installed without loading it",
+         lengths(regmatches(ps, gregexpr("readLines(", ps, fixed = TRUE))) == 1L && grepl("lns <- readLines(f, warn = FALSE)", ps, fixed = TRUE) &&
+         grepl("pair_payload_json(h$dir, p$folder)", app, fixed = TRUE) && grepl("pair_payload_json(h$dir, sn$folder)", app, fixed = TRUE) &&
+         grepl('package = nzchar(system.file(package = "lhcMR"))', lh, fixed = TRUE) && grepl('genomicsem = nzchar(system.file(package = "GenomicSEM"))', ld, fixed = TRUE) &&
+         identical(pair_settings(h$dir, fo)$ci_level, 0.95))
+  # the recipe of a dataset is read without its table (LHC-MR's options read a complete GWAS of millions of rows to know its variant count)
+  lib <- library_list(); nm <- if (length(lib)) lib[[1]]$trait else NULL
+  srcs <- paste(vapply(c("lhcmr_core.R", "app.R", "mv_core.R", "report_core.R"), function(f) paste(readLines(file.path(args_dir, f), warn = FALSE), collapse = "\n"), ""), collapse = "\n")
+  expect("Round 84: a dataset's recipe is read without its table wherever only the recipe is needed (LHC-MR options took 10 to 14 s for a complete GWAS)",
+         !is.null(nm) && identical(library_recipe(nm), library_dataset(nm)$recipe) && grepl("is not in the Data library any more", err_of(library_recipe("no such dataset"))) &&
+         !grepl("library_dataset\\([^)]*\\)\\$recipe", srcs))
+})
+
+
+# Round 85: CAUSE starts when its measured peak fits in 85% of the free memory (half, the rule for estimated peaks, kept a 16 GB Mac from
+# running it on complete GWAS: about 7 GB for 8.5 million variants needed 14 GB free); the other analyses keep the half rule
+local({
+  mi <- list(available_gb = 9.3, total_gb = 16); cz <- paste(readLines(file.path(args_dir, "cause_core.R"), warn = FALSE), collapse = "\n")
+  a <- mem_check(CAUSE_MEMORY_GB(8479693), "CAUSE", mi, share = CAUSE_SAFE_SHARE); b <- mem_check(CAUSE_MEMORY_GB(8479693), "CAUSE", mi); c <- mem_check(CAUSE_MEMORY_GB(1.2e7), "CAUSE", mi, share = CAUSE_SAFE_SHARE)
+  expect("Round 85: CAUSE on complete GWAS of 8.5 million variants starts with 9.3 GB free (85% rule), the half rule would refuse it, and a larger one is still refused with the memory it needs",
+         isTRUE(a$ok) && !isTRUE(b$ok) && !isTRUE(c$ok) && grepl("starts only when about 10.9 GB is free", c$msg) && grepl('mem_check(CAUSE_MEMORY_GB(rows), "CAUSE", share = CAUSE_SAFE_SHARE)', cz, fixed = TRUE) &&
+         identical(RES_SAFE_SHARE, 0.5))
+})
+
 # Round 78: a trailing comment must never swallow code (Round 75d turned the rest of the Check screen's result handler into a comment, so the
 # Check screen never finished in build-34). Every line of the screen code with code before "//" is scanned for statements after it.
 local({

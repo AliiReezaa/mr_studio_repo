@@ -7,6 +7,8 @@
 # Steps as in the package vignette: gwas_merge -> est_cause_params -> ld_clump -> cause.
 PIN_CAUSE <- "6257e6c66e6c1518c8750d1e4d2b4d6e42644fa5"
 CAUSE_MEMORY_GB <- function(rows) 1.5 + 0.65 * max(rows, 0, na.rm = TRUE) / 1e6   # Round 83: measured 6.65 GB peak (LDL 2.4 M and CHD 8.5 M variants, macOS); was 1.2 per million (11.7 GB), an estimate
+CAUSE_SAFE_SHARE <- 0.85   # Round 85: CAUSE starts when its peak fits in 85% of the free memory (half, the rule for estimates, kept a 16 GB Mac from
+                           # running it on complete GWAS; its estimate is measured, and it runs at low priority on two threads)
 CAUSE_THREADS <- 2L   # RcppParallel threads; kept low so the computer stays usable
 
 #' CAUSE input for one trait: snp beta se ea oa (the columns gwas_merge() is told to read).
@@ -62,7 +64,7 @@ cause_pair_prepare <- function(h, pair, root = studies_root(), accept = NULL) {
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
   lr <- ldref_resolve(lapply(ds, `[[`, "recipe"), "cause", accept)   # Round 81: the panel of the GWAS's ancestry, or the analyst's accepted choice
   rows <- vapply(ds, function(x) as.numeric(x$recipe$rows_kept %||% nrow(x$data)), 0)
-  if (exists("mem_check")) { mc <- mem_check(CAUSE_MEMORY_GB(rows), "CAUSE"); if (!mc$ok) stop(mc$msg, call. = FALSE) }
+  if (exists("mem_check")) { mc <- mem_check(CAUSE_MEMORY_GB(rows), "CAUSE", share = CAUSE_SAFE_SHARE); if (!mc$ok) stop(mc$msg, call. = FALSE) }
   rel <- file.path("02_datasets", "cause"); dir.create(file.path(h$dir, rel), recursive = TRUE, showWarnings = FALSE); files <- character(2)
   for (k in 1:2) { tr <- ds[[k]]$recipe$trait; f <- file.path(rel, paste0(.ldsc_slug(tr), ".tsv.gz")); files[k] <- f
     if (!file.exists(file.path(h$dir, f))) { m <- cause_prepare(ds[[k]]$data)
