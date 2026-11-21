@@ -14,7 +14,7 @@ mr_ui_for <- function(engine_dir) {
     tags$body(
       div(id = "root"),
       div(style = "position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden", fileInput("impfile", "Choose a GWAS file", accept = NULL), fileInput("mvcovfile", "Choose an individual-level file", accept = NULL)),
-      div(style = "position:fixed;right:10px;bottom:6px;font-size:10px;color:#8a97a6;opacity:.7;pointer-events:none", "MR GUI engine prototype. Engine: ", textOutput("hello", inline = TRUE)),
+      div(style = "position:fixed;right:10px;bottom:6px;font-size:10px;color:#8a97a6;opacity:0;pointer-events:none", "MR GUI engine prototype. Engine: ", textOutput("hello", inline = TRUE)),   # Round 91: kept for the engine checks, no longer drawn over the content
       tags$script(HTML(js))))
 }
 
@@ -154,7 +154,7 @@ BG_ACTIONS$build_package <- function(h, a, ev) { t <- "build_package"
           req(h)
           r <- tryCatch(build_package(h, unlist(a$items), a$width_mm, a$pub), error = function(e) e)
           if (inherits(r, "error")) { ev("package_done", ok = FALSE, msg = conditionMessage(r)); return() }
-          ev("package_done", ok = TRUE, folder = r$folder, files = as.list(r$files), notes = as.list(r$notes), simulated = r$simulated, strobe = r$strobe)
+          ev("package_done", ok = TRUE, folder = r$folder, files = as.list(r$files), notes = as.list(r$notes), simulated = r$simulated, strobe = r$strobe, fonts = .fig_cairo())   # Round 91: whether the figure fonts are embedded
         }
 
 BG_ACTIONS$ldsc <- function(h, a, ev) { t <- "ldsc"
@@ -193,6 +193,10 @@ BG_ACTIONS$run_pair <- function(h, a, ev) { t0 <- Sys.time()
       pl <- Filter(function(p) !(identical(p$ex, a$ex) && identical(p$out, a$out)), pl)
       pl[[length(pl) + 1L]] <- list(ex = a$ex, out = a$out, rev = isTRUE(a$rev), mv = mvp, med = a$med, exNames = if (mvp) as.list(inp$exposure_labels) else NULL, exName = inp$exposure_label, outName = inp$outcome_label, folder = r$pair_folder, methods = as.list(meths), ci = ci, params = as.list(prm), prev = list(x = a$prev$x, y = a$prev$y), pthr = pt, simulated = isTRUE(inp$simulated), ledger = inp$ledger, anc_x = inp$anc_x, anc_y = inp$anc_y)
       ui_state_set(h$con, "pairs", pl)
+      rp <- if (isTRUE(r$reused)) NULL else tryCatch(pair_replay(h$dir, r$pair_folder), error = function(e) NULL)   # Round 91: the run's last line says how the replay check ended
+      .say(if (isTRUE(r$reused)) "These results were already saved with the same data and settings, so they are reused" else if (is.null(rp)) "Saved. The replay check did not run" else
+           switch(as.character(rp$status %||% ""), identical = sprintf("Replay check finished: all %s numbers identical to the first run. Saved.", format(rp$n_values_compared %||% NA, big.mark = ",")),
+                  sprintf("Replay check finished: %s (largest relative difference %s; see 07_replay_check). Saved.", gsub("_", " ", rp$status %||% "unknown"), format(signif(rp$max_rel_diff %||% NA, 2)))))
       pair_done(i = a$i, ok = TRUE, folder = r$pair_folder, reused = isTRUE(r$reused), payload = pair_payload(h$dir, r$pair_folder), left_out = if (length(r$left_out)) paste(sprintf("%s: %s.", names(r$left_out), r$left_out), collapse = " ") else "")
 }
 
@@ -472,6 +476,11 @@ mr_server <- function(engine_dir) {
                 r <- ogw_mv_build(ex, out, ogw_token_get(), isTRUE(settings_read()$offline)); list(ok = TRUE, note = if (isTRUE(r$reused)) "" else sprintf("prepared \"%s\": %d joint instruments (clumped on %s); every exposure and the outcome were looked up on OpenGWAS at all of them, so the exposure an outcome download was made for does not matter", r$name, r$ledger$final, r$ledger$clumped_where)) }
               else list(ok = TRUE, note = "") }, error = function(e) list(ok = FALSE, msg = conditionMessage(e))))
           ev("mv_ready", rows = rows) },
+        out_prepare = {   # Round 88: a two-sample study's outcome looked up again for each exposure it was not downloaded for (in the engine: the token stays in its memory)
+          pref <- unique(unlist(lapply(a$pairs, `[[`, 2)))   # the study's own outcomes are preferred to older lookups in the library
+          rows <- lapply(a$pairs, function(q) tryCatch(c(pair_outcome_for(q[[1]], q[[2]], ogw_token_get(), isTRUE(settings_read()$offline), prefer = pref), list(ok = TRUE)),
+                                                        error = function(e) list(ok = FALSE, msg = conditionMessage(e))))
+          ev("out_ready", rows = rows) },
         bidir_prepare = {   # Round 72c: the reverse pairs of a bidirectional study, prepared from OpenGWAS where needed
           rows <- lapply(a$pairs, function(q) tryCatch(c(bidir_reverse(q[[1]], q[[2]], ogw_token_get(), isTRUE(settings_read()$offline)), list(ok = TRUE)),
                                                         error = function(e) list(ok = FALSE, msg = conditionMessage(e))))

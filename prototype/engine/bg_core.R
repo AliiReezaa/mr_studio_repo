@@ -58,6 +58,9 @@ bg_start <- function(study_dir, t, a, act = "", engine = getOption("mrgui.engine
 #' The job itself, in the background process: loads the engine as main.R does, runs the action, writes its messages.
 bg_job_run <- function(engine, job) {
   .bg_write_status(job, pid = Sys.getpid())
+  # Round 90: a UTF-8 locale before the engine is read, so its texts (arrows, Greek letters) reach the screen as written; a process started
+  # without one (no LANG) sent "LDL <e2><86><92> CHD" (Windows R uses UTF-8 already)
+  if (.Platform$OS.type == "unix" && !isTRUE(l10n_info()[["UTF-8"]])) for (lc in c("en_US.UTF-8", "C.UTF-8", "UTF-8")) if (nzchar(suppressWarnings(Sys.setlocale("LC_CTYPE", lc)))) break
   x <- readRDS(file.path(job, "args.rds")); Sys.setenv(MRGUI_STUDIES_DIR = x$studies_root)
   ev <- function(t, ...) { line <- as.character(shiny:::toJSON(c(list(t = t), list(...))))   # as Shiny would send it
     cat(gsub("\n", " ", line), "\n", sep = "", file = file.path(job, "events.jsonl"), append = TRUE) }
@@ -84,7 +87,7 @@ bg_poll <- function(job, from = 0) {
   f <- file.path(job, "events.jsonl"); n <- if (file.exists(f)) file.size(f) else 0
   lines <- character(); at <- from
   if (n > from) { con <- file(f, "rb"); on.exit(close(con)); seek(con, from); raw <- readBin(con, "raw", n - from)
-    cut <- max(c(0L, which(raw == as.raw(10L)))); if (cut > 0) { lines <- strsplit(rawToChar(raw[seq_len(cut)]), "\n", fixed = TRUE)[[1]]; at <- from + cut } }
+    cut <- max(c(0L, which(raw == as.raw(10L)))); if (cut > 0) { lines <- strsplit(rawToChar(raw[seq_len(cut)]), "\n", fixed = TRUE)[[1]]; Encoding(lines) <- "UTF-8"; at <- from + cut } }   # Round 90: the job writes UTF-8; marked so, whatever this process's locale
   s <- .bg_status(job); gone <- identical(s$state, "running") && !is.null(s$pid) && !.bg_alive(s$pid)
   if (gone) lines <- c(lines, as.character(jsonlite::toJSON(list(t = "error", msg = "The analysis stopped unexpectedly (its process ended). What was saved is kept; run it again to finish it."), auto_unbox = TRUE)))
   list(lines = lines[nzchar(lines)], at = at, done = s$state %in% c("done", "error") || gone, ok = identical(s$state, "done"))

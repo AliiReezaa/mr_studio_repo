@@ -97,6 +97,26 @@ ogw_ensure_exposure <- function(src, label, px, jwt, offline, root, get_exposure
   list(name = nx, note = sprintf("downloaded \"%s\" as an exposure", nx))
 }
 #' The OpenGWAS dataset `src` looked up at the instruments of the library exposure `exposure_name`, with the proxy settings `py`.
+# Round 88: a two-sample study pairs every exposure with every outcome. An OpenGWAS outcome download holds only the variants looked up at
+# the instruments of the exposure it was made for, so it cannot serve another exposure (the pair was refused at Check). The outcome is
+# now picked once: for each other exposure that is an OpenGWAS instrument set, the same outcome trait is looked up at that exposure's
+# instruments (with the same proxy settings), saved in the Data library as "<outcome> for <exposure>", and reused afterwards.
+#' The outcome a basic pair should use: list(out, outName, note). Unchanged when the outcome serves this exposure already, or when it is
+#' not an OpenGWAS download (the check then explains why the pair cannot run).
+pair_outcome_for <- function(ex_id, out_id, jwt, offline = FALSE, root = studies_root(), get_outcome = ogw_get_outcome, prefer = character()) {
+  same <- list(out = out_id, outName = NULL, note = "")
+  if (!startsWith(ex_id %||% "", "lib:") || !startsWith(out_id %||% "", "lib:")) return(same)
+  exn <- sub("^lib:", "", ex_id); ex <- library_recipe(exn, root); ou <- library_recipe(sub("^lib:", "", out_id), root)
+  fe <- ou$source$for_exposure
+  if (is.null(fe) || identical(fe, exn) || !identical(ou$source$type, "opengwas") || is.null(ou$source$id)) return(same)
+  if (!.is_ogw_instruments(ex)) stop(sprintf("\"%s\" was downloaded from OpenGWAS only for the instruments of \"%s\". It can be looked up again for an exposure that is an OpenGWAS instrument download; \"%s\" is not, so choose the outcome's complete GWAS or import it.", ou$trait, fe, exn), call. = FALSE)
+  # an outcome the study already has for this exposure comes first (the library may hold older lookups of the same trait)
+  for (o in setdiff(prefer, out_id)) { r0 <- tryCatch(library_recipe(sub("^lib:", "", o), root), error = function(e) NULL)
+    if (!is.null(r0) && identical(r0$source$type, "opengwas") && identical(r0$source$id, ou$source$id) && identical(r0$source$for_exposure, exn) &&
+        .same_params(r0$source$params, ou$source$params %||% list(), c("proxies", "rsq", "maf_threshold"))) return(list(out = o, outName = sub("^lib:", "", o), note = "")) }
+  r <- ogw_ensure_outcome(ou$source, ou$trait, exn, ou$source$params %||% list(), jwt, offline, root, get_outcome)
+  list(out = paste0("lib:", r$name), outName = r$name, note = r$note %||% "")
+}
 ogw_ensure_outcome <- function(src, label, exposure_name, py, jwt, offline, root, get_outcome = ogw_get_outcome) {
   ky <- c("proxies", "rsq", "maf_threshold")
   hit <- Filter(function(r) identical(r$source$type, "opengwas") && identical(r$source$id, src$id) && identical(r$source$for_exposure, exposure_name) && .same_params(r$source$params, py, ky), .lib_recipes(root))

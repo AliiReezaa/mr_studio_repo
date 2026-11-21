@@ -64,8 +64,9 @@ live_scripts <- function(dir, console_name = "run_all_console.txt") {
     newly <- setdiff(done, st$done %||% character())
     if (length(newly) && !replay) {
       bad <- newly[newly %in% failed]; good <- setdiff(newly, bad)
-      if (length(good) == 1L && identical(good, st$cur)) .say(sprintf("%s finished in %s (%d of %d)", .method_label(good), .fmt_secs(difftime(Sys.time(), st$t, units = "secs")), length(done), length(ids)))
-      else if (length(good)) .say(sprintf("Finished: %s (%d of %d)", paste(vapply(good, .method_label, ""), collapse = ", "), length(done), length(ids)))
+      # Round 91: the method that was running is reported with its own duration, the quick ones that finished alongside it together
+      if (st$cur %in% good) .say(sprintf("%s finished in %s (%d of %d)", .method_label(st$cur), .fmt_secs(difftime(Sys.time(), st$t, units = "secs")), match(st$cur, ids), length(ids)))
+      oth <- setdiff(good, st$cur); if (length(oth)) .say(sprintf("Finished: %s (%d of %d)", paste(vapply(oth, .method_label, ""), collapse = ", "), length(done), length(ids)))
       for (b in bad) .say(sprintf("%s stopped with an error; the other methods continue (%d of %d)", .method_label(b), length(done), length(ids)))
     }
     st$done <- done
@@ -73,7 +74,7 @@ live_scripts <- function(dir, console_name = "run_all_console.txt") {
     if (nzchar(nxt) && replay && match(nxt, ids) %% 10 == 1) .say(sprintf("Replay check: method %d of %d (%s)", match(nxt, ids), length(ids), .method_label(nxt)))
     st$cur <- nxt; st$t <- Sys.time(); st$told <- FALSE
   } else if (nzchar(nxt) && !st$told && as.numeric(difftime(Sys.time(), st$t, units = "secs")) > 45) {
-    .say(sprintf("%s is still running (%s so far)", .method_label(nxt), .fmt_secs(difftime(Sys.time(), st$t, units = "secs"))),
+    .say(sprintf("%s%s is still running (%s so far)", if (replay) "Replay check: " else "", .method_label(nxt), .fmt_secs(difftime(Sys.time(), st$t, units = "secs"))),   # Round 91: the replay's own
          if (nxt %in% METHOD_SLOW) "This method refits the model many times (simulation, bootstrap or model selection), so it takes longer with many instruments. The app is working." else "Some methods take longer with many instruments. The app is working.")
     st$told <- TRUE
   }

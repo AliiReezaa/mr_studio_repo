@@ -131,9 +131,16 @@ The question decides which methods the study offers.
 
 ### 2. Data
 
-Pick the exposures and outcomes from the Data library. In a two-sample or bidirectional study, every exposure is paired with every
-outcome. If you want different outcomes for different exposures (for example an outcome downloaded for one exposure only), use one
-study per exposure.
+Pick the exposures and outcomes from the Data library. Under each dataset a short line says what it is ready for in that role (for
+example "Instruments, clumped on OpenGWAS", "Clumped here at Check", "Complete GWAS: any exposure; genome-wide methods" or "Looked up
+for LDL"); a line in the warning colour means something is missing, such as the 1000 Genomes panel a dataset is clumped with. Each list
+also offers "Import a file" and "Find on OpenGWAS": when you come back to the study, what you imported or downloaded is selected and
+your other choices are kept. In a two-sample or bidirectional study, every exposure is paired with every
+outcome. An OpenGWAS outcome download holds only the variants looked up for the exposure it was made for, so pick it once: before the
+Check step MR Studio looks the same outcome up again for each other exposure that is an OpenGWAS instrument download (same proxy
+settings), saves it in the Data library as "<outcome> for <exposure>" and reuses it afterwards. When you picked two downloads of the
+same outcome, each exposure gets its own and the same pair is kept once. For an exposure clumped on this computer, use the outcome's
+complete GWAS or an imported file. If you want different outcomes for different exposures, use one study per exposure.
 
 Multivariable studies, and the multivariable step of a mediation study, look up each instrument's effect on every exposure. With
 OpenGWAS downloads MR Studio does this itself on OpenGWAS before the Check step (as TwoSampleMR's `mv_extract_exposures` does); with

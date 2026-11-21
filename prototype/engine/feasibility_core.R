@@ -22,7 +22,7 @@ feas_rules <- local({
   a <- trimws(strsplit(applies, ",")[[1]])
   unique(unlist(lapply(a, function(x) switch(x, all = FEAS_METHODS, causal = FEAS_CAUSAL, if (x %in% FEAS_METHODS) x else character()))))
 }
-.fill <- function(msg, v) { for (k in names(v)) msg <- gsub(paste0("{", k, "}"), as.character(v[[k]]), msg, fixed = TRUE); msg }
+.fill <- function(msg, v) { for (k in names(v)) msg <- gsub(paste0("{", k, "}"), as.character(v[[k]]), msg, fixed = TRUE); gsub("= < 1e-300", "< 1e-300", msg, fixed = TRUE) }
 
 #' I2GX of a set of instruments (Bowden 2016), with TwoSampleMR::Isq on the absolute exposure effects.
 feas_i2gx <- function(bx, sx) { ok <- is.finite(bx) & is.finite(sx) & sx > 0; if (sum(ok) < 2) NA_real_ else TwoSampleMR::Isq(abs(bx[ok]), sx[ok]) }
@@ -114,4 +114,4 @@ feasibility_results <- function(pay) {
   }
   out
 }
-.feas_p <- function(p) { p <- as.numeric(p); if (!is.finite(p)) "NA" else if (p < 1e-4) formatC(p, digits = 2, format = "e") else formatC(p, digits = 3, format = "f") }
+.feas_p <- function(p) { p <- as.numeric(p); if (!is.finite(p)) "NA" else if (p < 1e-300) "< 1e-300" else if (p < 1e-3) formatC(p, digits = 2, format = "e") else formatC(p, digits = 3, format = "f") }   # Round 91: as on the screen (scientific below 0.001; an underflowed P is "< 1e-300", not "0.00e+00")

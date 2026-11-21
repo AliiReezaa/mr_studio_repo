@@ -1882,7 +1882,7 @@ local({
   file.create(file.path(d, "04_tables", "mode_estimates.csv")); writeLines("05_presso.R", file.path(d, "03_console", "failed_scripts.txt")); live_scripts(d)
   options(mrstudio.say = NULL); msgs <- vapply(said, `[[`, "", "msg")
   expect("Round 80: every method that finished between two looks is reported (three at once, then the next one and a failed one by name)",
-         any(grepl("^Finished: Inverse-variance weighted.*MR-Egger.*Weighted median \\(3 of 5\\)", msgs)) && any(grepl("^Weighted mode finished in", msgs)) && any(grepl("MR-PRESSO stopped with an error.*\\(5 of 5\\)", msgs)))
+         any(grepl("^Inverse-variance weighted.* finished in .*\\(1 of 5\\)", msgs)) && any(grepl("^Finished: MR-Egger, Weighted median \\(3 of 5\\)", msgs)) && any(grepl("^Weighted mode finished in", msgs)) && any(grepl("MR-PRESSO stopped with an error.*\\(5 of 5\\)", msgs)))
   # every engine action that narrates has its own box on the screen, the engine names the action in every message and marks its end
   js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n"); app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
   grp <- regmatches(js, regexpr("const LIVE_GROUP = \\{[^}]*\\}", js)); keys <- regmatches(grp, gregexpr("[a-z_]+(?=: ')", grp, perl = TRUE))[[1]]
@@ -2056,7 +2056,7 @@ local({
     writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
       "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
       "const cst = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, i + src.slice(i).search(/;\\r?\\n/) + 1); };",
-      "global.S = { lives: {} }; let sent = [], drawn = 0; global.prevOk = () => false; global.kindMethods = () => []; global.render = () => { if (!S._quiet) drawn++; };",
+      "global.S = { lives: {} }; let sent = [], drawn = 0; global.prevOk = () => false; global.kindMethods = () => []; global.render = () => { if (!S._quiet) drawn++; }; global.liveTick = () => 0;",   # Round 90: a restored study restarts its live box
       "global.send = (t, p) => { if (S._quiet) { (S._deferred = S._deferred || []).push([t, p]); return; } sent.push(t); };",
       "global.handle = (m) => { if (m.t === 'pair_done') { S.run.done++; S.payloads[m.folder] = 1; } if (m.t === 'run_queue_done') { S.run.state = 'done'; send('mediation'); } render(); };",
       "const arr = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, src.indexOf('];', i) + 2); };",
@@ -2075,7 +2075,7 @@ local({
     f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
     writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
       "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
-      "global.S = {}; let sent = 0; global.send = () => { sent++; }; global.STEPS = []; global.liveEndAll = () => 0; global.window = { scrollTo: () => 0 }; global.render = () => 0;",
+      "global.S = {}; let sent = 0; global.send = () => { sent++; }; global.STEPS = []; global.liveEndAll = () => 0; global.window = { scrollTo: () => 0 }; global.render = () => 0; global.outUnprepared = () => [];",   # Round 88: go() prepares two-sample outcomes
       "eval(grab('openStudy') + grab('go'));",
       "openStudy('A', 'auto'); openStudy('A', 'auto'); const once = sent === 1;",
       "const ok1 = !!S._opening && S._opening.nav === (S._nav || 0);",
@@ -2175,6 +2175,162 @@ local({
       "console.log([/ties: m\\.ties \\|\\| ''/.test(line), /R\\.ties \\? '<div role=\"note\"/.test(body)].join(' '));"), f)
     o <- paste(system2("node", f, stdout = TRUE, stderr = TRUE), collapse = " ")
     expect("Round 87: on the screen, the CAUSE message keeps the tie sentence and the result shows it as a note", identical(o, "true true"))
+  }
+})
+
+
+# Round 88: a two-sample study picks its outcome once. An OpenGWAS outcome download holds only the variants looked up for one exposure
+# (so the other exposures' pairs were refused at Check); for each other exposure it is now looked up again at that exposure's instruments,
+# with the same proxy settings, preferring a lookup the study already has, then one in the Data library
+local({
+  rt <- tempfile(); lib <- file.path(rt, "Data library"); dir.create(lib, recursive = TRUE)
+  put <- function(nm, src, ex, out) { dir.create(file.path(lib, nm)); writeLines(jsonlite::toJSON(list(trait = nm, source = src, usable_as_exposure = ex, usable_as_outcome = out), auto_unbox = TRUE, null = "null"), file.path(lib, nm, "recipe.json")) }
+  py <- list(proxies = TRUE, rsq = 0.8, maf_threshold = 0.3)
+  for (x in c("LDL", "BMI", "HDL")) put(x, list(type = "opengwas", id = paste0("ieu-", x)), TRUE, FALSE)
+  put("CHD for LDL", list(type = "opengwas", id = "ieu-a-7", trait = "Coronary heart disease", for_exposure = "LDL", params = py), FALSE, TRUE)
+  put("CHD for BMI", list(type = "opengwas", id = "ieu-a-7", trait = "Coronary heart disease", for_exposure = "BMI", params = py), FALSE, TRUE)
+  put("LDL full", list(type = "opengwas_vcf", id = "ieu-a-300"), TRUE, TRUE); put("My CHD", list(type = "import"), FALSE, TRUE)
+  calls <- list(); fake <- function(id, exposure_name, jwt, proxies, rsq, maf, name, offline, root) { calls[[length(calls) + 1L]] <<- list(id = id, ex = exposure_name, proxies = proxies, rsq = rsq, maf = maf); put(name, list(type = "opengwas", id = id, for_exposure = exposure_name, params = py), FALSE, TRUE); list(trait = name) }
+  old <- options(mrstudio.say = function(...) NULL); on.exit(options(old), add = TRUE)
+  a <- pair_outcome_for("lib:LDL", "lib:CHD for LDL", "tok", root = rt, get_outcome = fake)
+  b <- pair_outcome_for("lib:BMI", "lib:CHD for LDL", "tok", root = rt, get_outcome = fake, prefer = c("lib:CHD for LDL", "lib:CHD for BMI"))
+  n0 <- length(calls); cc <- pair_outcome_for("lib:HDL", "lib:CHD for LDL", "tok", root = rt, get_outcome = fake)
+  again <- pair_outcome_for("lib:HDL", "lib:CHD for BMI", "tok", root = rt, get_outcome = fake)          # the new lookup is reused
+  d <- tryCatch(pair_outcome_for("lib:LDL full", "lib:CHD for BMI", "tok", root = rt, get_outcome = fake), error = function(e) conditionMessage(e))
+  e <- pair_outcome_for("lib:HDL", "lib:My CHD", "tok", root = rt, get_outcome = fake)
+  expect("Round 88: an OpenGWAS outcome serves other exposures: kept for its own, the study's own lookup preferred, otherwise looked up once with the same proxy settings and reused; refused with the reason for an exposure that is not an OpenGWAS instrument set; an imported outcome is left as it is",
+         identical(a$out, "lib:CHD for LDL") && identical(b$out, "lib:CHD for BMI") && n0 == 0L && length(calls) == 1L &&
+         identical(calls[[1]]$id, "ieu-a-7") && identical(calls[[1]]$ex, "HDL") && isTRUE(calls[[1]]$proxies) && identical(calls[[1]]$rsq, 0.8) && identical(calls[[1]]$maf, 0.3) &&
+         grepl("^lib:Coronary heart disease for HDL", cc$out) && grepl("downloaded", cc$note) && identical(again$out, cc$out) &&
+         grepl("was downloaded from OpenGWAS only for the instruments of \"BMI\"", d) && grepl("choose the outcome's complete GWAS or import it", d) && identical(e$out, "lib:My CHD"))
+  app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  expect("Round 88: the engine prepares a two-sample study's outcomes on request, the study's own outcomes preferred",
+         grepl("out_prepare = {", app, fixed = TRUE) && grepl("prefer = pref", app, fixed = TRUE) && grepl('ev("out_ready", rows = rows)', app, fixed = TRUE))
+  if (nzchar(Sys.which("node"))) {
+    f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
+    writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
+      "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
+      "const isLib = (id) => String(id).indexOf('lib:') === 0; global.S = { pairs: [{ ex: 'lib:LDL', out: 'lib:CHD' }, { ex: 'lib:BMI', out: 'lib:CHD', outReady: true }, { ex: 'expA', out: 'outB' }, { ex: 'lib:X', out: 'lib:Y', rev: true }, { ex: ['lib:A', 'lib:B'], out: 'lib:Y', mv: true }] };",
+      "eval(grab('outUnprepared')); const u = outUnprepared();",
+      "const i = src.indexOf(\"case 'out_ready':\"); const blk = src.slice(i, src.indexOf(\"case 'bidir_ready':\", i));",
+      "console.log([u.length === 1 && u[0].ex === 'lib:LDL', /kept once/.test(blk), /prepFailOut\\(\\)/.test(blk), /send\\('out_prepare'/.test(src), /out_prepare: 'check'/.test(src)].join(' '));"), f)
+    o <- paste(system2("node", f, stdout = TRUE, stderr = TRUE), collapse = " ")
+    expect("Round 88: on the screen, a two-sample study's OpenGWAS pairs are prepared before the checks (narrated in the Check box); a pair that becomes another one's twin is kept once, and one that cannot be prepared leaves the study with the reason",
+           identical(o, "true true true true true"))
+  }
+})
+
+
+# Round 89 (the parked Round 77b): on the Data screen every dataset says what it is ready for in that role, and each list offers to import
+# a file or find one on OpenGWAS, coming back to the study with the new dataset selected
+local({
+  pn <- tempfile(); dir.create(pn); file.create(file.path(pn, "EUR.bed"))
+  rec <- function(type, ex = TRUE, out = FALSE, facts = list(), ...) list(trait = "T", source = c(list(type = type), list(...)), facts = facts, usable_as_exposure = ex, usable_as_outcome = out)
+  L <- function(r, role, panel = pn) .lib_ready(r, role, panel)
+  a <- L(rec("opengwas"), "exposure"); b <- L(rec("opengwas", params = list(where = "local", pop = "EUR")), "exposure")
+  c1 <- L(rec("import", facts = list(independent = "clump", clump_pop = "EUR")), "exposure"); c2 <- L(rec("import", facts = list(independent = "clump", clump_pop = "EAS")), "exposure")
+  d <- L(rec("opengwas_vcf", facts = list(ancestry = "EUR", clump_pop = "EUR")), "exposure"); e <- L(rec("import"), "exposure")
+  f <- L(rec("opengwas", for_exposure = "LDL"), "outcome"); g <- L(rec("opengwas_vcf"), "outcome"); h <- L(rec("import", facts = list(scope = "genomewide")), "outcome"); i <- L(rec("import", facts = list(scope = "selected")), "outcome")
+  expect("Round 89: each dataset's readiness for its role: OpenGWAS instruments (clumped on the server or here), clumped at Check (with a warning when its 1000 Genomes panel is missing), complete GWAS, an outcome looked up for one exposure, selected variants only",
+         identical(a$txt, "Instruments, clumped on OpenGWAS") && grepl("clumped on this computer when downloaded (1000 Genomes EUR)", b$txt, fixed = TRUE) &&
+         identical(c1$lvl, "ok") && identical(c2$lvl, "warn") && grepl("needs the 1000 Genomes EAS panel", c2$txt) && grepl("^Complete GWAS: clumped here at Check", d$txt) &&
+         identical(e$txt, "Independent instruments, as imported") && grepl("^Looked up for LDL; looked up again for other OpenGWAS exposures", f$txt) && identical(f$lvl, "note") &&
+         grepl("^Complete GWAS: any exposure", g$txt) && grepl("^Complete GWAS: any exposure", h$txt) && grepl("^Selected variants only", i$txt) &&
+         grepl("ready = .lib_ready(r, role)$txt, ready_lvl = .lib_ready(r, role)$lvl", paste(readLines(file.path(args_dir, "studio_core.R"), warn = FALSE), collapse = "\n"), fixed = TRUE))
+  if (nzchar(Sys.which("node"))) {
+    fjs <- tempfile(fileext = ".js"); on.exit(unlink(fjs), add = TRUE)
+    writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
+      "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
+      "global.esc = (x) => String(x); global.svg = () => ''; global.IC = {}; global.S = { out: [] };",
+      "eval(grab('rowItem'));",
+      "const w = rowItem({ id: 'lib:X', name: 'X', src: 'Imported', n: '1', anc: 'EUR', ready: 'Clumped here at Check: needs the 1000 Genomes EAS panel', ready_lvl: 'warn' }, 'out');",
+      "const ok = rowItem({ id: 'lib:Y', name: 'Y', src: 'Imported', n: '1', anc: 'EUR', ready: 'Selected variants only', ready_lvl: 'note' }, 'out');",
+      "const i = src.indexOf(\"case 'back_data':\"); const bd = src.slice(i, src.indexOf('break; }', i));",
+      "console.log([/needs the 1000 Genomes EAS panel/.test(w) && /var\\(--warn\\)\">Clumped here/.test(w), /var\\(--mute\\)\">Selected variants only/.test(ok),",
+      "  /lnk\\('Import a file', 'imp_from_data', key\\) \\+ lnk\\('Find on OpenGWAS', 'find_online', key\\)/.test(src), /S\\.imp\\.fromKey = v; if \\(v === 'out'\\) S\\.imp\\.facts\\.role = 'outcome'; else if \\(v === 'med'\\) S\\.imp\\.facts\\.role = 'either'/.test(src),",
+      "  /'lib:' \\+ rec\\.trait/.test(bd) && /S\\.newFromStudy/.test(bd), /You came here from the study/.test(grab('vImport'))].join(' '));"), fjs)
+    o <- paste(system2("node", fjs, stdout = TRUE, stderr = TRUE), collapse = " ")
+    expect("Round 89: on the screen, each dataset row shows its readiness (a missing panel in the warning colour); each list links to Import a file and Find on OpenGWAS; going back to the study selects the dataset just imported or downloaded",
+           identical(o, "true true true true true true"))
+  }
+})
+
+
+# Round 90: the live box of a study that was set aside (Round 83) stopped typing after two characters ("MR" of "MR-PRESSO is still
+# running") once the analyst came back: news filed while it was away started typing there, and the typing timer was not restarted
+local({
+  if (nzchar(Sys.which("node"))) {
+    f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
+    writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
+      "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
+      "const cst = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, i + src.slice(i).search(/;\\r?\\n/) + 1); };",
+      "const arr = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, src.indexOf('];', i) + 2); };",
+      "global.document = { getElementById: () => null }; let timer = 0; global.setTimeout = () => { timer++; return 1; }; global.clearTimeout = () => 0; global.send = () => 0; global.prevOk = () => false; global.kindMethods = () => []; global.render = () => 0;",
+      "global.S = { lives: {}, _pin: {}, _top: {} };",
+      "eval(cst('LIVE_GROUP') + cst('LIVE_PREP') + cst('mmss') + arr('STUDY_KEYS') + arr('PAIR_CACHES') + grab('liveOpen') + grab('liveAdd') + grab('liveFollow') + grab('liveTick') + grab('studySnap') + grab('studyLoad') + grab('studyBusy') + grab('inStudy') + grab('applyStudy'));",
+      "applyStudy({ name: 'A', dir: '/a', pairs: [], payloads: {} }); S.run = { state: 'running' }; liveOpen('run'); liveAdd('Method 5 of 7: MR-PRESSO', '', 'run_all');",
+      "applyStudy({ name: 'B', dir: '/b', pairs: [], payloads: {} });",
+      "S._quiet = false; inStudy('A', () => liveAdd('MR-PRESSO is still running (45 s so far)', '', 'run_all'));",
+      "const away = S.parked.A.lives.run, awayDone = away.typed === away.lines[away.lines.length - 1].msg.length;",
+      "const t0 = timer; applyStudy({ name: 'A', dir: '/a', pairs: [], payloads: {} }); const L = S.lives.run, cur = L.lines[L.lines.length - 1];",
+      "console.log([awayDone, L.typed === cur.msg.length, cur.msg === 'MR-PRESSO is still running (45 s so far)', timer > t0].join(' '));"), f)
+    o <- paste(system2("node", f, stdout = TRUE, stderr = TRUE), collapse = " ")
+    expect("Round 90: news that arrives while a study is set aside is shown complete, and coming back to the study restarts the clocks of its live box (the line stopped at \"MR\")",
+           identical(o, "true true true true"))
+  }
+  bg <- paste(readLines(file.path(args_dir, "bg_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 90: a background job sets a UTF-8 locale before it reads the engine (its messages showed \"LDL <e2><86><92> CHD\" when started without one)",
+         grepl('!isTRUE(l10n_info()[["UTF-8"]])) for (lc in c("en_US.UTF-8", "C.UTF-8", "UTF-8"))', bg, fixed = TRUE) && regexpr("Sys.setlocale", bg) < regexpr("for (f in files) { source(", bg, fixed = TRUE) &&
+         { j <- tempfile(); dir.create(j); writeBin(charToRaw('{"t":"live","msg":"LDL \u2192 CHD"}\n'), file.path(j, "events.jsonl")); writeLines('{"state":"done"}', file.path(j, "status.json")); ln <- bg_poll(j, 0)$lines; identical(Encoding(ln), "UTF-8") && grepl("\u2192", ln, fixed = TRUE) && grepl("\u2192", as.character(shiny:::toJSON(list(j = ln))), fixed = TRUE) })
+})
+
+
+# Round 91: faults the user found on screenshots of a finished run and its instrument review, and the same kinds of faults elsewhere
+local({
+  # P values: an underflowed P (0) read "0.00e+0" on the screen and would read "P = 0.00e+00" in the draft text and the advice texts
+  rules <- utils::read.csv(file.path(args_dir, "feasibility_rules.csv"), stringsAsFactors = FALSE)
+  expect("Round 91: an underflowed P value reads \"< 1e-300\" in the draft text and the advice texts (\"P < 1e-300\", never \"P = 0.00e+00\"); P values switch to scientific form below 0.001 as on the screen; no advice calls a built method NOT BUILT",
+         identical(.fp(0), "< 1e-300") && identical(.pfix(list(a = "Q (P = < 1e-300)", b = list("P = < 1e-300")))$b[[1]], "P < 1e-300") &&
+         identical(.feas_p(0), "< 1e-300") && identical(.feas_p(8.18e-4), "8.18e-04") && identical(.fill("Q P = {p}.", list(p = .feas_p(0))), "Q P < 1e-300.") &&
+         !any(grepl("NOT BUILT", unlist(rules))))
+  # the narration of a run: the running method's own duration, the replay's own "still running", and how the replay ended
+  d <- tempfile(); dir.create(file.path(d, "02_scripts"), recursive = TRUE); dir.create(file.path(d, "04_tables")); dir.create(file.path(d, "03_console"))
+  for (f in c("00_run_all.R", "01_ivw_mre.R", "02_presso.R")) file.create(file.path(d, "02_scripts", f))
+  said <- character(); old <- options(mrstudio.say = function(msg, why = "") said <<- c(said, msg)); on.exit(options(old), add = TRUE); live_reset()
+  live_scripts(d); file.create(file.path(d, "04_tables", "ivw_mre_estimates.csv")); live_scripts(d)
+  k <- paste(d, "run_all_console.txt"); st <- .live[[k]]; st$t <- st$t - 400; .live[[k]] <- st; live_scripts(d)
+  file.create(file.path(d, "04_tables", "presso_estimates.csv")); live_scripts(d)
+  live_scripts(d, "replay_console.txt"); unlink(file.path(d, "04_tables", c("ivw_mre_estimates.csv", "presso_estimates.csv"))); live_scripts(d, "replay_console.txt")
+  k2 <- paste(d, "replay_console.txt"); s2 <- .live[[k2]]; s2$t <- s2$t - 60; .live[[k2]] <- s2; live_scripts(d, "replay_console.txt")
+  app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  expect("Round 91: a run's narration gives the running method's own time (\"MR-PRESSO finished in 6 min 40 s\"), marks the replay's \"still running\" as the replay's, and ends with how the replay check ended",
+         any(grepl("^MR-PRESSO is still running \\(6 min 40 s so far\\)$", said)) && any(grepl("^MR-PRESSO finished in 6 min 4[0-9] s \\(2 of 2\\)$", said)) &&
+         any(grepl("^Replay check: .* is still running", said)) && grepl("Replay check finished: all %s numbers identical to the first run. Saved.", app, fixed = TRUE))
+  rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 91: figure PDFs are written with Cairo where it is available, which embeds their fonts as journals ask, and the screen reports it",
+         grepl('if (.fig_cairo()) grDevices::cairo_pdf(f, width = w, height = h, family = "sans")', rc, fixed = TRUE) && grepl("fonts = .fig_cairo()", app, fixed = TRUE) &&
+         grepl('opacity:0;pointer-events:none", "MR GUI engine prototype. Engine: "', app, fixed = TRUE))
+  if (nzchar(Sys.which("node"))) {
+    f <- tempfile(fileext = ".js"); on.exit(unlink(f), add = TRUE)
+    writeLines(c(sprintf("const src = require('fs').readFileSync(%s, 'utf8');", deparse(normalizePath(file.path(args_dir, "ui", "studio.js")))),
+      "const grab = (n) => { const i = src.indexOf('function ' + n + '('); let d = 0, j = src.indexOf('{', i); for (;; j++) { if (src[j] == '{') d++; if (src[j] == '}') { d--; if (!d) break; } } return src.slice(i, j + 1); };",
+      "const cst = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, i + src.slice(i).search(/;\\r?\\n/) + 1); };",
+      "const line = (n) => { const i = src.indexOf('const ' + n + ' = '); return src.slice(i, src.indexOf('\\n', i)); };",
+      "global.esc = (x) => String(x); global.mmss = (ms) => String(Math.round(ms / 1000)); global.S = { lives: {}, methods: ['ivw_mre', 'presso'], pairs: [{ folder: 'P01' }], payloads: { P01: { variants: Array.from({ length: 300 }, () => ({ keep: true })) } } };",
+      "eval([line('fp'), line('pEq'), line('fcol'), cst('DETECTORS')].join('\\n').replace(/^const /gm, 'var ').replace(/;\\s*const /g, '; var '));",
+      "var METHODS = [{ id: 'ivw_mre', built: true }, { id: 'presso', built: true }, { id: 'radial', built: true }, { id: 'radegger', built: true }, { id: 'lasso', built: true }]; var minInst = () => null; var pairFact = () => null;",
+      "eval(grab('estPairSecs') + grab('etaParts') + grab('detMissing') + grab('vLive'));",
+      "S.lives.run = { open: false, t0: 0, typed: 0, lines: [{ msg: 'Method 5 of 7: MR-PRESSO', t: 0 }, { msg: 'MR-PRESSO is still running (45 s so far)', t: 1 }, { msg: 'Replay check finished: all 940 numbers identical to the first run. Saved.', t: 2 }] };",
+      "const box = vLive('Running the analysis.', '', false, 'run'); S.run = { state: 'done', times: [870] };",
+      "const dm = detMissing(1), est = estPairSecs(['ivw_mre', 'presso'], S.pairs[0]);",
+      "console.log([fp(0) === '< 1e-300', pEq(0) === '< 1e-300', pEq(0.012) === '= 0.012', src.indexOf(\"= ' + fp(\") < 0, fcol(1.09e-4) === '0.000109', fcol(-0.032) === '-0.032',",
+      "  !/still running/.test(box) && /Finished\\./.test(box) && /all 940 numbers identical/.test(box), etaParts()[1] === 'The run took 14 min 30 s.',",
+      "  /Only one detector was run/.test(dm) && /data-a=\"add_detectors\"/.test(dm) && /about 15 min/.test(dm), est > 800 && est < 1000,",
+      "  /\\['ivw_mre', 'egger', 'wm', 'mode', 'presso', 'radial', 'radegger', 'lasso'\\]/.test(src), /'units of ' \\+ esc\\(pair\\.outName\\)/.test(src), !/not built/i.test(src.replace(/=== 'NOT BUILT'/g, ''))].join(' '));"), f)
+    o <- paste(system2("node", f, stdout = TRUE, stderr = TRUE), collapse = " ")
+    expect("Round 91: on the screen, an underflowed P reads \"< 1e-300\", table columns stay in decimals, a finished box drops its \"still running\" notes and says Finished, the time tile says how long the run took, the review offers the missing outlier detectors with a fair time, MR-PRESSO time follows its measurement, the recommended set holds all four detectors, the effect sentence names its units, and no screen says \"not built\"",
+           identical(o, paste(rep("true", 13), collapse = " ")))
+    if (!identical(o, paste(rep("true", 13), collapse = " "))) cat("   node said:", o, "\n")
   }
 })
 

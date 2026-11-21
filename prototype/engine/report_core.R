@@ -7,7 +7,8 @@
 .xe <- function(s) { s <- as.character(s); s[is.na(s)] <- ""; s <- gsub("&", "&amp;", s, fixed = TRUE); s <- gsub("<", "&lt;", s, fixed = TRUE); s <- gsub(">", "&gt;", s, fixed = TRUE); gsub("\"", "&quot;", s, fixed = TRUE) }
 .fnum <- function(x, d = 3) ifelse(is.na(x), "NA", formatC(x, digits = d, format = "f"))
 .nth <- function(x, i) if (i <= length(x)) x[[i]] else NULL   # Round 50: lists that cover only the univariable pairs
-.fp <- function(p) ifelse(is.na(p), "NA", ifelse(p < 0.001, formatC(p, digits = 2, format = "e"), formatC(p, digits = 3, format = "f")))
+.fp <- function(p) ifelse(is.na(p), "NA", ifelse(p < 1e-300, "< 1e-300", ifelse(p < 0.001, formatC(p, digits = 2, format = "e"), formatC(p, digits = 3, format = "f"))))   # Round 91: an underflowed P (0) is "< 1e-300", never "0.00e+00"
+.pfix <- function(x) if (is.character(x)) gsub("= < 1e-300", "< 1e-300", x, fixed = TRUE) else if (is.list(x)) lapply(x, .pfix) else x
 # Round 42: the radial detectors' level, as written in their scripts.
 .radial_level_txt <- function(st) if (identical(st$alpha_correction %||% "bonferroni", "none")) sprintf("alpha = %s per variant, no correction", format(st$alpha %||% 0.05)) else sprintf("alpha = %s divided by the number of variants (Bonferroni)", format(st$alpha %||% 0.05))
 .pct <- function(l) paste0(format(round(l * 100, 1), nsmall = 0), "%")
@@ -214,10 +215,11 @@ subset_facts <- function(pay) {
 }
 
 .MCOL <- c(ivw_steiger = "#6b7f3a", bwmr = "#5a4a8a", grip = "#9a4f2a", mrmix = "#3a7a6b", egger_boot = "#c2703a", pwm = "#5f86c4", smode_nome = "#d98fb0", wmode_nome = "#b85c8a", rucker = "#6f7d3a", ivw_mre = "#2b3fc7", divw = "#5b6b8c", maxlik = "#3f6fb5", mbe = "#a0527a", cml = "#2f8a7a", robust_ivw = "#6b5b2e", pivw = "#4a5aa0", raps = "#7a5c2e", conmix = "#4f7a3a", lasso = "#7a3a6b", egger_simex = "#d4874f", egger = "#b5541c", wm = "#2f7fd6", smed = "#8c4fd6", mode = "#d6407a", smode = "#2a9d8f", presso = "#b8860b", radial = "#3d9a38", radegger = "#a04a3d")
+.fig_cairo <- function() isTRUE(unname(capabilities("cairo")))
 .fig_write <- function(base, w_mm, h_mm, draw) {
   w <- w_mm / 25.4; h <- h_mm / 25.4; out <- character()
   ok <- function(f, expr) { r <- tryCatch({ expr; TRUE }, error = function(e) FALSE); if (!r) { try(grDevices::dev.off(), silent = TRUE); if (file.exists(f)) unlink(f) }; if (r) out <<- c(out, f) }
-  f <- paste0(base, ".pdf"); ok(f, { grDevices::pdf(f, width = w, height = h, useDingbats = FALSE); draw(); grDevices::dev.off() })
+  f <- paste0(base, ".pdf"); ok(f, { if (.fig_cairo()) grDevices::cairo_pdf(f, width = w, height = h, family = "sans") else grDevices::pdf(f, width = w, height = h, useDingbats = FALSE); draw(); grDevices::dev.off() })   # Round 91: Cairo embeds the fonts, as journals ask
   if (isTRUE(unname(capabilities("cairo")))) {
     f <- paste0(base, ".svg"); ok(f, { grDevices::svg(f, width = w, height = h); draw(); grDevices::dev.off() })
     f <- paste0(base, ".png"); ok(f, { grDevices::png(f, width = w, height = h, units = "in", res = 300, type = "cairo"); draw(); grDevices::dev.off() })
@@ -559,6 +561,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
         if (length(hit)) txt$methods[hit] <- sub("the 1000 Genomes European panel", sprintf("the 1000 Genomes %s panel%s", paste(LDREF_POP_NAMES[pp], collapse = " or "), if (length(pp) > 1) ", as recorded for each pair in its LD reference file (04_across_pairs)" else ""), txt$methods[hit], fixed = TRUE) } }
     txt$limitations <- c(txt$limitations, unlist(lapply(recs, function(r) ldref_limitation(r, r$labels))))
   }
+  txt <- .pfix(txt)   # Round 91: "P = < 1e-300" reads "P < 1e-300"
   used <- unique(c("hemani2018", "burgess2023", "skrivankova2021", if (length(bcm)) "xue2022", if (length(lds)) c("bulik2015a", "bulik2015b", "grotzinger2019"), if (length(lhc)) "darrous2021", if (length(mlp)) "mounier2023", if (length(aps)) "hu2022", if (length(cau)) "morrison2020", if (!is.null(med)) c("carter2021", "carter2019", "sanderson2019"), unlist(METHOD_REFS[unlist(lapply(ctxs, function(x) x$methods))]), if (steiger_any_binary(ctxs)) "lee2012", if (any(vapply(ctxs, function(cx) !is.null(cx$ledger$clump), TRUE))) c("chang2015", "kgp2015")))
   figs <- list(); wmm <- as.numeric(width_mm); wmm <- if (is.finite(wmm) && wmm >= 60) wmm else 180
   if (any(c("figs", "report", "text") %in% items)) {

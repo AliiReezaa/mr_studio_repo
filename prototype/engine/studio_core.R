@@ -139,9 +139,25 @@ demo_catalogue <- function() {
   list(exposures = mk(DEMO_EXPOSURES), outcomes = mk(DEMO_OUTCOMES))
 }
 #' Datasets imported by the user, offered next to the simulated traits. An exposure must be marked as already independent, or set to be clumped on this computer (Round 19).
+# Round 89: what a Data library dataset is ready for in a role, as a short label on the Data screen (txt) and its level (ok, note, warn).
+.lib_ready <- function(r, role, panel = tryCatch(ld_panel_dir(), error = function(e) "")) {
+  st <- r$source$type %||% ""; f <- r$facts %||% list(); fe <- r$source$for_exposure
+  if (identical(role, "exposure")) {
+    if (identical(f$independent, "clump") || identical(st, "opengwas_vcf")) {
+      pop <- f$clump_pop %||% tryCatch(ld_pop_for(f$ancestry), error = function(e) NA); if (is.null(pop) || is.na(pop) || !nzchar(pop)) pop <- "EUR"
+      if (!nzchar(panel) || !file.exists(file.path(panel, paste0(pop, ".bed")))) return(list(txt = sprintf("Clumped here at Check: needs the 1000 Genomes %s panel (Settings, LD reference panel)", pop), lvl = "warn"))
+      return(list(txt = if (identical(st, "opengwas_vcf")) "Complete GWAS: clumped here at Check; genome-wide methods" else "Clumped here at Check (PLINK, 1000 Genomes)", lvl = "ok"))
+    }
+    if (identical(st, "opengwas") && identical(r$source$params$where, "local")) return(list(txt = sprintf("Instruments, clumped on this computer when downloaded (1000 Genomes %s)", r$source$params$pop %||% "EUR"), lvl = "ok"))
+    return(list(txt = if (identical(st, "opengwas")) "Instruments, clumped on OpenGWAS" else "Independent instruments, as imported", lvl = "ok"))
+  }
+  if (!is.null(fe)) return(list(txt = sprintf("Looked up for %s; looked up again for other OpenGWAS exposures", fe), lvl = "note"))
+  if (identical(st, "opengwas_vcf") || identical(f$scope, "genomewide")) return(list(txt = "Complete GWAS: any exposure; genome-wide methods", lvl = "ok"))
+  list(txt = "Selected variants only: an exposure's instruments must be among them", lvl = "note")
+}
 library_catalogue <- function(root = studies_root()) {
   recs <- tryCatch(library_list(root), error = function(e) list())
-  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, gwas = r$source$id %||% "", src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else if (identical(r$source$type, "opengwas_vcf")) "OpenGWAS, complete GWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?")
+  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, gwas = r$source$id %||% "", src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else if (identical(r$source$type, "opengwas_vcf")) "OpenGWAS, complete GWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?", ready = .lib_ready(r, role)$txt, ready_lvl = .lib_ready(r, role)$lvl)   # Round 89: what the dataset is ready for
   list(exposures = lapply(Filter(function(r) isTRUE(r$usable_as_exposure), recs), mk, role = "exposure"),
        outcomes = lapply(Filter(function(r) isTRUE(r$usable_as_outcome), recs), mk, role = "outcome"))
 }
