@@ -250,6 +250,17 @@ shiny::testServer(mr_server(args_dir), {
   session$setInputs(act = list(t = "run_stop", nonce = 11)); pump()
   expect("Round 75f: Pause holds the queue between pairs, Resume continues it, and Stop ends it after the pair that is running",
          n_paused == 4L && is.null(rq$pairs) && length(studio_pair_folders(rv$h$dir)) == 5L)
+  # Round 75g: a mediation step (exposure -> mediator) is rebuilt from its saved record; its plain labels name the mediator as the outcome,
+  # which is not an outcome dataset (test 3: "TG was imported as an exposure only" in instrument review and the outlier analysis)
+  med <- list(role = "xm", m = "expC", x = "expA", ms = c("expC", "expD"), y = "outA"); mi <- mediation_pair_input(med)
+  r7 <- studio_run(rv$h, mi$exposure_label, mi$outcome_label, mi$input, c("ivw_mre", "egger"), idx = 6L, params = list(ci_level = 0.95))
+  ui_state_set(rv$h$con, "pairs", c(ui_state_get(rv$h$con, "pairs") %||% list(), list(list(ex = "expA", out = "expC", med = med, folder = r7$pair_folder))))
+  a7 <- list(folder = r7$pair_folder, ex = "expA", out = "expC", pthr = 5e-8)
+  plain <- err_of(instrument_table("expA", "expC")); it7 <- instrument_table("expA", "expC", inp = pair_inp(a7))
+  n_before <- length(studio_pair_folders(rv$h$dir))
+  session$setInputs(act = list(t = "run_sens", folder = r7$pair_folder, ex = "expA", out = "expC", pthr = 5e-8, remove = list(it7$id[1]), why = "chosen by you", methods = list("ivw_mre", "egger"), nonce = 12))
+  expect("Round 75g: instrument review and sensitivity reruns of a mediation step use its own datasets (its plain labels cannot build it)",
+         !is.na(plain) && nrow(it7) == sum(mi$input$data$mr_keep) && length(studio_pair_folders(rv$h$dir)) == n_before + 1L)
 })
 # ---- imported datasets in a run: harmonisation, ledger, refusals ----
 set.seed(1); kk <- 60; snps <- sprintf("rs%d", 1000 + 1:kk); eaa <- sample(c("A", "C", "G", "T"), kk, TRUE); cmp <- c(A = "T", T = "A", C = "G", G = "C")

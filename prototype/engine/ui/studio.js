@@ -1282,6 +1282,27 @@ function detInfo(pay, id) {
   const ids = note ? note.split(';') : [], g = dg.find((d) => d.name === 'presso_global_test'), q = dg.find((d) => d.name === 'radial_q'), dist = dg.find((d) => d.name === 'presso_distortion');
   return { ids: ids, n: o ? Number(o.value) : 0, g: g, q: q, dist: dist };
 }
+// Round 75g: combine the detectors. Tick the detectors to use; the variants are counted by how many of them flagged each one, and the user
+// selects those flagged by any, by at least k, or by all of the ticked detectors. Agreement between detectors that rest on different
+// assumptions is a stronger sign than one detector's flag; the choice stays the user's.
+function detAgreeSets(pay) {
+  const on = DETECTORS.filter((d) => { const i = detInfo(pay, d[0]); return i && i.n > 0; }); S.detOn = S.detOn || {};
+  const use = on.filter((d) => S.detOn[d[0]] !== false), cnt = {};
+  use.forEach((d) => detInfo(pay, d[0]).ids.forEach((x) => { if (S.inst && !S.inst.some((r) => r.id === x)) return; (cnt[x] = cnt[x] || []).push(d[1]); }));
+  return { on: on, use: use, cnt: cnt };
+}
+function detAgree(pay) {
+  const A = detAgreeSets(pay); if (A.on.length < 2) return '';
+  const ids = Object.keys(A.cnt).sort((a, b) => A.cnt[b].length - A.cnt[a].length || a.localeCompare(b)), k = A.use.length;
+  const chip = (d) => { const on = S.detOn[d[0]] !== false; return '<button type="button" role="checkbox" aria-checked="' + on + '" data-a="det_on" data-v="' + d[0] + '" style="height:30px;padding:0 10px;border-radius:999px;border:1px solid ' + (on ? 'var(--accent)' : 'var(--line)') + ';background:' + (on ? 'var(--panel)' : 'transparent') + ';color:var(--text);font-size:12px;font-weight:550">' + (on ? '✓ ' : '') + esc(d[1]) + '</button>'; };
+  const lev = []; for (let j = 1; j <= k; j++) { const n = ids.filter((x) => A.cnt[x].length >= j).length; lev.push('<div style="display:flex;align-items:center;gap:10px;font-size:12px"><span style="flex:1;min-width:0">' + (j === 1 ? 'Flagged by any of the ticked' : j === k ? 'Flagged by all ' + k + ' ticked' : 'Flagged by ' + j + ' or more') + '</span><span class="mono" style="color:var(--mute)">' + n + '</span>' +
+    (n ? '<button type="button" data-a="sel_agree" data-v="' + j + '" style="height:30px;padding:0 10px;border-radius:9px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:550;font-size:12px">Select ' + n + '</button>' : '<span style="width:64px"></span>') + '</div>'); }
+  const multi = ids.filter((x) => A.cnt[x].length >= 2);
+  return '<div style="display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:10px;background:var(--panel2);border:1px solid var(--line)"><div style="font-weight:550;font-size:13px">Combine the detectors</div>' +
+    '<div style="font-size:11px;color:var(--mute)">Tick the detectors to use, then select the variants they agree on. A variant flagged by detectors with different assumptions is a stronger candidate than one flagged by a single detector.</div>' +
+    '<div style="display:flex;flex-wrap:wrap;gap:6px">' + A.on.map(chip).join('') + '</div>' + (k ? lev.join('') : '<div style="font-size:12px;color:var(--mute)">Tick at least one detector.</div>') +
+    (multi.length ? '<details style="font-size:11px;color:var(--mute)"><summary style="cursor:pointer">Which detectors flagged each variant (' + multi.length + ' flagged by 2 or more)</summary><div style="display:flex;flex-direction:column;gap:3px;margin-top:6px">' + multi.map((x) => '<span><span class="mono" style="color:var(--text)">' + esc(x) + '</span>: ' + A.cnt[x].map(esc).join(', ') + '</span>').join('') + '</div></details>' : '') + '</div>';
+}
 function detRow(pay, d) {
   const inf = detInfo(pay, d[0]), inSet = inf ? inf.ids.filter((x) => S.inst && S.inst.some((r) => r.id === x)) : [];
   const line = !inf ? 'Not run for this pair. Add it on the Methods screen, then run again.' : (inf.n === 0 ? 'No variants flagged.' : 'Flagged ' + inf.n + ': ' + inf.ids.slice(0, 6).map(esc).join(', ') + (inf.ids.length > 6 ? ' and ' + (inf.ids.length - 6) + ' more' : '') + '.') +
@@ -1393,7 +1414,7 @@ function vOutliers() {
     '<aside style="flex:1 1 300px;max-width:380px;display:flex;flex-direction:column;gap:16px"><div style="box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;gap:16px"><div><div style="font-size:12px;color:var(--mute);margin-bottom:6px">Chosen to leave out</div><div style="display:flex;align-items:baseline;gap:8px"><span class="mono" style="font-size:40px;font-weight:500;letter-spacing:-0.04em">' + S.sel.length + '</span><span style="color:var(--mute)">of ' + rows.length + ' variants</span></div></div>' +
     '<div style="display:flex;flex-wrap:wrap;gap:8px"><button type="button" data-a="sel_top" style="height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-weight:550;font-size:13px">Pick the strongest</button><button type="button" data-a="sel_clear" style="height:38px;padding:0 14px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:550;font-size:13px">Clear</button></div>' +
     '<button type="button" class="cta" data-a="run_sens" ' + (can ? '' : 'disabled') + ' style="height:48px;border-radius:12px;border:0;background:var(--accent);color:var(--accentInk);font-weight:600;font-size:14px;opacity:' + (can ? 1 : .5) + '">' + (S.sensBusy ? 'Running…' : 'Run without these') + '</button><div style="font-size:12px;color:var(--mute)">' + (remain < 2 ? 'At least 2 instruments must remain.' : 'MR-Egger needs 3 or more remaining instruments; with fewer, only IVW is run.') + '</div></div>' +
-    '<div style="box-sizing:border-box;padding:20px;border-radius:16px;background:var(--panel2);border:1px solid var(--line);display:flex;flex-direction:column;gap:12px"><div style="font-size:12px;color:var(--mute)">Outlier detectors (they only suggest; you choose)</div>' + det + '</div>' +
+    '<div style="box-sizing:border-box;padding:20px;border-radius:16px;background:var(--panel2);border:1px solid var(--line);display:flex;flex-direction:column;gap:12px"><div style="font-size:12px;color:var(--mute)">Outlier detectors (they only suggest; you choose)</div>' + det + detAgree(pay) + '</div>' +
     '<div style="font-size:12px;color:var(--mute);padding:16px;border-radius:16px;background:var(--panel2);display:flex;flex-direction:column;gap:8px"><span style="color:var(--text);font-weight:550">Read before you remove anything</span><span>Removing variants that act through other pathways than the exposure (horizontal pleiotropy) can make results more reliable. Removing variants that act through the exposure pathway itself can distort the estimate. The app cannot tell which kind a variant is, so the choice is yours.</span><span>Leaving variants out after seeing the data is a sensitivity analysis. It does not replace the primary analysis, heterogeneity can reflect real biology, and removal can shift estimates. Report it as such.</span></div></aside></div>';
   return frame('study', 'results', main);
 }
@@ -1701,10 +1722,12 @@ function onClick(e) {
     case 'tmpl_delete_yes': S.dialog = null; send('template_delete', { name: v }); render(); break;
     case 'to_outliers': { const p = curPair(); S.inst = null; S.sel = []; go('outliers'); send('instruments', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8 }); break; }
     case 'back_results': go('results'); break;
-    case 'sel_var': S.sel = S.sel.indexOf(v) >= 0 ? S.sel.filter((x) => x !== v) : S.sel.concat([v]); render(); break;
-    case 'sel_top': if (S.inst && S.inst.length) { const t0 = S.inst.slice().sort((a, b) => b.share - a.share)[0]; S.sel = [t0.id]; render(); } break;
-    case 'sel_clear': S.sel = []; render(); break;
-    case 'sel_flag': { const pay = curPay(), inf = pay && detInfo(pay, v); if (inf && S.inst) { S.sel = inf.ids.filter((x) => S.inst.some((r) => r.id === x)); render(); } break; }
+    case 'sel_var': S.selWhy = !S.selWhy || !S.sel.length ? 'chosen by you' : /edited by you$|^chosen by you$/.test(S.selWhy) ? S.selWhy : S.selWhy + ', then edited by you'; S.sel = S.sel.indexOf(v) >= 0 ? S.sel.filter((x) => x !== v) : S.sel.concat([v]); render(); break;
+    case 'sel_top': S.selWhy = 'the strongest instrument'; if (S.inst && S.inst.length) { const t0 = S.inst.slice().sort((a, b) => b.share - a.share)[0]; S.sel = [t0.id]; render(); } break;
+    case 'sel_clear': S.selWhy = null; S.sel = []; render(); break;
+    case 'det_on': S.detOn = S.detOn || {}; S.detOn[v] = S.detOn[v] === false; render(); break;   // Round 75g
+    case 'sel_agree': { const pay = curPay(); if (!pay || !S.inst) break; const A = detAgreeSets(pay), j = Number(v); S.sel = Object.keys(A.cnt).filter((x) => A.cnt[x].length >= j); S.selWhy = j === 1 ? 'flagged by any of: ' + A.use.map((d) => d[1]).join(', ') : 'flagged by ' + (j === A.use.length ? 'all of' : j + ' or more of') + ': ' + A.use.map((d) => d[1]).join(', '); render(); break; }
+    case 'sel_flag': { const pay = curPay(), inf = pay && detInfo(pay, v); S.selWhy = 'flagged by ' + ((DETECTORS.find((d) => d[0] === v) || [])[1] || v); if (inf && S.inst) { S.sel = inf.ids.filter((x) => S.inst.some((r) => r.id === x)); render(); } break; }
     case 'run_ties': { const p = curPair(); S.sensBusy = true; render(); send('run_ties', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && m !== 'steiger')), params: S.params }); break; }
     case 'run_eaf': { const p = curPair(), ids = eafFlagged(p); if (!ids.length) break; S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, remove: ids, kind: 'eaf', methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && m !== 'steiger')), params: S.params }); break; }   // Round 34
     case 'ldsc_run': { const pr = S.pairs[S.rp], val = (id) => { const e = document.getElementById(id); const x = e && e.value.trim() ? Number(e.value) : null; return x > 0 && x < 1 ? x : null; };
@@ -1733,7 +1756,7 @@ function onClick(e) {
       const why = same(rem, R.lasso || []) ? 'flagged by MVMR-Lasso' : same(rem, (R.rows || []).filter((r) => r.share >= 0.03).map((r) => r.variant_id)) ? 'contributing 3% or more of Q' : 'chosen by you';
       S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, remove: rem, why: why,
         methods: [].concat(p.methods || S.methods).filter((m) => METHODS.find((x) => x.id === m && x.built && x.mv)), params: S.params }); break; }
-    case 'run_sens': { const p = curPair(); S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, remove: S.sel, methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && m !== 'steiger')), params: S.params }); break; }
+    case 'run_sens': { const p = curPair(); S.sensBusy = true; render(); send('run_sens', { folder: p.folder, ex: p.ex, out: p.out, pthr: p.pthr || 5e-8, remove: S.sel, why: S.selWhy || 'chosen by you', methods: S.methods.filter((m) => METHODS.find((x) => x.id === m && x.built && m !== 'steiger')), params: S.params }); break; }
     case 'build_package': S.pkgBusy = true; S.pkg = null; render(); send('build_package', { items: S.xsel.filter((x) => (EXPORT_ITEMS.find((d) => d[0] === x) || [])[4]), width_mm: widthMm(), pub: S.pub }); break;
     case 'open_guide': send('open_guide', {}); break;
     case 'open_package': if (S.pkg && S.pkg.folder) send('open_package', { folder: S.pkg.folder }); break;

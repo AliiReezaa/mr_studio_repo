@@ -72,6 +72,15 @@ mr_server <- function(engine_dir) {
     # to Shiny's event loop (later::later), so Pause and Stop from the window are handled; the run no longer needs the window to ask for
     # each pair, so it continues when the screen is locked or the window hidden. At the end the computer may sleep again and the
     # notification is shown by the engine.
+    # Round 75g: the input of a saved pair, rebuilt from its own record. A mediation step uses its own datasets (for exposure -> mediator,
+    # the mediator looked up at the exposure's instruments), which its plain exposure and outcome labels do not say; instrument review,
+    # sensitivity reruns and the outlier analysis failed on such pairs ("TG was imported as an exposure only").
+    pair_inp <- function(a) {
+      rec <- if (!is.null(rv$h) && !is.null(a$folder)) Filter(function(p) identical(p$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()) else list()
+      med <- if (length(rec)) rec[[1]]$med else NULL
+      if (is.null(med)) return(NULL)
+      mediation_pair_input(med, as.numeric(a$pthr %||% rec[[1]]$pthr %||% 5e-8))
+    }
     run_one <- function(a) {
       rq$last_ok <- FALSE
       req(rv$h)
@@ -289,7 +298,7 @@ mr_server <- function(engine_dir) {
           rq$done_before <- rq$total - length(a$pairs); later::later(run_queue_step, 0.05) },
         run_pause = { rq$pause <- isTRUE(a$on); if (!rq$pause && !is.null(rq$pairs)) later::later(run_queue_step, 0.05) },
         run_stop = { rq$stop <- TRUE; if (isTRUE(rq$pause) || is.null(rq$pairs)) { rq$pause <- FALSE; later::later(run_queue_step, 0.05) } },
-        instruments = ev("instruments", folder = a$folder, rows = { it <- instrument_table(a$ex, a$out, as.numeric(a$pthr %||% 5e-8)); unname(lapply(seq_len(nrow(it)), function(i) as.list(it[i, , drop = FALSE]))) }),
+        instruments = ev("instruments", folder = a$folder, rows = { it <- instrument_table(a$ex, a$out, as.numeric(a$pthr %||% 5e-8), pair_inp(a)); unname(lapply(seq_len(nrow(it)), function(i) as.list(it[i, , drop = FALSE]))) }),
         full_status = { r <- tryCatch(full_gwas_status(a$ex, a$out), error = function(e) list(ok = FALSE, why = "instruments")); ev("full_status", folder = a$folder, ok = isTRUE(r$ok), why = r$why) },   # Round 72e
         mv_review = {   # Round 72e: per-variant contributions to the MVMR-IVW heterogeneity, and MVMR-Lasso's flags
           req(rv$h); r <- tryCatch(mv_review(rv$h, a$folder), error = function(e) e)
@@ -303,7 +312,7 @@ mr_server <- function(engine_dir) {
           sens <- ui_state_get(rv$h$con, "sens") %||% list()
           old <- Filter(function(x) identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem), sens)
           idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-          r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params), pthr = as.numeric(a$pthr %||% 5e-8)), error = function(e) e)
+          r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params), pthr = as.numeric(a$pthr %||% 5e-8), inp = pair_inp(a)), error = function(e) e)
           if (inherits(r, "error")) { ev("sens_done", ok = FALSE, msg = conditionMessage(r)); return() }
           bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
           if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }
@@ -320,12 +329,13 @@ mr_server <- function(engine_dir) {
           sig <- outlier_signals(pay); trig <- outlier_triggered(sig); sets <- outlier_sets(pay)
           if (!length(attr(sets, "detectors_run"))) { ev("outliers_done", ok = FALSE, parent = parent, msg = "No outlier detector was run for this pair. Add MR-PRESSO, radial IVW, radial MR-Egger or MR-Lasso on the Methods screen and run again."); return() }
           prm <- run_params(a$params); sens <- ui_state_get(rv$h$con, "sens") %||% list(); pays <- list(); done <- list()
+          pin <- pair_inp(a)   # Round 75g: a mediation step's own datasets
           for (i in which(sets$eligible)) {
             rem <- sort(sets$ids[[i]]); key <- paste(rem, collapse = ";")
             if (!is.null(done[[key]])) { pays[[sets$set[i]]] <- done[[key]]$pay; next }
             old <- Filter(function(x) identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem), sens)
             idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(rv$h$dir)) + 1L
-            r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, OUTLIER_REANALYSIS, prm$ci_level, idx, params = prm, pthr = as.numeric(a$pthr %||% 5e-8), keep_presso = "presso" %in% trig, keep_loo = any(vapply(pay$diagnostics, function(d) identical(d$method, "loo"), TRUE))), error = function(e) e)
+            r <- tryCatch(studio_run_without(rv$h, a$ex, a$out, rem, OUTLIER_REANALYSIS, prm$ci_level, idx, params = prm, pthr = as.numeric(a$pthr %||% 5e-8), keep_presso = "presso" %in% trig, keep_loo = any(vapply(pay$diagnostics, function(d) identical(d$method, "loo"), TRUE)), inp = pin), error = function(e) e)
             if (inherits(r, "error")) { ev("outliers_done", ok = FALSE, parent = parent, msg = paste0(sets$label[i], ": ", conditionMessage(r))); return() }
             bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
             if (length(bad)) { ev("outliers_done", ok = FALSE, parent = parent, msg = paste0(sets$label[i], ": some methods did not finish: ", paste(bad, collapse = ", "))); return() }

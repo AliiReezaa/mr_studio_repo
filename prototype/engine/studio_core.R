@@ -682,15 +682,15 @@ ci_default_rows <- function(estimates, level = 0.95) {
 #' Descriptive table of the instruments of a pair for the outlier review. Nothing here is an estimator: the single-variant ratio is
 #' beta_y / beta_x, the weight share is the first-order inverse-variance weight (beta_x^2 / se_y^2) as a share of the total, and F is
 #' (beta_x / se_x)^2. Detection of outliers is left to the packages named in the spec (not built yet).
-instrument_table <- function(exp_id, out_id, pthr = 5e-8) {
-  d <- pair_input(exp_id, out_id, pthr)$input$data; d <- d[d$mr_keep, ]
+instrument_table <- function(exp_id, out_id, pthr = 5e-8, inp = NULL) {   # inp: the pair's own input (Round 75g: a mediation step has its own datasets)
+  d <- (inp %||% pair_input(exp_id, out_id, pthr))$input$data; d <- d[d$mr_keep, ]
   w <- d$beta_x^2 / d$se_y^2
   data.frame(id = d$variant_id, bx = d$beta_x, by = d$beta_y, ratio = d$beta_y / d$beta_x, share = w / sum(w), f = (d$beta_x / d$se_x)^2, stringsAsFactors = FALSE)
 }
 
 #' Sensitivity branch: the same pair analysed again without the chosen variants, as its own pair folder (the primary results stay as they are).
-studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8, keep_presso = FALSE, keep_loo = FALSE)
-  studio_run_reduced(h, if (length(unlist(exp_id)) > 1) mv_pair_input(unlist(exp_id), out_id, pthr) else pair_input(exp_id, out_id, pthr), remove, methods, ci_level, idx, params, keep_presso, keep_loo)   # Round 72e: MVMR pairs too
+studio_run_without <- function(h, exp_id, out_id, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8, keep_presso = FALSE, keep_loo = FALSE, inp = NULL)
+  studio_run_reduced(h, if (!is.null(inp)) inp else if (length(unlist(exp_id)) > 1) mv_pair_input(unlist(exp_id), out_id, pthr) else pair_input(exp_id, out_id, pthr), remove, methods, ci_level, idx, params, keep_presso, keep_loo)   # Round 72e: MVMR pairs too
 
 #' The same, for a prepared pair input (list with input, exposure_label, outcome_label); used by the outlier module and its tests.
 studio_run_reduced <- function(h, inp, remove, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, keep_presso = FALSE, keep_loo = FALSE) {
