@@ -2399,4 +2399,52 @@ local({
          grepl("S.version = m.version || ''", js, fixed = TRUE) && grepl("' MR Studio ' + esc(S.version)", js, fixed = TRUE))
 })
 
+
+# Round 93: faults found in test H (simulated traits, offline, no token) on build-43
+local({
+  htm <- paste(readLines(file.path(pkd, "report.html"), warn = FALSE), collapse = "\n")
+  ids <- regmatches(htm, gregexpr(' id="[^"]+"', htm))[[1]]
+  expect("Round 93: every figure inlined in report.html keeps its own ids and references, so one figure's glyphs and clips never draw another's text",
+         length(ids) > 50L && !anyDuplicated(ids) && grepl('href="#f2-', htm, fixed = TRUE) && !grepl('href="#glyph', htm, fixed = TRUE))
+  rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 93: the scatter and funnel plots leave room for the y-axis title beside numbers such as -0.02 and for the x-axis title below",
+         lengths(regmatches(rc, gregexpr("mar = c(4.4, 4.9, 0.8, 0.8), mgp = c(3.2, 0.6, 0)", rc, fixed = TRUE))) == 2L)
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  expect("Round 93: a pair of simulated traits gets the one box that says why the complete-GWAS analyses cannot run, not five sections marked Ready",
+         grepl("if (st.ok) return", js, fixed = TRUE) && !grepl("st.why === 'simulated') return", js, fixed = TRUE) && grepl("The simulated traits are instrument tables of 40 variants", js, fixed = TRUE))
+  expect("Round 93: Settings no longer shows the inactive automatic-updates switch, and the pre-registration switch no longer promises a plan writer",
+         !grepl("'Automatic updates'", js, fixed = TRUE) && !grepl("plan writer is planned", js, fixed = TRUE) && grepl("you write and register the plan itself", js, fixed = TRUE))
+  expect("Round 93: a finished live box drops its 'You can leave this screen; the work continues' footer",
+         grepl("(closed ? '' : foot == null ?", js, fixed = TRUE))
+})
+
+
+# Round 94: faults found in tests A (LDL and BMI on CHD, OpenGWAS) and G (pause, stop) on build-43
+local({
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  expect("Round 94: while paused the screen tells a pair still being calculated (FINISHING, 'Pausing after this pair') from one not yet started (QUEUED), and the bar does not count time for a pair that has not started",
+         grepl("r.busy = true;", js, fixed = TRUE) && grepl("r.busy = false; r.i =", js, fixed = TRUE) && grepl("|| r.busy === false) return 0;", js, fixed = TRUE) &&
+         grepl("(paused ? 'FINISHING' : 'RUNNING')", js, fixed = TRUE) && grepl("'Pausing after this pair'", js, fixed = TRUE) && !grepl("Paused after pair ' + r.done", js, fixed = TRUE))
+  expect("Round 94: a stopped run says 'Analysis stopped' with how many pairs are saved, and marks the pairs it did not run NOT RUN, not QUEUED",
+         grepl("stopped ? 'Analysis stopped'", js, fixed = TRUE) && grepl("(stopped ? 'NOT RUN' : 'QUEUED')", js, fixed = TRUE) &&
+         grepl("are not kept in the study: to run them later, pick their traits again on the Data step", js, fixed = TRUE) && !grepl("you can run them later from the Data step", js, fixed = TRUE))
+  expect("Round 94: the Methods panel shows the sample overlap the analyst stated at Check, not 'Not tested'",
+         grepl("ovSummary(fc)", js, fixed = TRUE) && grepl("' (stated)'", js, fixed = TRUE) && !grepl("? 'Not tested' : 'None (simulated)'", js, fixed = TRUE))
+  sn <- regmatches(js, regexpr("function steigerNotRun\\(\\) \\{[^}]*", js))
+  expect("Round 94: a direction test skipped for a missing prevalence says so, instead of asking to turn on a switch that is on",
+         length(sn) == 1L && regexpr("sp && !sp.ok", sn, fixed = TRUE) < regexpr("if (!S.steiger)", sn, fixed = TRUE))
+  expect("Round 94: the package panel no longer says the fonts are not embedded when its own check says they are",
+         grepl("(S.pkg.fonts ? 'Fonts are embedded in the PDF figures.'", js, fixed = TRUE))
+  ap <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  expect("Round 94: the complete-GWAS box receives the downloads each pair needs, so its 'Download the complete GWAS' button appears",
+         grepl("need = r$need %||% list(), linked = r$linked %||% list())", ap, fixed = TRUE))
+  sc <- paste(readLines(file.path(args_dir, "studio_core.R"), warn = FALSE), collapse = "\n")
+  rec <- list(source = list(type = "opengwas", population = "Mixed"), facts = list(ancestry = "EUR"))
+  expect("Round 94: the Data screen badge shows the ancestry OpenGWAS lists (Mixed), not the panel the instruments were clumped with (EUR)",
+         grepl("anc = .gwas_pop(r) %||% r$facts$ancestry", sc, fixed = TRUE) && identical(.gwas_pop(rec), "Mixed"))
+  expect("Round 94: an automatic outcome name longer than 60 characters is cut after a whole word",
+         identical(.word_cut("Coronary heart disease for Body mass index (ieu-a-2) live clump", 60L), "Coronary heart disease for Body mass index (ieu-a-2) live") &&
+         identical(.word_cut("CHD for LDL", 60L), "CHD for LDL"))
+})
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

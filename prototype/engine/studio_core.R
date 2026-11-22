@@ -160,7 +160,7 @@ demo_catalogue <- function() {
 }
 library_catalogue <- function(root = studies_root()) {
   recs <- tryCatch(library_list(root), error = function(e) list())
-  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, gwas = r$source$id %||% "", src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else if (identical(r$source$type, "opengwas_vcf")) "OpenGWAS, complete GWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = r$facts$ancestry %||% "?", ready = .lib_ready(r, role)$txt, ready_lvl = .lib_ready(r, role)$lvl)   # Round 89: what the dataset is ready for
+  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, gwas = r$source$id %||% "", src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else if (identical(r$source$type, "opengwas_vcf")) "OpenGWAS, complete GWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = .gwas_pop(r) %||% r$facts$ancestry %||% "?", ready = .lib_ready(r, role)$txt, ready_lvl = .lib_ready(r, role)$lvl)   # Round 89: what the dataset is ready for
   list(exposures = lapply(Filter(function(r) isTRUE(r$usable_as_exposure), recs), mk, role = "exposure"),
        outcomes = lapply(Filter(function(r) isTRUE(r$usable_as_outcome), recs), mk, role = "outcome"))
 }

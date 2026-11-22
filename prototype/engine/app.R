@@ -435,7 +435,7 @@ mr_server <- function(engine_dir) {
         run_pause = { rq$pause <- isTRUE(a$on); if (!rq$pause && !is.null(rq$pairs)) later::later(run_queue_step, 0.05) },
         run_stop = { rq$stop <- TRUE; if (isTRUE(rq$pause) || is.null(rq$pairs)) { rq$pause <- FALSE; later::later(run_queue_step, 0.05) } },
         instruments = ev("instruments", folder = a$folder, rows = { it <- instrument_table(a$ex, a$out, as.numeric(a$pthr %||% 5e-8), pair_inp(a)); unname(lapply(seq_len(nrow(it)), function(i) as.list(it[i, , drop = FALSE]))) }),
-        full_status = { r <- tryCatch(full_gwas_status(a$ex, a$out), error = function(e) list(ok = FALSE, why = "instruments")); ev("full_status", folder = a$folder, ok = isTRUE(r$ok), why = r$why) },   # Round 72e
+        full_status = { r <- tryCatch(full_gwas_status(a$ex, a$out), error = function(e) list(ok = FALSE, why = "instruments")); ev("full_status", folder = a$folder, ok = isTRUE(r$ok), why = r$why, need = r$need %||% list(), linked = r$linked %||% list()) },   # Round 72e; Round 94: with the downloads it needs
         mv_review = {   # Round 72e: per-variant contributions to the MVMR-IVW heterogeneity, and MVMR-Lasso's flags
           req(rv$h); r <- tryCatch(mv_review(rv$h, a$folder), error = function(e) e)
           if (inherits(r, "error")) ev("mv_review", folder = a$folder, error = conditionMessage(r))

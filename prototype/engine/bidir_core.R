@@ -68,6 +68,8 @@ bidir_cml_text <- function(res) {
   r <- lapply(d, function(x) tryCatch(jsonlite::fromJSON(file.path(x, "recipe.json"), simplifyVector = FALSE), error = function(e) NULL)); names(r) <- basename(d); Filter(Negate(is.null), r)
 }
 .same_params <- function(a, b, keys) all(vapply(keys, function(k) identical(as.character(a[[k]] %||% ""), as.character(b[[k]] %||% "")), TRUE))
+# Round 94: a name longer than the library allows is cut after a whole word, not inside one ("... live cl")
+.word_cut <- function(x, n) { if (nchar(x) <= n) return(x); y <- substr(x, 1L, n); k <- max(gregexpr(" ", y, fixed = TRUE)[[1]]); if (k > n %/% 2L) y <- substr(y, 1L, k - 1L); sub("[ (,;:-]+$", "", y) }
 .free_name <- function(nm, root) { cand <- nm; i <- 2L; while (dir.exists(file.path(library_dir(root), cand))) { cand <- sprintf("%s %d", nm, i); i <- i + 1L }; cand }
 
 #' Library ids for the reverse direction of the pair (exposure ex_id, outcome out_id). Returns list(ex, out, exName, outName, note).
@@ -122,7 +124,7 @@ ogw_ensure_outcome <- function(src, label, exposure_name, py, jwt, offline, root
   hit <- Filter(function(r) identical(r$source$type, "opengwas") && identical(r$source$id, src$id) && identical(r$source$for_exposure, exposure_name) && .same_params(r$source$params, py, ky), .lib_recipes(root))
   if (length(hit)) { .say(sprintf("%s looked up for %s is already in the Data library, so it is reused", src$trait %||% label, exposure_name)); return(list(name = names(hit)[1], note = "")) }
   .say(sprintf("Looking up the instruments of %s in %s (%s) on OpenGWAS, with proxies where one is missing", exposure_name, src$trait %||% label, src$id), "Each instrument's effect on the outcome is needed; a proxy is a nearby variant in strong linkage (r² of at least 0.8) used when the instrument itself is missing.")
-  ny <- .free_name(sprintf("%s for %s", src$trait %||% label, exposure_name), root)
+  ny <- .free_name(.word_cut(sprintf("%s for %s", src$trait %||% label, exposure_name), 60L), root)
   ny <- get_outcome(src$id, exposure_name, jwt, !identical(py$proxies, FALSE), as.numeric(py$rsq %||% 0.8), as.numeric(py$maf_threshold %||% 0.3), ny, offline, root = root)$trait
   list(name = ny, note = sprintf("downloaded \"%s\" as an outcome for %s", ny, exposure_name))
 }
