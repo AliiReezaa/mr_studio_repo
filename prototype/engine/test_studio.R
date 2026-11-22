@@ -2486,4 +2486,25 @@ local({
          grepl("Bidirectional MR-cML: ' + esc(er.error)", js, fixed = TRUE) && grepl("'bcml', 'bcmlErr'", js, fixed = TRUE))
 })
 
+# Round 96: test C (multivariable LDL, HDL, TG on CHD from OpenGWAS): the package failed and left empty folders
+local({
+  d <- tempfile("r96-"); dir.create(file.path(d, "P01", "05_figures"), recursive = TRUE); dir.create(file.path(d, "P01", "04_tables")); writeLines("x", file.path(d, "P01", "04_tables", "t.csv"))
+  .rm_empty_dirs(d)
+  expect("Round 96: folders an analysis did not use are left out of the package, folders with files stay",
+         !dir.exists(file.path(d, "P01", "05_figures")) && file.exists(file.path(d, "P01", "04_tables", "t.csv")))
+  sb <- paste(readLines(file.path(args_dir, "strobe_core.R"), warn = FALSE), collapse = "\n"); mv <- paste(readLines(file.path(args_dir, "mv_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 96: the STROBE checklist describes a multivariable OpenGWAS dataset and a dataset without a file, and a missing sample size, instead of stopping the package ('argument is of length zero')",
+         grepl("if (!is.null(s$mv)) sprintf(\"OpenGWAS %s, each looked up at the joint instruments\"", sb, fixed = TRUE) && grepl("length(s$file) && !is.na(s$file)", sb, fixed = TRUE) &&
+         grepl("length(cx$nx) == 1L && is.finite(cx$nx)", sb, fixed = TRUE))
+  expect("Round 96: a multivariable report states the sample overlap answered at Check and the OpenGWAS dataset IDs under Data availability",
+         grepl("overlap = tryCatch(overlap_get(h)[[ovk]]", mv, fixed = TRUE) && grepl("overlap_limitations(o)", mv, fixed = TRUE) && grepl("txt$availability <- unique(c(sprintf(\"Summary statistics were %s.\"", mv, fixed = TRUE))
+  expect("Round 96: a new study and a new pair get no folders that stay empty (05_report_and_supplement, 06_reproducibility, 05_figures, 06_method_reports, 08_outlier_analysis), and the MVMR forest legend is numbered and says why there is no scatter plot",
+         !any(c("05_report_and_supplement", "06_reproducibility") %in% STUDY_FOLDERS) && !any(c("05_figures", "06_method_reports", "08_outlier_analysis") %in% PAIR_SUBFOLDERS) &&
+         grepl("\"Figure %d. Direct effects of %s on %s from multivariable MR", mv, fixed = TRUE) && grepl("A scatter plot is not drawn for multivariable MR", mv, fixed = TRUE))
+  rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 96: a pair that ran radial MR without an outlier analysis gets a numbered radial plot, supplementary figures are numbered in order, and the scripts folder carries every pair folder (outlier reruns too), as the capsule does",
+         grepl("paste0(tag, \"_radial\")", rc, fixed = TRUE) && grepl("draw_outlier_radial(cx$pay, NULL, est$unit[1])", rc, fixed = TRUE) && grepl("so <- sn   # Round 44", rc, fixed = TRUE) &&
+         !grepl("2L * sn", rc, fixed = TRUE) && grepl("list.dirs(file.path(h$dir, \"03_pairs\"), recursive = FALSE)", rc, fixed = TRUE))
+})
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

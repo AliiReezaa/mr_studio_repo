@@ -108,7 +108,12 @@ mv_context <- function(h, p) {
   labs <- as.character(unlist(p$exNames)); if (length(labs) != length(ids)) labs <- ids
   ce$exposure_label <- labs[match(as.character(ce$exposure_id), ids)]
   g <- function(m, n) Filter(function(d) identical(d$method, m) && identical(d$name, n), pay$diagnostics)
+  # Round 96: the overlap answered at Check (keyed by the exposures joined with |) and the data sources, as for a two-sample pair
+  ovk <- overlap_key(paste(unlist(p$ex), collapse = "|"), p$out %||% "")
+  ogid <- function(id) { r <- tryCatch(library_recipe(sub("^lib:", "", id)), error = function(e) NULL); if (!is.null(r) && identical(r$source$type, "opengwas")) paste0("OpenGWAS:", r$source$id) else if (!is.null(r$original$file)) r$original$file else NULL }
+  srcs <- if (isTRUE(p$simulated)) character(0) else unique(unlist(lapply(c(unlist(p$ex), p$out), function(i) if (startsWith(i %||% "", "lib:")) ogid(i) else NULL)))
   list(mv = TRUE, p = p, pay = pay, est = est, ce = ce, methods = unlist(p$methods), simulated = isTRUE(p$simulated), settings = pay$settings %||% list(), ledger = p$ledger,
+       overlap = tryCatch(overlap_get(h)[[ovk]], error = function(e) NULL), sources = srcs,
        cond_f = vapply(g("mvivw", "mv_cond_f"), function(d) as.numeric(d$value), 0), q = g("mvivw", "mv_q"), qa = g("mvivw", "mv_q_a"), labels = labs, cov_source = { n <- g("mvivw", "mv_pheno_cor"); if (!length(n)) n <- g("mvqhet", "mv_pheno_cor"); if (length(n)) n[[1]]$note else NULL }, vars = data.frame(), pthr = p$pthr %||% 5e-8)
 }
 mv_add_text <- function(txt, mvx) {
@@ -122,8 +127,9 @@ mv_add_text <- function(txt, mvx) {
       if ("mvqhet" %in% used) sprintf("Q-statistic minimisation, which estimates the direct effects by minimising Q_A and so is robust to weak instruments, with an additive heterogeneity variance when the minimum exceeds its degrees of freedom and %s [Sanderson 2021]",
         if (identical(st$mv_qhet_ci, "bootstrap")) sprintf("bias-corrected and accelerated bootstrap intervals (%s iterations)", format(st$mv_qhet_iter %||% 1000)) else "jackknife standard errors (leaving out one variant at a time)")), collapse = "; "),
     ". Instrument strength was assessed with the conditional F statistic of each exposure (values below 10 indicate weak instruments), and heterogeneity with Cochran's Q of the MVMR-IVW fit and with Q_A, which also allows for the uncertainty of the variant-exposure associations [Sanderson 2021]; ", .mv_cov_text(st, mvx[[1]]$labels, mvx[[1]]$cov_source), "."))
+  mvk <- 0L
   for (cx in mvx) {
-    ce <- cx$ce; ex <- unique(ce$exposure_label); iv <- ce[ce$method == "mvivw", , drop = FALSE]
+    mvk <- mvk + 1L; ce <- cx$ce; ex <- unique(ce$exposure_label); iv <- ce[ce$method == "mvivw", , drop = FALSE]
     line <- vapply(ex, function(x) { r <- ce[ce$exposure_label == x, , drop = FALSE]
       sprintf("%s: %s", x, paste(sprintf("%s %s", .short_mv(r$method), vapply(seq_len(nrow(r)), function(i) .ci_phrase(r[i, ], r$scale[i]), "")), collapse = "; ")) }, "")
     cf <- if (length(cx$cond_f)) paste(sprintf("%s %s", cx$labels[seq_along(cx$cond_f)], format(round(cx$cond_f, 1), nsmall = 1)), collapse = ", ") else ""
@@ -135,10 +141,14 @@ mv_add_text <- function(txt, mvx) {
       if (nzchar(cf)) sprintf(" Conditional F statistics: %s%s.", cf, if (any(cx$cond_f < 10, na.rm = TRUE)) "; at least one is below 10, so the estimates may be biased by weak instruments" else "") else "",
       q, if (nrow(ic)) sprintf(" The MVMR-Egger intercept was %s (P = %s).", .fnum(ic$estimate[1], 4), .fp(ic$p[1])) else "",
       if (!is.null(led$union) && !isTRUE(cx$simulated)) sprintf(" Of %d candidate instruments (%s), %d remained after joint clumping and %d had every exposure and the outcome.", as.integer(led$union), paste(sprintf("%s %d", led$exposures, as.integer(led$own)), collapse = ", "), as.integer(led$clumped), as.integer(led$final)) else ""))
-    txt$legends <- c(txt$legends, sprintf("Figure. Direct effects of %s on %s from multivariable MR: for each exposure, the estimate and %s confidence interval of each method, conditional on the other exposures.", paste(ex, collapse = ", "), cx$p$outName, "95%"), "")
+    txt$legends <- c(txt$legends, sprintf("Figure %d. Direct effects of %s on %s from multivariable MR: for each exposure, the estimate and %s confidence interval of each method, conditional on the other exposures. A scatter plot is not drawn for multivariable MR, because each variant has an effect on every exposure.", mvk, paste(ex, collapse = ", "), cx$p$outName, "95%"), "")
   }
   sim <- "SIMULATED DATA: at least one pair uses simulated demonstration traits. These results illustrate the software and must not be presented as scientific findings."
   if (any(vapply(mvx, `[[`, TRUE, "simulated")) && !(sim %in% txt$limitations)) txt$limitations <- c(txt$limitations, sim)
+  # Round 96: the overlap the analyst stated, and where the summary statistics came from (both were missing from MVMR reports)
+  ov <- Filter(function(x) !is.null(x$overlap), mvx); if (length(ov) && exists("overlap_limitations")) { o <- lapply(ov, function(x) { x$p$exName <- paste(x$labels, collapse = ", "); x }); txt$limitations <- unique(c(txt$limitations, overlap_limitations(o))) }
+  src <- unique(unlist(lapply(mvx, `[[`, "sources")))
+  if (length(src)) { og <- grepl("^OpenGWAS:", src); txt$availability <- unique(c(sprintf("Summary statistics were %s.", paste(c(if (any(og)) sprintf("obtained from the public OpenGWAS database (api.opengwas.io), dataset IDs %s", paste(sub("^OpenGWAS:", "", src[og]), collapse = ", ")), if (any(!og)) sprintf("read from the files %s [add the public source, accession number or DOI of each file]", paste(src[!og], collapse = ", "))), collapse = "; and ")), txt$availability)) }
   txt$limitations <- c(txt$limitations, "Multivariable MR estimates are direct effects conditional on the exposures included in the model; they change if exposures are added or removed, and they assume that each variant affects the outcome only through the exposures in the model. The conditional F statistic assumes that the exposure samples do not overlap.")
   txt
 }

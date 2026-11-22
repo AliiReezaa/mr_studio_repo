@@ -4,10 +4,12 @@
 # The study folder is what the user sees and keeps; the hidden `.engine/` folder inside it holds
 # project.sqlite and the blobs (unchanged from contracts v1.0.0).
 
-STUDY_FOLDERS <- c("01_study_plan", "02_datasets", "03_pairs", "04_across_pairs",
-                   "05_report_and_supplement", "06_reproducibility", "archive")
-PAIR_SUBFOLDERS <- c("01_data", "02_scripts", "03_console", "04_tables", "05_figures",
-                     "06_method_reports", "07_replay_check", "08_outlier_analysis")
+# Round 96: 05_report_and_supplement and 06_reproducibility were never written (the package goes to 05_publication), so they
+# are no longer created; folders a study uses only sometimes are created when first written.
+STUDY_FOLDERS <- c("01_study_plan", "02_datasets", "03_pairs", "04_across_pairs", "archive")
+# Round 96: 05_figures and 06_method_reports were never written and 08_outlier_analysis is created by the outlier analysis
+# itself, so a pair no longer gets them empty. Folder names stay as they were, so earlier studies and scripts keep working.
+PAIR_SUBFOLDERS <- c("01_data", "02_scripts", "03_console", "04_tables", "07_replay_check")
 MAX_PATH_CHARS <- 240L          # Windows limit with a safety margin (C9)
 MANIFEST_COLS <- c("relative_path", "sha256", "bytes", "role", "task_id", "created_by", "version")
 

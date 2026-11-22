@@ -1,5 +1,8 @@
 # Publication package for MR Studio (Round 9). Base R only: no packages beyond the ones the engine already needs.
 
+# Round 96: folders an analysis did not use (figures, method reports, outlier analysis) are left out of the package
+.rm_empty_dirs <- function(dir) { d <- list.dirs(dir, recursive = TRUE, full.names = TRUE); d <- d[order(-nchar(d))]
+  for (x in d) if (!identical(normalizePath(x), normalizePath(dir)) && !length(list.files(x, all.files = TRUE, no.. = TRUE))) unlink(x, recursive = TRUE); invisible(dir) }
 .mrs_ver <- function() if (exists("MRS_VERSION")) MRS_VERSION else "(version unknown)"
 # Everything written here is a DRAFT for the author to check: numbers come from the saved result tables of the study,
 # texts are assembled from the settings recorded in the generated scripts, and every limitation that applies is stated.
@@ -246,7 +249,8 @@ pair_context <- function(h, p) {
   nx <- if (!is.null(dd$n_x)) stats::median(dd$n_x, na.rm = TRUE) else NA_real_; ny <- if (!is.null(dd$n_y)) stats::median(dd$n_y, na.rm = TRUE) else NA_real_
   rc <- file.path(h$dir, "03_pairs", p$folder, "02_scripts", "00_run_all.R"); sc <- Sys.glob(file.path(h$dir, "03_pairs", p$folder, "02_scripts", "[0-9]*_*.R"))
   srcname <- function(id, role) if (startsWith(id, "lib:")) tryCatch({ r <- library_recipe(sub("^lib:", "", id)); list(file = r$original$file, ancestry = .gwas_pop(r) %||% r$facts$ancestry %||% "unknown",   # Round 80: the GWAS population OpenGWAS gives, not the clumping panel
-       n = r$facts$n %||% "", og = if (identical(r$source$type, "opengwas")) r$source else NULL) }, error = function(e) list(file = "(file no longer in the library)", ancestry = "unknown", n = "")) else list(file = NA_character_, ancestry = "EUR", n = "")
+       n = r$facts$n %||% "", og = if (identical(r$source$type, "opengwas")) r$source else NULL,
+       mv = if (identical(r$source$type, "opengwas_mv")) r$source else NULL) }, error = function(e) list(file = "(file no longer in the library)", ancestry = "unknown", n = "")) else list(file = NA_character_, ancestry = "EUR", n = "")
   list(p = p, pay = pay, est = est, ce = ce, vars = v, kept = kept, mean_f = mean(Fs), min_f = min(Fs), n_weak = sum(Fs < 10), settings = st, nx = nx, ny = ny,
        simulated = isTRUE(p$simulated) || !startsWith(p$ex %||% "", "lib:"), ledger = p$ledger, pthr = p$pthr %||% 5e-8, src_x = srcname(p$ex, "exposure"), src_y = srcname(p$out, "outcome"), methods = unlist(p$methods), scripts = sc,
        overlap = tryCatch(overlap_get(h)[[overlap_key(p$ex %||% "", p$out %||% "")]], error = function(e) NULL),
@@ -505,26 +509,29 @@ report_text <- function(ctxs, study_name) {
                     sprintf("Figure %d. Scatter plot of variant effects. Each point is one variant: its effect on %s (x) and on %s (y), with %s intervals for the outcome effect. Variants are oriented so that the exposure effect is positive. Lines show the slope of each method; the MR-Egger line includes its intercept.", 2L * fi, cx$p$exName, cx$p$outName, "95%")) }
   # Round 39: leave-one-out results sentence per pair and the supplementary figure legends.
   sn <- 0L; txt$supp <- vector("list", length(ctxs))
+  # Round 96: a radial plot for each pair that ran radial MR without an outlier analysis (which draws its own); figures are numbered in order
+  .rad_ran <- function(cx) any(c("radial", "radegger") %in% cx$ce$method) && is.null(cx$outl)
   for (i in seq_along(ctxs)) { cx <- ctxs[[i]]; lf <- loo_facts(cx); iv <- cx$ce[cx$ce$method == "ivw_mre", , drop = FALSE]; if (is.null(lf) || !nrow(iv)) next
-    sn <- sn + 1L; full <- iv$estimate[1]; ch <- lf$loo_b - full; j <- which.max(abs(ch)); flip <- lf$id[sign(lf$loo_b) != sign(full)]
+    s1 <- sn + 1L; s2 <- sn + 2L; s3 <- if (.rad_ran(cx)) sn + 3L else NA_integer_; sn <- if (is.na(s3)) s2 else s3; full <- iv$estimate[1]; ch <- lf$loo_b - full; j <- which.max(abs(ch)); flip <- lf$id[sign(lf$loo_b) != sign(full)]
     lost <- if (iv$p[1] < 0.05) lf$id[lf$loo_p >= 0.05] else character(0); nm <- function(x) if (length(x) <= 5) paste(x, collapse = ", ") else sprintf("%s and %d other variants", paste(x[1:5], collapse = ", "), length(x) - 5L)
     txt$results <- c(txt$results, sprintf("Leave-one-out analysis (%s -> %s): with each of the %d variants left out in turn, the IVW estimate ranged from %s to %s (all variants: %s); the largest change, %s%% of the estimate, came from leaving out %s. %s%s The single-variant estimates are shown in a funnel plot (Supplementary Figures S%d and S%d).",
       cx$p$exName, cx$p$outName, nrow(lf), .fnum(min(lf$loo_b)), .fnum(max(lf$loo_b)), .fnum(full), .fnum(100 * abs(ch[j]) / abs(full), 1), lf$id[j],
       if (length(flip)) sprintf("Leaving out %s reversed the direction of the estimate.", nm(flip)) else "No single variant reversed the direction of the estimate.",
       if (iv$p[1] < 0.05) (if (length(lost)) sprintf(" Leaving out %s raised its P value to 0.05 or above.", nm(lost)) else " Its P value stayed below 0.05 whichever variant was left out.") else "",
-      2L * sn - 1L, 2L * sn))
+      s1, s2))
     sf2 <- subset_facts(cx$pay)   # Round 43 (FR-105)
     if (!is.null(sf2)) txt$results <- c(txt$results, paste0(sprintf("The strongest variant, %s, carried %s%% of the total IVW weight; without it the estimate was %s.", sf2$dom_id, .fnum(100 * sf2$dom_share, 1), .fnum(sf2$dom_without)),
       if (sf2$lso) sprintf(" Leaving out random subsets (%s, %d repeats with a fixed seed), 95%% of the IVW estimates lay between %s and %s (median %s; range %s to %s) [Burgess 2023].", sf2$lso_note, sf2$lso_n, .fnum(sf2$lso_lo), .fnum(sf2$lso_hi), .fnum(sf2$lso_med), .fnum(sf2$lso_min), .fnum(sf2$lso_max)) else ""))
     ln <- intersect(c("ivw_mre", "egger"), cx$ce$method)
-    txt$supp[[i]] <- c(sprintf("Supplementary Figure S%d. Leave-one-out analysis of %s on %s: the IVW estimate with each variant left out in turn, with %s confidence intervals; the bottom row uses all %d variants.%s", 2L * sn - 1L, cx$p$exName, cx$p$outName, .pct(iv$ci_level[1]), nrow(lf),
+    txt$supp[[i]] <- c(sprintf("Supplementary Figure S%d. Leave-one-out analysis of %s on %s: the IVW estimate with each variant left out in turn, with %s confidence intervals; the bottom row uses all %d variants.%s", s1, cx$p$exName, cx$p$outName, .pct(iv$ci_level[1]), nrow(lf),
                          if (nrow(lf) > LOO_PLOT_MAX) sprintf(" Only the %d variants whose removal changed the estimate most are shown; all %d are in the supplementary table.", LOO_PLOT_SHOWN, nrow(lf)) else ""),
-                       sprintf("Supplementary Figure S%d. Funnel plot of the single-variant (Wald ratio) estimates of %s on %s against their precision (1 / standard error). Vertical lines show the %s estimate%s using all variants. Asymmetry can indicate directional pleiotropy. Right: density of the same estimates weighted by their precision, with a tick for each variant; several peaks can indicate groups of variants with different effects.", 2L * sn, cx$p$exName, cx$p$outName, paste(.short[ln], collapse = " and "), if (length(ln) > 1) "s" else ""))
+                       sprintf("Supplementary Figure S%d. Funnel plot of the single-variant (Wald ratio) estimates of %s on %s against their precision (1 / standard error). Vertical lines show the %s estimate%s using all variants. Asymmetry can indicate directional pleiotropy. Right: density of the same estimates weighted by their precision, with a tick for each variant; several peaks can indicate groups of variants with different effects.", s2, cx$p$exName, cx$p$outName, paste(.short[ln], collapse = " and "), if (length(ln) > 1) "s" else ""),
+                       if (!is.na(s3)) sprintf("Supplementary Figure S%d. Radial plot of %s on %s: each point is one variant, its ratio estimate times the square root of its weight against the square root of its weight; the line is the IVW estimate. Points far from the line contribute most to Cochran's Q [Bowden 2018].", s3, cx$p$exName, cx$p$outName) else NULL)
   }
   bd <- bidir_pairs(ctxs)   # Round 45: bidirectional MR
   if (length(bd)) { txt$methods <- c(txt$methods, BIDIR_METHODS_TEXT); txt$limitations <- c(txt$limitations, BIDIR_LIMITS_TEXT)
     for (ij in bd) txt$results <- c(txt$results, bidir_results_text(ctxs[[ij[1]]], ctxs[[ij[2]]])) }
-  txt$supp_out <- vector("list", length(ctxs)); so <- 2L * sn   # Round 44: outlier figures follow the leave-one-out ones
+  txt$supp_out <- vector("list", length(ctxs)); so <- sn   # Round 44: outlier figures follow the leave-one-out ones
   for (i in seq_along(ctxs)) { ol <- ctxs[[i]]$outl; if (is.null(ol)) next
     ag <- outlier_agreement(ol); txt$supp_out[[i]] <- outlier_legends(ol, ctxs[[i]], so + 1L, ag, loo = outlier_has_loo(ctxs[[i]])); so <- so + length(txt$supp_out[[i]]) }
   txt
@@ -597,6 +604,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
         fl <- lapply(intersect(c("ivw_mre", "egger"), ce$method), function(m) list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else 2, b = ce$estimate[ce$method == m][1]))
         fu <- .fig_write(file.path(pk, "figures", paste0(tag, "_funnel")), wmm, round(wmm * 0.75), function() .draw_funnel(lf, fl))
         figs[[i]]$loo <- lo; figs[[i]]$funnel <- fu; figs[[i]]$lh <- lh; for (f in c(lo, fu)) add(f)
+        if (any(c("radial", "radegger") %in% ce$method) && is.null(cx$outl) && exists("draw_outlier_radial")) { rd <- .fig_write(file.path(pk, "figures", paste0(tag, "_radial")), wmm, round(wmm * 0.75), function() draw_outlier_radial(cx$pay, NULL, est$unit[1])); figs[[i]]$rad <- rd; for (f in rd) add(f) }   # Round 96
       }
       ol <- cx$outl   # Round 44: outlier comparison and agreement figures (FR-98)
       if (!is.null(ol) && exists("draw_outlier_comparison")) {
@@ -612,7 +620,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     if (!length(Filter(Negate(is.null), figs))) note <- c(note, "No figures could be drawn on this computer.")
     if (!isTRUE(unname(capabilities("cairo")))) note <- c(note, "SVG and PNG figures need the cairo graphics library, which this R does not have. The PDF figures were written.")
   }
-  if ("scripts" %in% items) { dst <- file.path(pk, "scripts_and_tables"); dir.create(dst); for (p in pairs) { file.copy(file.path(h$dir, "03_pairs", p$folder), dst, recursive = TRUE) }; add(dst) }
+  if ("scripts" %in% items) { dst <- file.path(pk, "scripts_and_tables"); dir.create(dst); for (d in list.dirs(file.path(h$dir, "03_pairs"), recursive = FALSE)) { file.copy(d, dst, recursive = TRUE) }; .rm_empty_dirs(dst); add(dst) }   # Round 96: every pair folder, as in the capsule (outlier reruns too)
   if ("tables" %in% items) {
     .say("Building the supplement workbook: estimates, settings and the instruments of every pair", "A supplement with every instrument and setting lets reviewers check the analysis.")
     est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { e <- ctxs[[i]]$est; data.frame(pair = i, exposure = ctxs[[i]]$p$exName, outcome = ctxs[[i]]$p$outName, e, check.names = FALSE, stringsAsFactors = FALSE) }))
@@ -633,7 +641,8 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
       for (i in seq_along(figs)) { f <- figs[[i]]; if (is.null(f$loo) || is.null(.nth(txt$supp, i))) next
         lp <- grep("\\.png$", f$loo, value = TRUE); fp <- grep("\\.png$", f$funnel, value = TRUE)
         if (length(lp)) b[[length(b) + 1L]] <- list(type = "image", file = lp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * f$lh / wmm, alt = txt$supp[[i]][1]); P(txt$supp[[i]][1])
-        if (length(fp)) b[[length(b) + 1L]] <- list(type = "image", file = fp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * 0.75, alt = txt$supp[[i]][2]); P(txt$supp[[i]][2]) }
+        if (length(fp)) b[[length(b) + 1L]] <- list(type = "image", file = fp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * 0.75, alt = txt$supp[[i]][2]); P(txt$supp[[i]][2])
+        rp <- grep("\\.png$", f$rad, value = TRUE); if (length(rp) && length(txt$supp[[i]]) >= 3L) { b[[length(b) + 1L]] <- list(type = "image", file = rp, width_mm = min(wmm, 160), height_mm = min(wmm, 160) * 0.75, alt = txt$supp[[i]][3]); P(txt$supp[[i]][3]) } }
       for (i in seq_along(figs)) { f <- figs[[i]]; so <- .nth(txt$supp_out, i); if (is.null(f$oc) || is.null(so)) next   # Round 44
         im <- list(comparison = list(f$oc, f$oh / wmm), agreement = list(f$oa, NA), radial = list(f$or, 0.75), loo = list(f$ol, 55 / wmm))
         for (k in names(so)) { pn <- grep("\\.png$", im[[k]][[1]], value = TRUE); if (!length(pn)) next
@@ -652,7 +661,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
       gsub("url(#", paste0("url(#", p), gsub("href=\"#", paste0("href=\"#", p), gsub(" id=\"", paste0(" id=\"", p), x, fixed = TRUE), fixed = TRUE), fixed = TRUE) }
     sect <- function(t, ps) sprintf("<h2>%s</h2>%s", esc(t), paste(sprintf("<p>%s</p>", esc(ps)), collapse = "\n"))
     figh <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f)) "" else if (is.null(f$scatter)) sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(f$forest), esc(txt$legends[2L * i - 1L])) else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$forest), esc(txt$legends[2L * i - 1L]), svgs(f$scatter), esc(txt$legends[2L * i])) }, ""), collapse = "\n")
-    supph <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f$loo) || is.null(.nth(txt$supp, i))) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$loo), esc(txt$supp[[i]][1]), svgs(f$funnel), esc(txt$supp[[i]][2])) }, ""), collapse = "\n")   # Round 39
+    supph <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f$loo) || is.null(.nth(txt$supp, i))) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$loo), esc(txt$supp[[i]][1]), svgs(f$funnel), esc(txt$supp[[i]][2])) |> paste0(if (length(f$rad) && length(txt$supp[[i]]) >= 3L) sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(f$rad), esc(txt$supp[[i]][3])) else "") }, ""), collapse = "\n")   # Round 39; Round 96: radial
     supph <- paste0(supph, paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; so <- .nth(txt$supp_out, i); if (is.null(f$oc) || is.null(so)) "" else   # Round 44
       paste(vapply(names(so), function(k) { fl <- switch(k, comparison = f$oc, agreement = f$oa, radial = f$or, loo = f$ol); if (!length(fl)) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(fl), esc(so[[k]])) }, ""), collapse = "") }, ""), collapse = ""))
     if (nzchar(supph)) supph <- paste0("<h2>Supplementary figures</h2>", supph)

@@ -90,7 +90,7 @@ const PUB = { 'Nature-family': ['89 mm', '120 to 136 mm', '183 mm'], 'Cell Press
 const PUB_SRC = { 'Nature-family': 'Nature final submission guidelines', 'Cell Press': 'Cell Press figure guidelines', 'Elsevier': 'Elsevier artwork sizing guidelines', 'Springer': 'Springer artwork guidelines for journals' };
 const PUB_CHECKED = '17 November 2026';
 const EXPORT_ITEMS = [['scripts', 'Scripts and data tables', 'The R scripts, the analysis data and every result table (CSV), copied for every pair', 'R · CSV', true],
-  ['report', 'Full report', 'Summary table, methods, results, figures, limitations and references', 'DOCX · PDF · HTML', true], ['figs', 'Figures', 'Forest and scatter plot for every pair, at your journal width', 'PDF · SVG · PNG', true],
+  ['report', 'Full report', 'Summary table, methods, results, figures, limitations and references', 'DOCX · PDF · HTML', true], ['figs', 'Figures', 'Forest and scatter plot for every pair (multivariable: forest plot of the direct effects), at your journal width', 'PDF · SVG · PNG', true],
   ['tables', 'Supplement workbook', 'Estimates, settings and the instruments of every pair', 'XLSX', true], ['text', 'Draft Methods, Results and Limitations', 'Filled with your numbers and settings, ready to edit', 'DOCX', true],
   ['strobe', 'STROBE-MR checklist', 'All 20 items and their sub-items, each marked filled from your study, partly filled, or for you to write', 'DOCX', true], ['refs', 'Citations', 'Every method and tool named in the text, checked against PubMed', 'BibTeX · RIS', true],
   ['capsule', 'Reproducibility capsule', 'Every pair folder with scripts, data, results and the replay check, plus the R version', 'ZIP', true]];

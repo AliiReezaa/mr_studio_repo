@@ -247,17 +247,18 @@ draw_outlier_agreement <- function(ag) {
 #' Round 47: radial plot (Bowden et al. 2018): x = |beta_x| / se_y, y = the variant's ratio estimate times x, so the IVW estimate (first-order
 #' weights) is the slope of a line through the origin. Variants flagged by any detector are filled orange; those removed in the adopted set
 #' are ringed. This is a drawing of the saved data, not a new estimate.
-draw_outlier_radial <- function(pay, ol, unit) {
+draw_outlier_radial <- function(pay, ol, unit) {   # Round 96: ol may be NULL (radial MR without an outlier analysis)
   v <- Filter(function(x) isTRUE(x$keep), pay$variants); bx <- vapply(v, function(x) .outl_num(x$bx), 0); by <- vapply(v, function(x) .outl_num(x$by), 0); sy <- vapply(v, function(x) .outl_num(x$sy), 0)
   id <- vapply(v, function(x) as.character(x$id), ""); xr <- abs(bx) / sy; yr <- (by / bx) * xr
-  fl <- unique(unlist(lapply(Filter(function(x) x$set %in% names(OUTLIER_DETECTORS), ol$scenarios), function(x) unlist(x$ids))))
-  ch <- Filter(function(x) identical(x$set, ol$chosen), ol$scenarios); rm <- if (length(ch)) unlist(ch[[1]]$ids) else character()
+  fl <- if (is.null(ol)) character() else unique(unlist(lapply(Filter(function(x) x$set %in% names(OUTLIER_DETECTORS), ol$scenarios), function(x) unlist(x$ids))))
+  ch <- if (is.null(ol)) list() else Filter(function(x) identical(x$set, ol$chosen), ol$scenarios); rm <- if (length(ch)) unlist(ch[[1]]$ids) else character()
   iv <- Filter(function(e) identical(e$method, "ivw_mre") && identical(e$estimand, "causal_effect"), pay$estimates); b <- if (length(iv)) .outl_num(iv[[1]]$estimate) else sum(bx * by / sy^2) / sum(bx^2 / sy^2)
-  op <- graphics::par(mar = c(3.4, 3.8, 0.8, 0.8), mgp = c(2, 0.6, 0), cex = 0.78, las = 1); on.exit(graphics::par(op))
+  op <- graphics::par(mar = c(4.4, 4.9, 0.8, 0.8), mgp = c(3.2, 0.6, 0), cex = 0.78, las = 1); on.exit(graphics::par(op))
   graphics::plot(xr, yr, type = "n", xlim = c(0, max(xr) * 1.05), xlab = "Square root of weight (|beta exposure| / SE outcome)", ylab = "Ratio estimate x square root of weight", bty = "l")
   graphics::abline(h = 0, col = "grey75"); graphics::abline(a = 0, b = b, col = "#2b3fc7", lwd = 2)
   f <- id %in% fl; graphics::points(xr[!f], yr[!f], pch = 16, cex = 0.7, col = "grey35"); graphics::points(xr[f], yr[f], pch = 16, cex = 0.95, col = "#d4874f")
   r <- id %in% rm; if (any(r)) graphics::points(xr[r], yr[r], pch = 1, cex = 1.7, lwd = 1.3, col = "#2b3fc7")
+  if (is.null(ol)) graphics::legend("bottomright", legend = sprintf("IVW slope (%s)", format(round(b, 3), nsmall = 3)), col = "#2b3fc7", lty = 1, lwd = 2, bty = "n", cex = 0.85) else
   graphics::legend("bottomright", legend = c(sprintf("IVW slope (%s)", format(round(b, 3), nsmall = 3)), "flagged by a detector", "removed in the adopted set"), col = c("#2b3fc7", "#d4874f", "#2b3fc7"),
                    lty = c(1, NA, NA), pch = c(NA, 16, 1), lwd = c(2, NA, 1.3), bty = "n", cex = 0.85)
 }
