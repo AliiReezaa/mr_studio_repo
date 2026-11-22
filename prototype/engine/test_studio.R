@@ -2447,4 +2447,12 @@ local({
          identical(.word_cut("CHD for LDL", 60L), "CHD for LDL"))
 })
 
+local({
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  expect("Round 94: pairs reused unchanged do not count as measured times, so they no longer shrink the time left to seconds ('5 sec', then 'soon')",
+         grepl("if (!m.reused) { r.times.push(", js, fixed = TRUE))
+  expect("Round 94: the Home card of a study running in the background says so, not 'No results yet'",
+         grepl("last.status === 'RUNNING' ? 'An analysis is running in the background. Open the study to follow it.'", js, fixed = TRUE))
+})
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)
