@@ -1,6 +1,9 @@
 # MR Studio engine: study logic used by the screen. No Shiny code in this file, so it can be tested without a browser.
 # Depends on the contracts v1.1 R code (loaded by load_contracts()).
 
+# App version, the same as prototype/shell/tauri.conf.json and Cargo.toml (a test checks they agree).
+MRS_VERSION <- "0.9.0"
+
 CONTRACT_FILES <- c("canonical.R", "adapter.R", "security.R", "runner.R", file.path("adapters", "reference_adapters.R"),
                     "script.R", file.path("adapters", "reference_adapters_v11.R"), "study.R")
 
@@ -664,6 +667,7 @@ folder_size_bytes <- function(path) {
 run_diagnostics <- function(root = studies_root(), net = FALSE) {
   chk <- function(name, expr) { r <- tryCatch(expr, error = function(e) list(ok = FALSE, detail = conditionMessage(e))); c(list(name = name), r) }
   Filter(Negate(is.null), list(
+    chk("MR Studio", list(ok = TRUE, detail = paste("version", MRS_VERSION))),
     chk("R engine", list(ok = TRUE, detail = R.version.string)),
     chk("TwoSampleMR package", list(ok = requireNamespace("TwoSampleMR", quietly = TRUE), detail = if (requireNamespace("TwoSampleMR", quietly = TRUE)) paste("version", as.character(utils::packageVersion("TwoSampleMR"))) else "not installed")),
     chk("Script runner (Rscript)", { r <- default_rscript(); list(ok = file.exists(r), detail = if (file.exists(r)) "found" else paste("missing:", r)) }),

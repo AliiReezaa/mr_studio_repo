@@ -1,6 +1,6 @@
 [package]
 name = "mr-studio"
-version = "0.1.0"
+version = "0.9.0"
 description = "MR Studio desktop shell (week-1 prototype)"
 edition = "2021"
 publish = false

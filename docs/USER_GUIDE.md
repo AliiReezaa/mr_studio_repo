@@ -29,6 +29,9 @@ Download the installer for your system from the project's Releases page on GitHu
 
 MR Studio includes everything it needs: R, the R packages of every method and PLINK. Nothing else has to be installed.
 
+This guide describes MR Studio 0.9.0. The version is shown in Settings and in Run diagnostics, and is written into every report,
+reproducibility capsule and STROBE-MR checklist.
+
 ## Before your first study
 
 Open **Settings > Data and access**.

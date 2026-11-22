@@ -48,7 +48,7 @@ jobs:
           - { os: macos-15-intel,  id: macos-x64 }
           - { os: windows-latest,  id: windows-x64 }
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 75   # Round 72d: the Intel Mac job took 45 min 15 s in run 44771853145 (every step passed; engine tests 18 min, installers 13 min); a hung job still stops here
+    timeout-minutes: 120   # Round 92: build-42 (run 44946687860) reached the old 75 min limit on a slow Intel Mac runner (installers 26 min, screen tests over 28 min) with no test failed; a hung job still stops here
     defaults:
       run:
         shell: bash -el {0}

@@ -311,7 +311,7 @@ mr_server <- function(engine_dir) {
       tryCatch((function() switch(t,
         init = {
           s <- settings_read(); root <- studies_root()
-          ev("init", settings = s, library = library_list(), templates = template_list(), studies = studies_overview(root), catalogue = catalogue_all(), schemas = param_schemas(), root = root, diag = run_diagnostics(root), ld = ld_panel_status(), fgjobs = fullgwas_jobs())
+          ev("init", version = MRS_VERSION, settings = s, library = library_list(), templates = template_list(), studies = studies_overview(root), catalogue = catalogue_all(), schemas = param_schemas(), root = root, diag = run_diagnostics(root), ld = ld_panel_status(), fgjobs = fullgwas_jobs())
           ogw_ev()
         },
         study_folder = open_in_file_manager(file.path(studies_root(), basename(a$name))),
