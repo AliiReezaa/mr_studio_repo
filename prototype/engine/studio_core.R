@@ -98,6 +98,7 @@ studio_open <- function(name, root = studies_root()) {
   if (!file.exists(file.path(dir, ".engine", "project.sqlite"))) stop("This folder is not a study: ", dir)
   study <- normalizePath(dir, winslash = "/", mustWork = TRUE)
   con <- db_open(file.path(study, ".engine"))
+  for (d in file.path(study, c("02_datasets", "04_across_pairs", "archive"))) if (dir.exists(d) && !length(list.files(d, all.files = TRUE, no.. = TRUE))) unlink(d, recursive = TRUE)   # Round 98: optional folders left empty by earlier versions
   if (!exists("bg_running", mode = "function") || !length(bg_running(study))) db_recover(con)    # a task left "running" by a crash goes back to pending (contracts C8); not while a background job of the study runs (Round 83)
   list(dir = study, con = con)
 }

@@ -129,6 +129,20 @@ mediation_run <- function(h, pairs, ci_level = 0.95, uni_method = "ivw_mre") {
 .mv_ids <- function(h, folder) { e <- utils::read.csv(file.path(h$dir, "03_pairs", folder, "04_tables", "mvivw_estimates.csv"), stringsAsFactors = FALSE)
   paste(unique(e$exposure_id[e$estimand == "direct_effect"]), collapse = "|") }
 
+#' Round 98: the rows of the mediation figure: total effect, then per mediator the direct and indirect effects, on the outcome scale.
+mediation_forest_df <- function(res) {
+  if (is.null(res) || !nrow(res)) return(data.frame())
+  r <- as.data.frame(res); attr(r, "spec") <- NULL; sc <- r$scale[r$quantity == "total"][1] %||% "beta"
+  pick <- function(m, me, q, lab) { x <- r[r$mediator == m & r$method == me & r$quantity == q, , drop = FALSE]; if (!nrow(x)) NULL else data.frame(label = lab, estimate = x$estimate[1], ci_lower = x$ci_lower[1], ci_upper = x$ci_upper[1], stringsAsFactors = FALSE) }
+  ms <- setdiff(unique(r$mediator), c("(none)", "(all together)"))
+  rows <- c(list(pick("(none)", "univariable", "total", "Total effect")), unlist(lapply(ms, function(m) list(pick(m, "MVMR", "direct", paste0(m, ": direct")), pick(m, "product", "indirect", paste0(m, ": indirect (product)")), pick(m, "difference", "indirect", paste0(m, ": indirect (difference)")))), recursive = FALSE),
+    list(pick("(all together)", "MVMR", "direct", "All mediators: direct"), pick("(all together)", "difference", "indirect", "All mediators: indirect (difference)")))
+  d <- do.call(rbind, Filter(Negate(is.null), rows)); if (is.null(d)) return(data.frame())
+  d$col <- ifelse(d$label == "Total effect", "#1b1b1b", ifelse(grepl("direct$", d$label) & !grepl("indirect", d$label), "#2b3fc7", "#b5552b"))
+  d$unit <- if (identical(sc, "log_or")) "log odds ratio" else "effect on outcome per unit of exposure"; d$ratio <- FALSE; d
+}
+mediation_legend <- function(spec, n) sprintf("Figure %d. Mediation of the effect of %s on %s: the total effect (univariable IVW), and for each mediator the direct effect (MVMR-IVW) and the indirect effect by the product and by the difference of coefficients, with 95%% confidence intervals (delta method).", as.integer(n), spec$x_label, spec$y_label)
+
 # ---- report text ----
 MEDIATION_METHODS_TEXT <- "Mediation was assessed with Mendelian randomization [Carter 2021]. The total effect of the exposure on the outcome was estimated by univariable MR, the effect of the exposure on each mediator by univariable MR with the exposure's instruments, and the direct effect of the exposure and the effect of each mediator given the exposure by multivariable MR (MVMR-IVW) with the instruments of both [Sanderson 2019]. The indirect effect was estimated by the product of coefficients (two-step MR: the effect of the exposure on the mediator times the effect of the mediator on the outcome given the exposure) and by the difference in coefficients (total minus direct effect), and the proportion mediated as the indirect effect divided by the total effect; standard errors were obtained with the delta method, treating the estimates as independent, as is usual with summary data [Carter 2019]."
 MEDIATION_LIMITS_TEXT <- "The mediation estimates assume no interaction between the exposure and the mediator, linear effects, valid instruments for both the exposure and the mediator, and no overlap between the samples of the exposure, mediator and outcome GWAS; the delta-method intervals ignore the correlation between the estimates. A proportion mediated is hard to interpret when the total effect is small or its confidence interval includes zero, or when the direct and indirect effects have opposite signs."

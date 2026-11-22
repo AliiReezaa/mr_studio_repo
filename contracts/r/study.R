@@ -6,7 +6,8 @@
 
 # Round 96: 05_report_and_supplement and 06_reproducibility were never written (the package goes to 05_publication), so they
 # are no longer created; folders a study uses only sometimes are created when first written.
-STUDY_FOLDERS <- c("01_study_plan", "02_datasets", "03_pairs", "04_across_pairs", "archive")
+# Round 98: 02_datasets, 04_across_pairs and archive are used only by some studies, so they too are created when first written.
+STUDY_FOLDERS <- c("01_study_plan", "03_pairs")
 # Round 96: 05_figures and 06_method_reports were never written and 08_outlier_analysis is created by the outlier analysis
 # itself, so a pair no longer gets them empty. Folder names stay as they were, so earlier studies and scripts keep working.
 PAIR_SUBFOLDERS <- c("01_data", "02_scripts", "03_console", "04_tables", "07_replay_check")

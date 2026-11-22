@@ -137,7 +137,9 @@ ogw_ensure_outcome <- function(src, label, exposure_name, py, jwt, offline, root
   hit <- Filter(function(r) identical(r$source$type, "opengwas") && identical(r$source$id, src$id) && identical(r$source$for_exposure, exposure_name) && .same_params(r$source$params, py, ky), .lib_recipes(root))
   if (length(hit)) { .say(sprintf("%s looked up for %s is already in the Data library, so it is reused", src$trait %||% label, exposure_name)); return(list(name = names(hit)[1], note = "")) }
   .say(sprintf("Looking up the instruments of %s in %s (%s) on OpenGWAS, with proxies where one is missing", exposure_name, src$trait %||% label, src$id), "Each instrument's effect on the outcome is needed; a proxy is a nearby variant in strong linkage (r² of at least 0.8) used when the instrument itself is missing.")
-  ny <- .free_name(.word_cut(sprintf("%s for %s", src$trait %||% label, exposure_name), 60L), root)
+  full <- sprintf("%s for %s", src$trait %||% label, exposure_name)   # Round 98: a long exposure name is shortened to its dataset tag, not cut mid-word
+  if (nchar(full) > 60L) { tag <- sub("^.*\\(([^()]+)\\)", "\\1", exposure_name); if (!identical(tag, exposure_name)) { alt <- sprintf("%s (%s) for %s", src$trait %||% label, src$id, tag); full <- if (nchar(alt) <= 60L) alt else sprintf("%s for %s", src$trait %||% label, tag) } }
+  ny <- .free_name(.word_cut(full, 60L), root)
   ny <- get_outcome(src$id, exposure_name, jwt, !identical(py$proxies, FALSE), as.numeric(py$rsq %||% 0.8), as.numeric(py$maf_threshold %||% 0.3), ny, offline, root = root)$trait
   list(name = ny, note = sprintf("downloaded \"%s\" as an outcome for %s", ny, exposure_name))
 }

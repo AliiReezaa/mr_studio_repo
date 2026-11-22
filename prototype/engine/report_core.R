@@ -163,6 +163,8 @@ refs_ris <- function(ids) paste(vapply(ids, function(i) { r <- REFS[[i]]; paste(
 # ---------- figures: one drawing function, written as PDF, SVG and PNG so they cannot disagree ----------
 .draw_forest <- function(est, title = NULL) {
   op <- graphics::par(mar = c(3.4, 8.6, 1.4, 1.2), mgp = c(1.9, 0.6, 0), cex = 0.78, las = 1); on.exit(graphics::par(op))
+  mi <- graphics::par("mai"); lw <- max(graphics::strwidth(est$label, units = "inches")) + 0.15   # Round 98: room for the longest label (up to half the width)
+  if (lw > mi[2]) { mi[2] <- min(lw, graphics::par("din")[1] * 0.5); graphics::par(mai = mi) }
   k <- nrow(est); xl <- range(c(est$ci_lower, est$ci_upper, 0), na.rm = TRUE); pad <- diff(xl) * 0.06
   graphics::plot(NA, xlim = xl + c(-pad, pad), ylim = c(k + 0.6, 0.4), yaxt = "n", xlab = est$unit[1], ylab = "", bty = "n")
   graphics::abline(v = if (isTRUE(est$ratio[1])) 1 else 0, lty = 2, col = "grey55"); graphics::axis(2, at = seq_len(k), labels = est$label, tick = FALSE)
@@ -252,7 +254,7 @@ pair_context <- function(h, p) {
        n = r$facts$n %||% "", og = if (identical(r$source$type, "opengwas")) r$source else NULL,
        mv = if (identical(r$source$type, "opengwas_mv")) r$source else NULL) }, error = function(e) list(file = "(file no longer in the library)", ancestry = "unknown", n = "")) else list(file = NA_character_, ancestry = "EUR", n = "")
   list(p = p, pay = pay, est = est, ce = ce, vars = v, kept = kept, mean_f = mean(Fs), min_f = min(Fs), n_weak = sum(Fs < 10), settings = st, nx = nx, ny = ny,
-       simulated = isTRUE(p$simulated) || !startsWith(p$ex %||% "", "lib:"), ledger = p$ledger, pthr = p$pthr %||% 5e-8, src_x = srcname(p$ex, "exposure"), src_y = srcname(p$out, "outcome"), methods = unlist(p$methods), scripts = sc,
+       simulated = isTRUE(p$simulated) || !startsWith(p$ex %||% "", "lib:"), ledger = p$ledger, pthr = p$pthr %||% 5e-8, src_x = srcname(p$ex, "exposure"), src_y = srcname(if (identical(p$med$role, "xm") && !is.null(p$med$m_out)) p$med$m_out else p$out, "outcome"), methods = unlist(p$methods), scripts = sc,
        overlap = tryCatch(overlap_get(h)[[overlap_key(p$ex %||% "", p$out %||% "")]], error = function(e) NULL),
        ties_sens = tryCatch({ ts <- Filter(function(x) identical(x$kind, "ties") && identical(x$parent, p$folder), ui_state_get(h$con, "sens") %||% list())
          if (length(ts) && dir.exists(file.path(h$dir, "03_pairs", ts[[1]]$folder))) list(pay = pair_payload(h$dir, ts[[1]]$folder), regions = ts[[1]]$regions %||% p$ledger$ties$regions, n_out = length(unlist(p$ledger$ties$out)), n_in = length(unlist(p$ledger$ties[["in"]])), folder = ts[[1]]$folder) else NULL }, error = function(e) NULL),
@@ -500,7 +502,7 @@ report_text <- function(ctxs, study_name) {
            if (any(c("presso", "radial", "radegger") %in% used)) "Variants flagged by MR-PRESSO or radial MR were reported but not removed from the primary analysis. Detectors flag variants by a statistical rule and cannot tell horizontal pleiotropy from valid heterogeneity; any analysis without flagged variants is a post-hoc sensitivity analysis and must be reported as one [Burgess 2023]." else "Outlier detection (MR-PRESSO, radial MR) was not run in this study. Pleiotropy-robust estimators were compared with the IVW estimate; agreement in direction does not prove the assumptions hold.",
            "No correction for multiple testing was applied across pairs.")
   txt$limitations <- lim
-  src <- unique(unlist(lapply(ctxs, function(cx) c(if (!cx$simulated) cx$src_x$file, if (!cx$simulated) cx$src_y$file))))
+  src <- unique(unlist(lapply(ctxs, function(cx) c(if (!cx$simulated) cx$src_x$file, if (!cx$simulated) cx$src_y$file)))); txt$src <- src
   txt$availability <- c(if (length(src)) sprintf("Summary statistics were %s: %s.%s", if (all(grepl("^OpenGWAS:", src))) "obtained from the public OpenGWAS database (api.opengwas.io), dataset IDs" else "read from the following files", paste(sub("^OpenGWAS:", "", src), collapse = "; "), if (all(grepl("^OpenGWAS:", src))) "" else " [Add the public source, accession number or DOI of each file.]") else "No external data were used: the traits are simulated by MR Studio.",
                         "The analysis scripts, the harmonised data tables used in every calculation, all result tables and the replay check are provided in the reproducibility package of this study.")
   fi <- 0L
@@ -555,7 +557,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   add <- function(f) made <<- c(made, substring(f, nchar(h$dir) + 2L))
   txt <- report_text(ctxs, basename(h$dir))
   med <- if (any(vapply(pairs, function(p) !is.null(p$med), TRUE))) tryCatch(mediation_run(h, pairs), error = function(e) NULL) else NULL   # Round 57: mediation
-  if (!is.null(med)) { txt$methods <- c(txt$methods, MEDIATION_METHODS_TEXT); txt$results <- c(txt$results, mediation_results_text(med, attr(med, "spec"))); txt$limitations <- c(txt$limitations, MEDIATION_LIMITS_TEXT) }
+  if (!is.null(med)) { txt$methods <- c(txt$methods, MEDIATION_METHODS_TEXT); txt$results <- c(txt$results, mediation_results_text(med, attr(med, "spec"))); txt$limitations <- c(setdiff(txt$limitations, "No correction for multiple testing was applied across pairs."), MEDIATION_LIMITS_TEXT) }   # Round 98: the steps of one mediation analysis are not separate tests
   bcm <- if (exists("bidir_cml_run") && any(vapply(pairs, function(p) isTRUE(p$rev), TRUE)) && requireNamespace("BiDirectCausal", quietly = TRUE)) tryCatch(Filter(is.data.frame, bidir_cml_run(h, pairs, reuse = TRUE)), error = function(e) list()) else list()   # Round 63; Round 95: the saved result is reused
   if (any(vapply(pairs, function(p) isTRUE(p$rev), TRUE))) txt$methods <- c(txt$methods, "The study was bidirectional: each pair was also analysed in the reverse direction as a separate two-sample MR, with the instruments of the outcome trait and their effects looked up in the exposure trait.")   # Round 95
   if (length(bcm)) { txt$methods <- c(txt$methods, BIDIR_CML_METHODS_TEXT); txt$results <- c(txt$results, unlist(lapply(bcm, bidir_cml_text))) }
@@ -617,16 +619,21 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
         ob <- if (!is.null(la)) .fig_write(file.path(pk, "figures", paste0(tag, "_outlier_leave_one_out")), wmm, 55, function() draw_outlier_loo(lb, la, ce$estimate[ce$method == "ivw_mre"][1], ol$chosen_ivw$estimate[1], est$unit[1])) else character()
         figs[[i]]$oc <- oc; figs[[i]]$oa <- oa; figs[[i]]$oh <- oh; figs[[i]]$ah <- ah; figs[[i]]$or <- rr; figs[[i]]$ol <- ob; for (f in c(oc, oa, rr, ob)) add(f)
       } }
+    if (!is.null(med)) { md <- mediation_forest_df(med); if (nrow(md)) {   # Round 98: the mediation estimates as a figure
+      lg <- txt$legends; length(lg) <- 2L * length(ctxs); lg[is.na(lg)] <- ""; k <- length(ctxs) + 1L; fh <- max(40, 22 + 8 * nrow(md))
+      mf <- .fig_write(file.path(pk, "figures", "mediation_forest"), wmm, fh, function() .draw_forest(md)); figs[[k]] <- list(forest = mf, fh = fh); for (f in mf) add(f)
+      txt$legends <- c(lg, mediation_legend(attr(med, "spec"), sum(grepl("^Figure [0-9]+\\.", lg)) + 1L), "") } }
     if (!length(Filter(Negate(is.null), figs))) note <- c(note, "No figures could be drawn on this computer.")
     if (!isTRUE(unname(capabilities("cairo")))) note <- c(note, "SVG and PNG figures need the cairo graphics library, which this R does not have. The PDF figures were written.")
   }
-  if ("scripts" %in% items) { dst <- file.path(pk, "scripts_and_tables"); dir.create(dst); for (d in list.dirs(file.path(h$dir, "03_pairs"), recursive = FALSE)) { file.copy(d, dst, recursive = TRUE) }; .rm_empty_dirs(dst); add(dst) }   # Round 96: every pair folder, as in the capsule (outlier reruns too)
+  if ("scripts" %in% items) { dst <- file.path(pk, "scripts_and_tables"); dir.create(dst); for (d in list.dirs(file.path(h$dir, "03_pairs"), recursive = FALSE)) { file.copy(d, dst, recursive = TRUE) }; if (dir.exists(file.path(h$dir, "04_across_pairs"))) file.copy(file.path(h$dir, "04_across_pairs"), dst, recursive = TRUE); .rm_empty_dirs(dst); add(dst) }   # Round 96: every pair folder, as in the capsule (outlier reruns too)
   if ("tables" %in% items) {
     .say("Building the supplement workbook: estimates, settings and the instruments of every pair", "A supplement with every instrument and setting lets reviewers check the analysis.")
     est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { e <- ctxs[[i]]$est; data.frame(pair = i, exposure = ctxs[[i]]$p$exName, outcome = ctxs[[i]]$p$outName, e, check.names = FALSE, stringsAsFactors = FALSE) }))
     sheets <- list(Estimates = est, Settings = do.call(rbind, lapply(seq_along(ctxs), function(i) { s <- ctxs[[i]]$settings; data.frame(pair = i, setting = names(s), value = vapply(s, function(v) paste(v, collapse = ","), ""), stringsAsFactors = FALSE) })))
     for (i in seq_along(ctxs)) sheets[[sprintf("Pair %d variants", i)]] <- if (isTRUE(ctxs[[i]]$mv)) { f <- Sys.glob(file.path(h$dir, "03_pairs", ctxs[[i]]$p$folder, "01_data", "analysis_data_*.csv")); if (length(f)) utils::read.csv(f[1], stringsAsFactors = FALSE) else data.frame() } else transform(ctxs[[i]]$vars, ratio = by / bx, F = (bx / sx)^2)
     for (i in seq_along(ctxs)) { lf <- loo_facts(ctxs[[i]]); if (!is.null(lf)) sheets[[sprintf("Pair %d leave-one-out", i)]] <- stats::setNames(lf, c("variant_left_out", "ivw_estimate_without", "ivw_se_without", "ivw_p_without", "wald_ratio", "wald_ratio_se", "wald_ratio_p")) }
+    if (!is.null(med)) { ms <- as.data.frame(med); attr(ms, "spec") <- NULL; sheets[["Mediation"]] <- ms }   # Round 98
     f <- file.path(pk, "supplement_tables.xlsx"); xlsx_write(f, sheets); add(f)
   }
   if ("refs" %in% items) { .say("Collecting the citations of every method and tool named in the text", "Each reference was checked against PubMed when MR Studio was built."); f1 <- file.path(pk, "references.bib"); writeLines(refs_bibtex(used), f1, useBytes = TRUE); f2 <- file.path(pk, "references.ris"); writeLines(refs_ris(used), f2, useBytes = TRUE); add(f1); add(f2) }
@@ -672,7 +679,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   }
   if ("capsule" %in% items) {
     .say("Packing the reproducibility capsule: every pair folder with its scripts, data, results and replay check, and the R version", "Anyone can rerun the whole analysis from the capsule and compare the numbers.")
-    fs <- list.files(file.path(h$dir, "03_pairs"), recursive = TRUE, full.names = TRUE); rel <- substring(fs, nchar(h$dir) + 2L)
+    fs <- list.files(file.path(h$dir, c("03_pairs", "04_across_pairs")), recursive = TRUE, full.names = TRUE); rel <- substring(fs, nchar(h$dir) + 2L)   # Round 98: with the analyses across pairs
     ent <- setNames(lapply(fs, .file_raw), rel)
     ent[["SESSION.txt"]] <- .txt(c(sprintf("MR Studio reproducibility capsule, written %s", format(Sys.time())), sprintf("MR Studio version: %s", .mrs_ver()), R.version.string, sprintf("Platform: %s", R.version$platform), sprintf("TwoSampleMR commit pinned by the adapters: %s", ADAPTER_IVW_MRE_V11$packages$TwoSampleMR), "", "Each pair folder holds its scripts (02_scripts), data (01_data), results (04_tables), console output and replay check. Open a pair folder and run 02_scripts/00_run_all.R from it."))
     f <- file.path(pk, "reproducibility_capsule.zip"); zip_write(f, ent); add(f)

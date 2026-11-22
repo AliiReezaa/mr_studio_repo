@@ -127,7 +127,7 @@ mv_add_text <- function(txt, mvx) {
       if ("mvqhet" %in% used) sprintf("Q-statistic minimisation, which estimates the direct effects by minimising Q_A and so is robust to weak instruments, with an additive heterogeneity variance when the minimum exceeds its degrees of freedom and %s [Sanderson 2021]",
         if (identical(st$mv_qhet_ci, "bootstrap")) sprintf("bias-corrected and accelerated bootstrap intervals (%s iterations)", format(st$mv_qhet_iter %||% 1000)) else "jackknife standard errors (leaving out one variant at a time)")), collapse = "; "),
     ". Instrument strength was assessed with the conditional F statistic of each exposure (values below 10 indicate weak instruments), and heterogeneity with Cochran's Q of the MVMR-IVW fit and with Q_A, which also allows for the uncertainty of the variant-exposure associations [Sanderson 2021]; ", .mv_cov_text(st, mvx[[1]]$labels, mvx[[1]]$cov_source), "."))
-  mvk <- 0L
+  mvk <- sum(grepl("^Figure [0-9]+\\.", txt$legends))   # Round 98: numbering continues after the univariable figures
   for (cx in mvx) {
     mvk <- mvk + 1L; ce <- cx$ce; ex <- unique(ce$exposure_label); iv <- ce[ce$method == "mvivw", , drop = FALSE]
     line <- vapply(ex, function(x) { r <- ce[ce$exposure_label == x, , drop = FALSE]
@@ -147,7 +147,8 @@ mv_add_text <- function(txt, mvx) {
   if (any(vapply(mvx, `[[`, TRUE, "simulated")) && !(sim %in% txt$limitations)) txt$limitations <- c(txt$limitations, sim)
   # Round 96: the overlap the analyst stated, and where the summary statistics came from (both were missing from MVMR reports)
   ov <- Filter(function(x) !is.null(x$overlap), mvx); if (length(ov) && exists("overlap_limitations")) { o <- lapply(ov, function(x) { x$p$exName <- paste(x$labels, collapse = ", "); x }); txt$limitations <- unique(c(txt$limitations, overlap_limitations(o))) }
-  src <- unique(unlist(lapply(mvx, `[[`, "sources")))
+  src <- unique(c(txt$src, unlist(lapply(mvx, `[[`, "sources"))))   # Round 98: one sentence for the univariable and multivariable sources
+  txt$availability <- txt$availability[!startsWith(txt$availability, "Summary statistics were")]
   if (length(src)) { og <- grepl("^OpenGWAS:", src); txt$availability <- unique(c(sprintf("Summary statistics were %s.", paste(c(if (any(og)) sprintf("obtained from the public OpenGWAS database (api.opengwas.io), dataset IDs %s", paste(sub("^OpenGWAS:", "", src[og]), collapse = ", ")), if (any(!og)) sprintf("read from the files %s [add the public source, accession number or DOI of each file]", paste(src[!og], collapse = ", "))), collapse = "; and ")), txt$availability)) }
   txt$limitations <- c(txt$limitations, "Multivariable MR estimates are direct effects conditional on the exposures included in the model; they change if exposures are added or removed, and they assume that each variant affects the outcome only through the exposures in the model. The conditional F statistic assumes that the exposure samples do not overlap.")
   txt
@@ -203,6 +204,7 @@ mv_attach_cov <- function(input, cov) {
 #' Save a covariance table for a set of exposures in the study (02_datasets; summary-level only) and remember it in the study state.
 mv_cov_save <- function(h, ex, cov, source_name) {
   key <- paste(unlist(ex), collapse = "|"); rel <- file.path("02_datasets", sprintf("mv_covariance_%s.csv", slugify(gsub("\\|", "_", key), 60L)))
+  dir.create(dirname(file.path(h$dir, rel)), recursive = TRUE, showWarnings = FALSE)
   utils::write.csv(cov, file.path(h$dir, rel), row.names = FALSE); manifest_register(h$dir, rel, role = "mv_covariance")
   mt <- attr(cov, "meta") %||% list(); st <- Filter(function(x) !identical(x$key, key), ui_state_get(h$con, "mv_cov") %||% list())
   st[[length(st) + 1L]] <- list(key = key, ex = as.list(unlist(ex)), file = rel, source = source_name, people = mt$people, variants = mt$variants, exposure_cols = as.list(mt$exposures), ignored = as.list(mt$ignored))

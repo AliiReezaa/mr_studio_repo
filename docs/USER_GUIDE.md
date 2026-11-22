@@ -270,7 +270,7 @@ replay check), and the report states its result.
 - **Inside a study**: `01_study_plan` (the question and settings), `02_datasets` (data prepared for the study, such as LD score inputs), `03_pairs` (one folder per
   analysis: `01_data`, `02_scripts`, `03_console`, `04_tables`, `07_replay_check`, and `08_outlier_analysis` once an outlier analysis is run), `04_across_pairs`
   (analyses that combine pairs, such as mediation, MR-cML, LD score regression, MRlap and CAUSE), `05_publication` (each package you build) and `archive` (earlier
-  runs of a pair you ran again). A folder can be empty until the analysis that uses it is run.
+  runs of a pair you ran again). Only `01_study_plan` and `03_pairs` are made with the study; the others appear when the analysis that uses them runs.
 - **Reference data** (1000 Genomes panel, LD scores, the OpenGWAS catalogue): the app's data folder, shared by all studies.
 - **Your OpenGWAS token**: in memory only.
 

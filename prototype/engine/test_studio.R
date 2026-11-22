@@ -2525,4 +2525,38 @@ local({
          grepl("send('feas', { params: S.params, kind: S.kind })", js, fixed = TRUE) && !grepl(".slice(0, 220));", js, fixed = TRUE))
 })
 
+# Round 98: test D redo (the built package of a mediation study)
+local({
+  pk <- build_package(h57, c("scripts", "report", "figs", "tables", "text", "strobe", "refs", "capsule"), 140)
+  hs <- paste(readLines(file.path(pk$dir, "report.html"), warn = FALSE), collapse = "\n")
+  nums <- as.integer(regmatches(hs, gregexpr("(?<=Figure )[0-9]+(?=\\.)", hs, perl = TRUE))[[1]])
+  wb <- paste(readLines(unz(file.path(pk$dir, "supplement_tables.xlsx"), "xl/workbook.xml"), warn = FALSE), collapse = "")
+  cap <- utils::unzip(file.path(pk$dir, "reproducibility_capsule.zip"), list = TRUE)$Name
+  expect("Round 98: a mediation package numbers its figures 1 to n without restarting, adds the mediation figure, sheet and scripts, and has no multiple-testing line",
+         length(nums) > 3 && identical(nums, seq_along(nums)) && file.exists(file.path(pk$dir, "figures", "mediation_forest.pdf")) && grepl("Mediation of the effect of", hs) &&
+         grepl("sheet name=\"Mediation\"", wb, fixed = TRUE) && "04_across_pairs/mediation/mediation.R" %in% cap &&
+         dir.exists(file.path(pk$dir, "scripts_and_tables", "04_across_pairs")) && !grepl("No correction for multiple testing", hs, fixed = TRUE))
+})
+local({
+  res <- data.frame(mediator = c("(none)", "M", "M", "M", "M"), method = c("univariable", "MVMR", "product", "difference", "two-step"), quantity = c("total", "direct", "indirect", "indirect", "exposure on mediator"),
+                    estimate = c(0.4, 0.3, 0.05, 0.1, -0.2), ci_lower = c(0.3, 0.2, 0.02, -0.1, -0.3), ci_upper = c(0.5, 0.4, 0.08, 0.3, -0.1), scale = c("log_or", "log_or", "log_or", "log_or", "beta"), stringsAsFactors = FALSE)
+  d <- mediation_forest_df(res)
+  expect("Round 98: the mediation figure shows the total, direct and both indirect effects on the outcome scale, not the effect on the mediator",
+         identical(d$label, c("Total effect", "M: direct", "M: indirect (product)", "M: indirect (difference)")) && identical(d$unit[1], "log odds ratio"))
+  g <- function(id, ex, jwt, px, rsq, maf, name, offline, root) list(trait = name)
+  r1 <- ogw_ensure_outcome(list(id = "ieu-a-7", trait = "Coronary heart disease"), "CHD", "Body mass index (ieu-a-2) live clump", list(), NULL, FALSE, root, g)
+  r2 <- ogw_ensure_outcome(list(id = "ieu-a-7", trait = "Coronary heart disease"), "CHD", "BMI", list(), NULL, FALSE, root, g)
+  expect("Round 98: an outcome looked up for a long exposure name is named with the dataset tags, not cut mid-word",
+         identical(r1$name, "Coronary heart disease (ieu-a-7) for ieu-a-2 live clump") && identical(r2$name, "Coronary heart disease for BMI"))
+  hf <- studio_new("Round 98 folders"); dir.create(file.path(hf$dir, "archive")); DBI::dbDisconnect(hf$con); hf2 <- studio_open("Round 98 folders")
+  rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n")
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  expect("Round 98: a new study has no empty optional folders, opening a study removes one left empty, and a mediation step cites the dataset it used as outcome",
+         !dir.exists(file.path(hf$dir, "02_datasets")) && !dir.exists(file.path(hf$dir, "archive")) && dir.exists(file.path(hf$dir, "03_pairs")) &&
+         grepl("srcname(if (identical(p$med$role, \"xm\") && !is.null(p$med$m_out)) p$med$m_out else p$out", rc, fixed = TRUE))
+  expect("Round 98: the activity box lists the newest entry first and mediation Results tabs say Pair, not Outcome",
+         grepl("r.log.slice().reverse()", js, fixed = TRUE) && grepl("S.pairs.some((q) => !q.mv) ? 'Pair ' : 'Outcome '", js, fixed = TRUE))
+  try(DBI::dbDisconnect(hf2$con), silent = TRUE)
+})
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)
