@@ -43,7 +43,7 @@ mediation_pair_input <- function(med, pthr = 5e-8) {
   # Round 72c: with OpenGWAS downloads a mediator is used in two forms, prepared by mediation_prepare(): looked up at the exposure's
   # instruments (exposure -> mediator) and as its own instruments (the multivariable steps). m and ms stay the labels the steps are matched by.
   m_out <- med$m_out %||% m; m_inst <- med$m_inst %||% m; ms_inst <- unlist(med$ms_inst) %||% ms
-  if (all(lib)) return(switch(role, total = pair_input(x, y, pthr), xm = pair_input(x, m_out, pthr),
+  if (all(lib)) return(switch(role, total = pair_input(x, med$y_tot %||% y, pthr), xm = pair_input(x, m_out, pthr),
                               direct = mv_pair_input(c(x, m_inst), y, pthr), joint = mv_pair_input(c(x, ms_inst), y, pthr)))
   w <- demo_mediation_world(x, ms, y); K <- length(w$traits); j <- match(m, w$traits)
   if (role == "total") return(.demo_uni(w, w$grp == 1L, w$B[w$grp == 1L, 1], w$S[w$grp == 1L, 1], w$by[w$grp == 1L], w$sy[w$grp == 1L], w$n_x[1], w$n_y, w$names[1], w$y_name, x, y))
@@ -156,8 +156,11 @@ mediation_results_text <- function(res, spec) {
 #' statistics serve both forms as they are. Returns list(m_out, m_inst, notes).
 mediation_prepare <- function(x, ms, y, jwt = NULL, offline = FALSE, root = studies_root(), get_exposure = ogw_get_exposure, get_outcome = ogw_get_outcome, backend = ogw_backend(), panel = NULL) {
   ms <- unlist(ms); rx <- library_dataset(sub("^lib:", "", x), root)$recipe; ry <- library_dataset(sub("^lib:", "", y), root)$recipe
-  if (!.is_ogw_instruments(rx)) return(list(m_out = as.list(ms), m_inst = as.list(ms), notes = character()))   # full summary statistics: nothing to prepare
+  if (!.is_ogw_instruments(rx)) return(list(m_out = as.list(ms), m_inst = as.list(ms), y_tot = y, notes = character()))   # full summary statistics: nothing to prepare
   notes <- character(); m_out <- m_inst <- character(length(ms))
+  # Round 97: the total effect needs the outcome looked up at the exposure's instruments; an outcome download made for another exposure
+  # (for example "CHD for LDL") is looked up again for this exposure, as a two-sample study does before Check (Round 88)
+  yt <- if (exists("pair_outcome_for")) pair_outcome_for(x, y, jwt, offline, root, get_outcome) else list(out = y, note = ""); if (nzchar(yt$note %||% "")) notes <- c(notes, yt$note)
   for (i in seq_along(ms)) { rm <- library_dataset(sub("^lib:", "", ms[i]), root)$recipe; src <- rm$source
     .say(sprintf("Mediator %d of %d, %s: preparing it as an outcome of %s and as its own instruments", i, length(ms), rm$trait, rx$trait), "Mediation needs the effect of the exposure on the mediator (the mediator as an outcome) and the mediator's effect on the outcome given the exposure (multivariable MR).")
     if (!identical(src$type, "opengwas")) { m_out[i] <- m_inst[i] <- ms[i]; next }
@@ -167,5 +170,5 @@ mediation_prepare <- function(x, ms, y, jwt = NULL, offline = FALSE, root = stud
       r <- ogw_ensure_exposure(src, rm$trait, rx$source$params, jwt, offline, root, get_exposure); m_inst[i] <- paste0("lib:", r$name); notes <- c(notes, r$note) } }
   for (i in seq_along(ms)) { r <- ogw_mv_build(c(x, m_inst[i]), y, jwt, offline, root, backend, panel); if (!isTRUE(r$reused)) notes <- c(notes, sprintf("prepared \"%s\"", r$name)) }
   if (length(ms) > 1) { r <- ogw_mv_build(c(x, m_inst), y, jwt, offline, root, backend, panel); if (!isTRUE(r$reused)) notes <- c(notes, sprintf("prepared \"%s\"", r$name)) }
-  list(m_out = as.list(m_out), m_inst = as.list(m_inst), notes = notes[nzchar(notes)])
+  list(m_out = as.list(m_out), m_inst = as.list(m_inst), y_tot = yt$out, notes = notes[nzchar(notes)])
 }

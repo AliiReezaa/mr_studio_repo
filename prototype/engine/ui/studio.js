@@ -676,7 +676,7 @@ function vMethods() {
     '<aside style="flex:1 1 300px;max-width:380px;box-sizing:border-box;padding:24px;border-radius:20px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;gap:20px"><div><div style="font-size:12px;color:var(--mute);margin-bottom:6px">Selected</div><div style="display:flex;align-items:baseline;gap:8px"><span class="mono" style="font-size:40px;font-weight:500;letter-spacing:-0.04em">' + sel.length + '</span><span style="color:var(--mute)">of ' + avail.length + ' available methods</span></div></div>' +
     '<button type="button" data-a="preset" style="height:44px;border-radius:12px;border:1px solid var(--line);background:var(--panel2);color:var(--text);font-weight:550;font-size:14px">Use the standard publication set</button>' +
     '<button type="button" data-a="select_all" style="height:44px;border-radius:12px;border:1px solid var(--line);background:transparent;color:var(--text);font-weight:550;font-size:14px">Select every available method</button>' +
-    '<div style="font-size:11px;color:var(--mute);margin-top:6px">' + (S.kind === 'multi' ? 'MVMR-IVW, MVMR-Egger and MVMR median.' : S.kind === 'mediation' ? 'IVW, MR-Egger, weighted median and MVMR-IVW (mediation needs IVW and MVMR-IVW).' : 'IVW with the direction test and leave-one-out, MR-Egger, weighted median, weighted mode and MR-PRESSO: each rests on a different assumption about pleiotropy.') + '</div>' +
+    '<div style="font-size:11px;color:var(--mute);margin-top:6px">' + (S.kind === 'multi' ? 'MVMR-IVW, MVMR-Egger and MVMR median.' : S.kind === 'mediation' ? 'IVW, MR-Egger, weighted median and weighted mode for each single step; MVMR-IVW, MVMR-Egger and MVMR median for the direct effects (mediation needs IVW and MVMR-IVW).' : 'IVW with the direction test and leave-one-out, MR-Egger, weighted median, weighted mode and MR-PRESSO: each rests on a different assumption about pleiotropy.') + '</div>' +
     '<div style="border-top:1px solid var(--line);padding-top:16px;display:flex;flex-direction:column;gap:12px"><div style="font-size:12px;color:var(--mute)">What the engine found for ' + head + '</div><div style="display:flex;justify-content:space-between"><span>Instruments</span><span class="mono">' + rng('instruments') + '</span></div><div style="display:flex;justify-content:space-between"><span>Mean F-statistic</span><span class="mono">' + rng('mean_f', 1) + '</span></div><div style="display:flex;justify-content:space-between"><span>Ancestry match</span><span class="mono">' + (fc.length ? esc(Array.from(new Set(fc.map((x) => (x.gpop_x || x.anc_x) + ' · ' + (x.gpop_y || x.anc_y)))).join(', ')) : '…') + '</span></div><div style="display:flex;justify-content:space-between"><span>Sample overlap</span><span class="mono">' + (fc.some((x) => !x.simulated) ? ovSummary(fc) : 'None (simulated)') + '</span></div></div>' +
     '<div style="font-size:12px;color:var(--mute);padding:12px;border-radius:12px;background:var(--panel2)">Estimated run time for your selection: <span class="mono" style="color:var(--text)">about ' + (secs >= 90 ? Math.round(secs / 60) + ' min' : secs + ' sec') + '</span>. Each pair is saved as soon as it finishes, so a closed laptop never loses finished work.</div>' +
     mvCovPanel() + studyNotes() + checkSummary() +
@@ -969,7 +969,7 @@ function vRun() {
 }
 
 // ---- results ----------------------------------------------------------------------------------------------------------
-function curPair() { return S.pairs[S.rp]; }
+function curPair() { const p = S.pairs[S.rp]; if (p && p.folder && S.payloads[p.folder]) return p; const k = S.pairs.findIndex((q) => q.folder && S.payloads[q.folder]); if (k >= 0) { S.rp = k; return S.pairs[k]; } return p; }   // Round 97: a failed first pair does not hide the saved ones
 function curPay() { const p = curPair(); return p ? S.payloads[p.folder] : null; }
 function causal(pay) { return (pay.estimates || []).filter((e) => e.estimand === 'causal_effect'); }
 // Round 75b: every number in a results table names its parameter (estimate, confidence interval, P value, statistic).
@@ -1351,7 +1351,8 @@ function mvCompare(pair, pay, ids, nm, lor) {
 // ---- Round 57: mediation summary, read from the mediation script's results table ----
 function medSection() {
   if (S.kind !== 'mediation') return '';
-  if (!S.medRes) return '<section style="padding:20px;border-radius:20px;background:var(--panel);border:1px solid var(--line);font-size:13px;color:var(--mute)">Mediation: the summary appears when every step has run.</section>';
+  const miss = (S.pairs || []).filter((p) => p.med && !p.folder).map((p) => p.exName + ' \u2192 ' + p.outName);   // Round 97: say which step is missing
+  if (!S.medRes) return '<section style="padding:20px;border-radius:20px;background:var(--panel);border:1px solid ' + (miss.length ? 'var(--warn)' : 'var(--line)') + ';font-size:13px;color:' + (miss.length ? 'var(--text)' : 'var(--mute)') + '">' + (miss.length ? 'Mediation cannot be computed: ' + (miss.length === 1 ? 'this step has' : 'these steps have') + ' no result: ' + esc(miss.join('; ')) + '. The Run screen and its activity log say why. Fix it and run again; the saved steps are reused.' : 'Mediation: the summary appears when every step has run.') + '</section>';
   const R = S.medRes.rows, sp = S.medRes.spec || {}, lor = sp.scale === 'log_or', g = (m, me, q) => R.find((r) => r.mediator === m && r.method === me && r.quantity === q);
   const f3 = (v, d) => Number(v).toFixed(d);   // fixed decimals: a near-zero indirect effect reads as 0.001, not 1e-3
   const ef = (r) => !r ? '–' : lor ? 'OR ' + f3(Math.exp(r.estimate), 2) + ' (' + f3(Math.exp(r.ci_lower), 2) + ' to ' + f3(Math.exp(r.ci_upper), 2) + ')' : 'β ' + f3(r.estimate, 3) + ' (' + f3(r.ci_lower, 3) + ' to ' + f3(r.ci_upper, 3) + ')';
@@ -1677,6 +1678,7 @@ function openStudy(name, to) { if (S._opening && S._opening.name === name) retur
 function go(screen) {
   if (S._quiet) return;
   S._nav = (S._nav || 0) + 1;
+  if (STEPS.some((s) => s[1] === screen)) S._stepScreen = screen;   // Round 97: the step to return to in a study that is still loaded
   S.screen = screen; S.notice = null; const i = STEPS.findIndex((s) => s[1] === screen); if (i > S.maxStep) S.maxStep = i;
   // Round 72c: a bidirectional study prepares its reverse pairs first (OpenGWAS downloads of each trait in the other role)
   const unprepared = (S.pairs || []).filter((p) => p.rev && !p.revReady);
@@ -1690,7 +1692,7 @@ function go(screen) {
   // Round 88: a two-sample study picks its outcomes once; an OpenGWAS outcome downloaded for another exposure is looked up again for this one
   const outun = outUnprepared();
   if ((screen === 'methods' || screen === 'check') && outun.length && !S.oprepBusy && !S.revBusy && !S.mvBusy && !S.medBusy) { S.oprepBusy = true; S.factsBusy = true; send('out_prepare', { pairs: outun.map((p) => [p.ex, p.out]) }); window.scrollTo(0, 0); render(); return; }
-  if ((screen === 'methods' || screen === 'check') && !S.facts && !S.factsBusy && !S.revBusy && !S.mvBusy && !S.medBusy && !S.oprepBusy && S.pairs && S.pairs.length) { S.factsBusy = true; send('facts', { pairs: S.pairs.map((p) => [p.ex, p.out, p.med || null]), pthr: S.pairs[0].pthr || pthrNum() || 5e-8, params: S.params }); }
+  if ((screen === 'methods' || screen === 'check') && !S.facts && !S.factsBusy && !S.revBusy && !S.mvBusy && !S.medBusy && !S.oprepBusy && S.pairs && S.pairs.length) { S.factsBusy = true; send('facts', { pairs: S.pairs.map((p) => [p.ex, p.out, p.med || null]), pthr: S.pairs[0].pthr || pthrNum() || 5e-8, params: S.params, kind: S.kind }); }
   if (screen === 'settings') send('settings_info'); if (screen === 'home' || screen === 'studies') send('studies'); if (screen === 'library') send('library');
   window.scrollTo(0, 0); render();
 }
@@ -1815,12 +1817,12 @@ function onClick(e) {
     case 'select_all': S.methods = kindMethods().filter((m) => m.built && methodState(m).st !== 'locked').map((m) => m.id); if (S.kind !== 'multi') { S.steiger = true; S.loo = true; } render(); break;   // Round 80: a full test without ticking every card
     case 'pick_method': S.methods = S.methods.indexOf(v) >= 0 ? S.methods.filter((x) => x !== v) : S.methods.concat([v]); render(); break;
     case 'preset': {   // the core set a two-sample MR paper reports: IVW, then estimators that each rest on a different pleiotropy assumption
-      const set = S.kind === 'multi' ? ['mvivw', 'mvegger', 'mvmedian'] : S.kind === 'mediation' ? ['ivw_mre', 'egger', 'wm', 'mvivw'] : ['ivw_mre', 'egger', 'wm', 'mode', 'presso', 'radial', 'radegger', 'lasso'];   // Round 91: all four outlier detectors (the three added take seconds), so the outlier analysis can combine them
+      const set = S.kind === 'multi' ? ['mvivw', 'mvegger', 'mvmedian'] : S.kind === 'mediation' ? ['ivw_mre', 'egger', 'wm', 'mode', 'mvivw', 'mvegger', 'mvmedian'] : ['ivw_mre', 'egger', 'wm', 'mode', 'presso', 'radial', 'radegger', 'lasso'];   // Round 91: all four outlier detectors (the three added take seconds), so the outlier analysis can combine them
       S.methods = set.filter((id) => { const m = METHODS.find((x) => x.id === id); return m && m.built && methodState(m).st !== 'locked'; });
       if (S.kind !== 'multi') { S.steiger = true; S.loo = true; } render(); break; }
     case 'customise': e.stopPropagation(); S.custom = v; render(); break;
-    case 'custom_close': S.custom = null; if (S.facts) send('feas', { params: S.params }); render(); break;
-    case 'custom_close_bg': if (e.target === t) { S.custom = null; if (S.facts) send('feas', { params: S.params }); render(); } break;
+    case 'custom_close': S.custom = null; if (S.facts) send('feas', { params: S.params, kind: S.kind }); render(); break;
+    case 'custom_close_bg': if (e.target === t) { S.custom = null; if (S.facts) send('feas', { params: S.params, kind: S.kind }); render(); } break;
     case 'feas_why': e.stopPropagation(); S.why = v; render(); break;
     case 'why_close': S.why = null; render(); break;
     case 'why_close_bg': if (e.target === t) { S.why = null; render(); } break;
@@ -1983,7 +1985,7 @@ const PAIR_CACHES = ['ldsc', 'lhc', 'lhcW', 'mrlap', 'apss', 'cause', 'fullst', 
 function studySnap() { const o = {}; STUDY_KEYS.forEach((k) => { o[k] = S[k]; }); return o; }
 function studyLoad(o) { STUDY_KEYS.forEach((k) => { S[k] = o[k]; }); }
 function studyBusy() { const ld = (x) => Object.keys(x || {}).some((f) => x[f] && x[f].busy);
-  return !!((S.run && S.run.state !== 'done') || S.sensBusy || S.outBusy || S.pkgBusy || S.cmpBusy || ld(S.ldsc)); }
+  return !!((S.run && S.run.state !== 'done') || S.sensBusy || S.outBusy || S.pkgBusy || S.cmpBusy || S.medBusy || S.revBusy || S.mvBusy || S.factsBusy || ld(S.ldsc)); }
 // news for a study that is not open: filed into its parked state (nothing is drawn, requests wait until it is open again)
 function inStudy(name, fn) { const P = (S.parked || {})[name]; if (!P) return false; const cur = studySnap(); studyLoad(P); S._quiet = true;
   try { fn(); } finally { S.parked[name] = studySnap(); S._quiet = false; studyLoad(cur); } return true; }
@@ -1996,6 +1998,8 @@ function route(m) {
 }
 function applyStudy(m) {
   S.parked = S.parked || {};
+  // Round 97: back to the study that is still loaded (via Home or Studies): keep what was chosen but not yet saved, and a Check in progress
+  if (S.study && S.study.name === m.name && !(S.parked || {})[m.name] && (studyBusy() || ((S.pairs || []).length && !(S.pairs || []).some((p) => p.folder) && !(m.pairs || []).length))) { Object.assign(S.payloads, m.payloads || {}); S._kept = true; return false; }
   if (S.study && S.study.name !== m.name && studyBusy()) S.parked[S.study.name] = studySnap();
   const P = S.parked[m.name]; delete S.parked[m.name];
   if (P) { studyLoad(P); Object.assign(S.payloads, m.payloads || {}); S.study = { name: m.name, dir: m.dir }; const d = S._deferred || []; S._deferred = []; d.forEach((x) => send(x[0], x[1])); Object.keys(S.lives || {}).forEach((g) => { const L = S.lives[g], c = L && L.lines[L.lines.length - 1]; if (c) L.typed = c.msg.length; }); liveTick(); return true; }   // Round 90: its boxes complete and their clocks running again
@@ -2023,11 +2027,12 @@ function handle(m) {
     case 'studies': S.studies = m.studies; S.root = m.root || S.root; if (S.screen === 'home' || S.screen === 'studies') render(); break;
     case 'study_created': applyStudy(m); S.studies = m.studies || S.studies; go('data'); break;
     case 'study_opened': { const w = S._opening; S._opening = null; if (!w || w.name !== m.name || w.nav !== (S._nav || 0)) break; }   // not (or no longer) waited for
-      if (applyStudy(m) && S.run && S.run.state !== 'done') { go('run'); break; } if (m.to === 'results' || (m.to === 'auto' && Object.keys(S.payloads).length)) { S.rp = 0; go('results'); } else if (m.to === 'auto' && S.pairs.length) go('data'); else go(S.pairs.length ? 'data' : 'question'); break;
-    case 'overlap': S.overlap = Array.isArray(m.overlap) ? {} : (m.overlap || {}); S.ovl = null; if (S.facts) send('feas', { params: S.params }); if (S.screen === 'check') render(); break;
+      if (applyStudy(m) && S.run && S.run.state !== 'done') { go('run'); break; } if (S._kept) { S._kept = false; go(S._stepScreen || 'data'); break; } if (m.to === 'results' || (m.to === 'auto' && Object.keys(S.payloads).length)) { S.rp = 0; go('results'); } else if (m.to === 'auto' && S.pairs.length) go('data'); else go(S.pairs.length ? 'data' : 'question'); break;
+    case 'overlap': S.overlap = Array.isArray(m.overlap) ? {} : (m.overlap || {}); S.ovl = null; if (S.facts) send('feas', { params: S.params, kind: S.kind }); if (S.screen === 'check') render(); break;
     case 'med_ready': { const r = m.r || {}; S.revErr = S.revErr || []; S.revNote = S.revNote || [];
       (S.pairs || []).forEach((p) => { if (!p.med) return; p.medReady = true; if (!r.ok) return; const ms = [].concat(p.med.ms), mo = [].concat(r.m_out || []), mi = [].concat(r.m_inst || []);
-        if (p.med.m != null) { const j = ms.indexOf(p.med.m); if (j >= 0) { p.med.m_out = mo[j]; p.med.m_inst = mi[j]; } } p.med.ms_inst = mi; });
+        if (p.med.m != null) { const j = ms.indexOf(p.med.m); if (j >= 0) { p.med.m_out = mo[j]; p.med.m_inst = mi[j]; } } p.med.ms_inst = mi;
+        if (p.med.role === 'total' && r.y_tot && r.y_tot !== p.out) { p.out = r.y_tot; p.outName = r.y_tot.replace(/^lib:/, ''); p.med.y_tot = r.y_tot; } });   // Round 97: the total effect uses the outcome looked up for the exposure
       if (r.ok) (r.notes || []).forEach((n) => S.revNote.push('Mediation: ' + n + '.')); else { S.revErr.push(r.msg); (S.pairs || []).forEach((p) => { if (p.med) p.revFail = r.msg; }); prepFailOut(); }   // Round 78
       S.medBusy = false; S.factsBusy = false; S.facts = null; go(S.screen); break; }   // Round 72e: continue to the checks
     case 'mv_ready': { const un = (S.pairs || []).filter((p) => p.mv && !p.mvReady && [].concat(p.ex).every(isLib)); S.revErr = S.revErr || []; S.revNote = S.revNote || [];
@@ -2050,7 +2055,7 @@ function handle(m) {
     case 'feas': S.feas = m.feas || null; if (S.screen === 'methods') render(); break;
     case 'pair_done': { const r = S.run; if (!r) break; const p = S.pairs[m.i]; if (!m.reused) { r.times.push(m.secs != null ? m.secs : (Date.now() - r.t0) / 1000); (r.ests = r.ests || []).push(estPairSecs(S.methods, p)); } r.results[m.i] = { ok: m.ok, finished: m.finished, secs: m.secs };   // Round 80: times measured by the engine
       if (Date.now() - (S._beat || Date.now()) > 5000) { const sl = clock24(new Date(S._beat)), wk = clock24(new Date()); r.asleep = 'The window was asleep (for example, the screen was locked) from ' + sl + ' to ' + wk + '. The engine carried on: ' + (r.asleepPairs = (r.asleepPairs || []).concat(['pair ' + (m.i + 1) + (m.ok ? ' finished at ' + m.finished : ' stopped at ' + m.finished)])).join(', ') + '.'; S._asleepUntil = Date.now() + 2000; } else if (S._asleepUntil && Date.now() < S._asleepUntil) { r.asleepPairs.push('pair ' + (m.i + 1) + (m.ok ? ' finished at ' + m.finished : ' stopped at ' + m.finished)); r.asleep = r.asleep.replace(/The engine carried on: .*$/, 'The engine carried on: ' + r.asleepPairs.join(', ') + '.'); }
-      if (m.ok) { p.folder = m.folder; S.payloads[m.folder] = m.payload; if (m.left_out) r.log.push('Pair ' + (m.i + 1) + ': ' + m.left_out); if (!p.ledger) { const fz = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out); if (fz && fz.ledger) p.ledger = fz.ledger; } /* Round 34: the instrument record right after a run, not only after reopening */ r.log.push((m.finished ? m.finished + '  ' : '') + 'Pair ' + (m.i + 1) + ': ' + (m.reused ? 'nothing changed, saved results reused' : 'done') + (m.payload.replay ? ', replay ' + m.payload.replay.status : '')); } else { r.failed++; r.log.push('Pair ' + (m.i + 1) + ' failed: ' + String(m.msg).replace(/\s+/g, ' ').slice(0, 220)); }
+      if (m.ok) { p.folder = m.folder; S.payloads[m.folder] = m.payload; if (m.left_out) r.log.push('Pair ' + (m.i + 1) + ': ' + m.left_out); if (!p.ledger) { const fz = (S.facts || []).find((x) => x.ex_id === p.ex && x.out_id === p.out); if (fz && fz.ledger) p.ledger = fz.ledger; } /* Round 34: the instrument record right after a run, not only after reopening */ r.log.push((m.finished ? m.finished + '  ' : '') + 'Pair ' + (m.i + 1) + ': ' + (m.reused ? 'nothing changed, saved results reused' : 'done') + (m.payload.replay ? ', replay ' + m.payload.replay.status : '')); } else { r.failed++; r.log.push('Pair ' + (m.i + 1) + ' failed: ' + String(m.msg).replace(/\s+/g, ' ')); }
       r.done = r.results.filter((x) => x && x.ok).length; r.busy = false; r.i = r.stopped ? r.total : m.i + 1; if (r.done) S.maxStep = Math.max(S.maxStep, 6); if (!r.stopped && !r.paused && r.i < r.total) runMark(r.i, m.finished); render(); break; }
     case 'run_queue_done': if (S.run) { if (m.stopped) S.run.stopped = true; if (!m.paused) runFinish(); } break;   // Round 75f
     case 'package_done': S.pkgBusy = false; liveEnd('publish'); S.pkg = m.ok ? { ok: true, fonts: !!m.fonts, folder: m.folder, files: m.files || [], notes: (m.notes || []).concat(m.strobe ? ['STROBE-MR checklist: ' + m.strobe.filled + ' items filled from your study, ' + m.strobe.partly + ' partly filled, ' + m.strobe.author + ' for you to write. Add page and line numbers before submission.'] : []), simulated: !!m.simulated } : { ok: false, msg: m.msg }; render(); break;

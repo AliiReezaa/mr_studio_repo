@@ -373,7 +373,7 @@ mr_server <- function(engine_dir) {
             if (length(unlist(p[[1]])) > 1) mv_pair_facts(p[[1]], p[[2]], pt, mi) else pair_facts(p[[1]], p[[2]], pt, mi) }, error = function(e) list(error = conditionMessage(e))))   # Round 50: MVMR pairs
           rv$facts <- Filter(function(x) is.null(x$error), f)
           .say("Running the checks: instrument strength (F statistics), ancestry, sample overlap, units, palindromic variants, allele frequencies and the direction of effect", "Each check is shown with what it means; items marked REVIEW do not stop the study and are written into the limitations.")
-          ev("facts", facts = f, feas = feasibility(Filter(function(x) !isTRUE(x$mv), rv$facts), run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list()))
+          ev("facts", facts = f, feas = feasibility(Filter(function(x) !isTRUE(x$mv), rv$facts), run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list(), kind = a$kind))
         },
         mediation = bg_go("mediation", a),
         bidir_cml = bg_go("bidir_cml", a),
@@ -500,7 +500,7 @@ mr_server <- function(engine_dir) {
           if (inherits(r, "error")) { ev("compare", folder = a$folder, ok = FALSE, msg = conditionMessage(r)); return() }
           ev("compare", folder = a$folder, ok = TRUE, rows = r$rows, rerun = r$rerun)
         },
-        feas = { req(rv$facts); ev("feas", feas = feasibility(Filter(function(x) !isTRUE(x$mv), rv$facts), run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list())) },
+        feas = { req(rv$facts); ev("feas", feas = feasibility(Filter(function(x) !isTRUE(x$mv), rv$facts), run_params(a$params %||% list()), if (!is.null(rv$h)) overlap_get(rv$h) else list(), kind = a$kind)) },
         ld_status = ev("ld", status = ld_panel_status()),
         ld_download = { r <- tryCatch(ld_panel_download_start(unlist(a$pops) %||% "EUR"), error = function(e) e); if (inherits(r, "error")) ev("error", msg = conditionMessage(r)); ev("ld", status = ld_panel_status()) },
         ld_find = ev("ld_found", items = ld_archive_find()),

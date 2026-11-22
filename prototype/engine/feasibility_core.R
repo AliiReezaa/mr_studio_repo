@@ -67,10 +67,11 @@ feas_i2gx <- function(bx, sx) { ok <- is.finite(bx) & is.finite(sx) & sx > 0; if
 
 #' Feasibility of every method for the selected pairs. facts = list of pair_facts(); params = the Customise settings;
 #' overlap = overlap answers of the study (named by "exposure | outcome"). Returns list(methods = list(id = list(state, reasons))).
-feasibility <- function(facts, params = list(), overlap = list(), methods = FEAS_METHODS) {
+feasibility <- function(facts, params = list(), overlap = list(), methods = FEAS_METHODS, kind = NULL) {
   rules <- feas_rules(); rules <- rules[rules$active_v1 == "yes" & rules$stage %in% c("selection", "data", "runtime"), , drop = FALSE]
   ad <- param_adapters(); min_ivs <- lapply(ad, function(a) a$requires$min_ivs)
-  ctx <- list(n_pairs = length(facts), min_ivs = min_ivs, params = params, overlap = overlap)
+  # Round 97: the steps of one mediation analysis are not separate hypotheses, so no multiple-testing note for them
+  ctx <- list(n_pairs = if (identical(kind, "mediation")) 1L else length(facts), min_ivs = min_ivs, params = params, overlap = overlap)
   out <- list()
   for (m in methods) {
     reasons <- list()

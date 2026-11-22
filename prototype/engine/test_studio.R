@@ -2507,4 +2507,22 @@ local({
          !grepl("2L * sn", rc, fixed = TRUE) && grepl("list.dirs(file.path(h$dir, \"03_pairs\"), recursive = FALSE)", rc, fixed = TRUE))
 })
 
+# Round 97: test D (mediation BMI, TG and HDL on CHD from OpenGWAS)
+local({
+  mc <- paste(readLines(file.path(args_dir, "mediation_core.R"), warn = FALSE), collapse = "\n")
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  fc <- paste(readLines(file.path(args_dir, "feasibility_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 97: the total effect of a mediation study uses the outcome looked up for the exposure (an outcome download made for another exposure failed the step)",
+         grepl("yt <- if (exists(\"pair_outcome_for\")) pair_outcome_for(x, y, jwt, offline, root, get_outcome)", mc, fixed = TRUE) && grepl("y_tot = yt$out", mc, fixed = TRUE) &&
+         grepl("total = pair_input(x, med$y_tot %||% y, pthr)", mc, fixed = TRUE) && grepl("p.med.role === 'total' && r.y_tot && r.y_tot !== p.out", js, fixed = TRUE))
+  expect("Round 97: Results open on the first pair with results when an earlier one failed, and the mediation section names a step without a result",
+         grepl("const k = S.pairs.findIndex((q) => q.folder && S.payloads[q.folder])", js, fixed = TRUE) && grepl("Mediation cannot be computed: ", js, fixed = TRUE))
+  expect("Round 97: going Home during Check and back keeps the choices and the Check in progress (preparation counts as busy; the same loaded study is not reloaded)",
+         grepl("S.medBusy || S.revBusy || S.mvBusy || S.factsBusy || ld(S.ldsc)", js, fixed = TRUE) && grepl("S._kept = true; return false;", js, fixed = TRUE) &&
+         grepl("if (S._kept) { S._kept = false; go(S._stepScreen || 'data'); break; }", js, fixed = TRUE))
+  expect("Round 97: the mediation standard set adds weighted mode, MVMR-Egger and MVMR median; mediation steps get no multiple-testing note; a failed pair's reason is shown whole",
+         grepl("['ivw_mre', 'egger', 'wm', 'mode', 'mvivw', 'mvegger', 'mvmedian']", js, fixed = TRUE) && grepl("n_pairs = if (identical(kind, \"mediation\")) 1L else length(facts)", fc, fixed = TRUE) &&
+         grepl("send('feas', { params: S.params, kind: S.kind })", js, fixed = TRUE) && !grepl(".slice(0, 220));", js, fixed = TRUE))
+})
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)
