@@ -74,7 +74,7 @@ live_scripts <- function(dir, console_name = "run_all_console.txt") {
     if (nzchar(nxt) && replay && match(nxt, ids) %% 10 == 1) .say(sprintf("Replay check: method %d of %d (%s)", match(nxt, ids), length(ids), .method_label(nxt)))
     st$cur <- nxt; st$t <- Sys.time(); st$told <- FALSE
   } else if (nzchar(nxt) && !st$told && as.numeric(difftime(Sys.time(), st$t, units = "secs")) > 45) {
-    .say(sprintf("%s%s is still running (%s so far)", if (replay) "Replay check: " else "", .method_label(nxt), .fmt_secs(difftime(Sys.time(), st$t, units = "secs"))),   # Round 91: the replay's own
+    .say(sprintf("%s%s is still running (started at %s)", if (replay) "Replay check: " else "", .method_label(nxt), format(st$t, "%H:%M:%S")),   # Round 91: the replay's own
          if (nxt %in% METHOD_SLOW) "This method refits the model many times (simulation, bootstrap or model selection), so it takes longer with many instruments. The app is working." else "Some methods take longer with many instruments. The app is working.")
     st$told <- TRUE
   }

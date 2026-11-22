@@ -2304,7 +2304,7 @@ local({
   k2 <- paste(d, "replay_console.txt"); s2 <- .live[[k2]]; s2$t <- s2$t - 60; .live[[k2]] <- s2; live_scripts(d, "replay_console.txt")
   app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
   expect("Round 91: a run's narration gives the running method's own time (\"MR-PRESSO finished in 6 min 40 s\"), marks the replay's \"still running\" as the replay's, and ends with how the replay check ended",
-         any(grepl("^MR-PRESSO is still running \\(6 min 40 s so far\\)$", said)) && any(grepl("^MR-PRESSO finished in 6 min 4[0-9] s \\(2 of 2\\)$", said)) &&
+         any(grepl("^MR-PRESSO is still running \\(started at [0-9]{2}:[0-9]{2}:[0-9]{2}\\)$", said)) && any(grepl("^MR-PRESSO finished in 6 min 4[0-9] s \\(2 of 2\\)$", said)) &&
          any(grepl("^Replay check: .* is still running", said)) && grepl("Replay check finished: all %s numbers identical to the first run. Saved.", app, fixed = TRUE))
   rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n")
   expect("Round 91: figure PDFs are written with Cairo where it is available, which embeds their fonts as journals ask, and the screen reports it",
@@ -2497,7 +2497,7 @@ local({
          grepl("if (!is.null(s$mv)) sprintf(\"OpenGWAS %s, each looked up at the joint instruments\"", sb, fixed = TRUE) && grepl("length(s$file) && !is.na(s$file)", sb, fixed = TRUE) &&
          grepl("length(cx$nx) == 1L && is.finite(cx$nx)", sb, fixed = TRUE))
   expect("Round 96: a multivariable report states the sample overlap answered at Check and the OpenGWAS dataset IDs under Data availability",
-         grepl("overlap = tryCatch(overlap_get(h)[[ovk]]", mv, fixed = TRUE) && grepl("overlap_limitations(o)", mv, fixed = TRUE) && grepl("txt$availability <- unique(c(sprintf(\"Summary statistics were %s.\"", mv, fixed = TRUE))
+         grepl("overlap = tryCatch(overlap_get(h)[[ovk]]", mv, fixed = TRUE) && grepl("overlap_limitations(o)", mv, fixed = TRUE) && grepl("txt$availability <- unique(c(.avail_sentence(src), txt$availability))", mv, fixed = TRUE))
   expect("Round 96: a new study and a new pair get no folders that stay empty (05_report_and_supplement, 06_reproducibility, 05_figures, 06_method_reports, 08_outlier_analysis), and the MVMR forest legend is numbered and says why there is no scatter plot",
          !any(c("05_report_and_supplement", "06_reproducibility") %in% STUDY_FOLDERS) && !any(c("05_figures", "06_method_reports", "08_outlier_analysis") %in% PAIR_SUBFOLDERS) &&
          grepl("\"Figure %d. Direct effects of %s on %s from multivariable MR", mv, fixed = TRUE) && grepl("A scatter plot is not drawn for multivariable MR", mv, fixed = TRUE))
@@ -2557,6 +2557,30 @@ local({
   expect("Round 98: the activity box lists the newest entry first and mediation Results tabs say Pair, not Outcome",
          grepl("r.log.slice().reverse()", js, fixed = TRUE) && grepl("S.pairs.some((q) => !q.mv) ? 'Pair ' : 'Outcome '", js, fixed = TRUE))
   try(DBI::dbDisconnect(hf2$con), silent = TRUE)
+})
+
+# Round 99: test E (BMI on type 2 diabetes with an imported genome-wide outcome file)
+local({
+  rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n")
+  ic <- paste(readLines(file.path(args_dir, "import_core.R"), warn = FALSE), collapse = "\n")
+  lc <- paste(readLines(file.path(args_dir, "live_core.R"), warn = FALSE), collapse = "\n")
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  a1 <- .avail_sentence(c("OpenGWAS:ieu-a-2", "Xue_T2D.gz")); a2 <- .avail_sentence(c("OpenGWAS:ieu-a-2", "OpenGWAS:ieu-a-7"))
+  expect("Round 99: Data availability names OpenGWAS IDs and imported files separately (an OpenGWAS ID was listed as a file)",
+         grepl("dataset IDs: ieu-a-2; and read from the files Xue_T2D.gz [Add the public source", a1, fixed = TRUE) && identical(a2, "Summary statistics were obtained from the public OpenGWAS database (api.opengwas.io), dataset IDs: ieu-a-2; ieu-a-7."))
+  sg <- import_suggest(c("SNP", "A1", "A2", "frq_A1", "b", "se", "P"), list(list(SNP = "rs1", A1 = "T", A2 = "C", frq_A1 = "0.06", b = "0.001", se = "0.01", P = "0.9")))
+  expect("Round 99: a frq_A1 column is recognised as the effect allele frequency with high confidence",
+         identical(sg$eaf$column, "frq_A1") && identical(sg$eaf$confidence, "high"))
+  expect("Round 99: an imported outcome states its build, cases and controls and that missing instruments had no proxies; the clumping limitation only with an imported exposure; no multiple-testing line for one pair",
+         grepl("genome build GRCh%s", rc, fixed = TRUE) && grepl("were not replaced by proxy variants", rc, fixed = TRUE) && grepl("if (xfile) \"For imported exposure files", rc, fixed = TRUE) &&
+         grepl("if (length(ctxs) > 1L) \"No correction for multiple testing", rc, fixed = TRUE))
+  expect("Round 99: the import check says it looked at the first rows only, and the recipe records the rows of the whole file",
+         grepl("This check looked at the first %s rows only; saving reads the whole file.", ic, fixed = TRUE) && grepl("rows_in_file = n_all", ic, fixed = TRUE))
+  expect("Round 99: a long method says when it started instead of a count that stays at 45 s; one pair is not called all 1 pair; the complete-GWAS note says which trait is an OpenGWAS download",
+         grepl("is still running (started at %s)", lc, fixed = TRUE) && !grepl("so far)\", if (replay)", lc, fixed = TRUE) && grepl("'All variants have F above 10 (the pair has '", js, fixed = TRUE) &&
+         grepl("One trait of this pair is an OpenGWAS download", js, fixed = TRUE))
+  expect("Round 99: a file imported through the Data library after leaving a study is selected in the study by its role when the analyst goes back",
+         grepl("k = I && (I.fromKey || S.backKey || (rec && (rec.role === 'outcome' ? 'out' : rec.role === 'exposure' ? 'ex' : null)))", js, fixed = TRUE))
 })
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

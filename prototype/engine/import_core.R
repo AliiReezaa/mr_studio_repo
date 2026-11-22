@@ -14,7 +14,7 @@ IMPORT_SYNONYMS <- list(
   pos = c("pos", "position", "bp", "basepair", "basepairposition", "bppos", "bpposition", "genpos", "chrpos", "hgpos", "basepairlocation", "bplocation"),
   ea = c("ea", "effectallele", "a1", "allele1", "alt", "testedallele", "eallele", "effallele", "codedallele", "tested"),
   oa = c("oa", "otherallele", "a2", "allele2", "ref", "nea", "noneffectallele", "reference", "refallele", "nonefallele", "othalle", "allele0", "a0", "nonea"),
-  eaf = c("eaf", "effectallelefreq", "effectallelefrequency", "freq", "frq", "af", "a1freq", "freq1", "afreq", "af1", "effectaf", "a1frq", "afalt", "altfreq", "afallele2", "a2freq", "freqtestedallele", "testedallelefreq",
+  eaf = c("eaf", "effectallelefreq", "effectallelefrequency", "freq", "frq", "af", "a1freq", "freq1", "afreq", "af1", "effectaf", "a1frq", "afalt", "altfreq", "afallele2", "a2freq", "freqtestedallele", "testedallelefreq", "frqa1", "freqa1", "eafa1",
           "maf", "minorallelefreq", "minorallelefrequency"),   # Round 77: a MAF heading is matched here but marked as a minor allele frequency (import_hints)
   beta = c("beta", "b", "effect", "effectsize", "es", "logor", "logodds", "estimate", "betahat", "or", "oddsratio"),
   se = c("se", "stderr", "stderror", "standarderror", "sebeta", "sebetahat", "selogor", "logorse", "orse", "selnor", "selogodds"),
@@ -429,7 +429,7 @@ import_validate <- function(path, sep, columns, mapping, facts, max_rows = 5e6) 
   d <- .import_read(path, sep, columns, mp, max_rows); nr <- nrow(d)
   num <- function(x) suppressWarnings(as.numeric(x))
   tr <- .import_transform(d, facts); d <- tr$d; err <- c(err, tr$errors); warn <- c(warn, tr$warnings)
-  if (nr >= max_rows) warn <- c(warn, sprintf("Only the first %s rows were read.", format(max_rows, big.mark = ",")))
+  if (nr >= max_rows) warn <- c(warn, sprintf("This check looked at the first %s rows only; saving reads the whole file.", format(max_rows, big.mark = ",", scientific = FALSE)))   # Round 99: the whole file is saved
   if ("se" %in% names(d)) { bad_se <- sum(d$se <= 0 | is.na(d$se)); if (bad_se) warn <- c(warn, sprintf("%s variants have a missing or non-positive standard error and will be dropped.", format(bad_se, big.mark = ","))) }
   ok_al <- grepl("^[ACGT]$", toupper(d$ea)) & grepl("^[ACGT]$", toupper(d$oa)); nin <- sum(!ok_al)
   if (nin) warn <- c(warn, sprintf("%s variants are not single-letter SNPs (for example insertions or deletions) and will be dropped.", format(nin, big.mark = ",")))
@@ -507,7 +507,7 @@ import_save <- function(path, orig_name, sep, columns, mapping, facts, root = st
   dest <- file.path(library_dir(root), nm)
   if (dir.exists(dest)) stop("A dataset named \"", nm, "\" already exists in the Data library. Choose another name.")
   p <- study_path_problem(library_dir(root)); if (!is.null(p)) stop(p)
-  d <- .import_read(path, sep, columns, mp)
+  d <- .import_read(path, sep, columns, mp); n_all <- nrow(d)   # Round 99: the row count of the whole file, not of the check
   # Round 77: frequencies from the 1000 Genomes panel, matched by rsID and allele; palindromic variants only on the forward strand
   pan <- character()
   if (identical(facts$eaf_fill, "panel")) {
@@ -540,7 +540,7 @@ import_save <- function(path, orig_name, sep, columns, mapping, facts, root = st
   dir.create(dest, recursive = TRUE, showWarnings = FALSE)
   lib_table_write(d, dest, "standardised")
   rec <- list(trait = nm, role = facts$role, facts = facts, mapping = mp, original = list(file = orig_name, bytes = file.size(orig_path), sha256 = sha256_file(orig_path)),
-              rows_in_file = v$stats$rows, rows_kept = nrow(d), warnings = v$warnings, changes = as.list(c(prep_notes, pan, tr$changes)), saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
+              rows_in_file = n_all, rows_kept = nrow(d), warnings = v$warnings[!startsWith(v$warnings, "This check looked at the first")], changes = as.list(c(prep_notes, pan, tr$changes)), saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
               build_saved = if ((facts$build %||% "unknown") %in% c("37", "38")) "GRCh37" else "as in the file (build not known)", liftover = if (identical(facts$build, "38")) LIFTOVER_CHAIN[c("file", "sha256", "source")] else NULL,
               usable_as_exposure = isTRUE(facts$role %in% c("exposure", "either")) && (identical(facts$independent, "yes") || identical(facts$independent, "clump")),
               usable_as_outcome = facts$role %in% c("outcome", "either"), usable_in_runs = TRUE)

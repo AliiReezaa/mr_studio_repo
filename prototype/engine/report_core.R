@@ -251,7 +251,7 @@ pair_context <- function(h, p) {
   nx <- if (!is.null(dd$n_x)) stats::median(dd$n_x, na.rm = TRUE) else NA_real_; ny <- if (!is.null(dd$n_y)) stats::median(dd$n_y, na.rm = TRUE) else NA_real_
   rc <- file.path(h$dir, "03_pairs", p$folder, "02_scripts", "00_run_all.R"); sc <- Sys.glob(file.path(h$dir, "03_pairs", p$folder, "02_scripts", "[0-9]*_*.R"))
   srcname <- function(id, role) if (startsWith(id, "lib:")) tryCatch({ r <- library_recipe(sub("^lib:", "", id)); list(file = r$original$file, ancestry = .gwas_pop(r) %||% r$facts$ancestry %||% "unknown",   # Round 80: the GWAS population OpenGWAS gives, not the clumping panel
-       n = r$facts$n %||% "", og = if (identical(r$source$type, "opengwas")) r$source else NULL,
+       n = r$facts$n %||% "", ncase = r$facts$ncase %||% "", ncontrol = r$facts$ncontrol %||% "", build = r$facts$build %||% "", og = if (identical(r$source$type, "opengwas")) r$source else NULL,
        mv = if (identical(r$source$type, "opengwas_mv")) r$source else NULL) }, error = function(e) list(file = "(file no longer in the library)", ancestry = "unknown", n = "")) else list(file = NA_character_, ancestry = "EUR", n = "")
   list(p = p, pay = pay, est = est, ce = ce, vars = v, kept = kept, mean_f = mean(Fs), min_f = min(Fs), n_weak = sum(Fs < 10), settings = st, nx = nx, ny = ny,
        simulated = isTRUE(p$simulated) || !startsWith(p$ex %||% "", "lib:"), ledger = p$ledger, pthr = p$pthr %||% 5e-8, src_x = srcname(p$ex, "exposure"), src_y = srcname(if (identical(p$med$role, "xm") && !is.null(p$med$m_out)) p$med$m_out else p$out, "outcome"), methods = unlist(p$methods), scripts = sc,
@@ -356,6 +356,10 @@ steiger_limitations <- function(ctxs) {
     if (any(bad)) sprintf("For %s the test did not clearly support the assumed direction.", paste(vapply(ctxs[bad], function(cx) sprintf("%s -> %s", cx$p$exName, cx$p$outName), ""), collapse = "; ")),
     if (any(!ran)) sprintf("The test was not run for %s.", paste(vapply(ctxs[!ran], function(cx) sprintf("%s -> %s", cx$p$exName, cx$p$outName), ""), collapse = "; ")))
 }
+#' Round 99: the Data availability sentence; OpenGWAS dataset IDs and imported files are named separately when a study has both.
+.avail_sentence <- function(src) { og <- grepl("^OpenGWAS:", src)
+  sprintf("Summary statistics were %s.", paste(c(if (any(og)) sprintf("obtained from the public OpenGWAS database (api.opengwas.io), dataset IDs: %s", paste(sub("^OpenGWAS:", "", src[og]), collapse = "; ")),
+    if (any(!og)) sprintf("read from the files %s [Add the public source, accession number or DOI of each file.]", paste(src[!og], collapse = "; "))), collapse = "; and ")) }
 #' Round 50: univariable pairs go through the text below; multivariable ones get their own paragraphs (mv_add_text).
 report_text <- function(ctxs, study_name) {
   mvx <- Filter(function(cx) isTRUE(cx$mv), ctxs); uni <- Filter(function(cx) !isTRUE(cx$mv), ctxs)
@@ -378,7 +382,9 @@ report_text <- function(ctxs, study_name) {
       sx <- cx$src_x; sy <- cx$src_y
       nstr <- function(s) if (nzchar(as.character(s$n))) sprintf(", sample size %s", format(as.numeric(s$n), big.mark = ",", scientific = FALSE)) else ""
       side <- function(s, what) if (!is.null(s$og)) sprintf("were obtained from the OpenGWAS database (dataset %s; ancestry %s%s; accessed %s)", s$og$id, s$ancestry, nstr(s), substr(s$og$downloaded_at %||% "", 1, 10))
-                                else sprintf("were read from the file \"%s\" (ancestry declared as %s%s)", s$file, s$ancestry, nstr(s))
+                                else sprintf("were read from the file \"%s\" (ancestry declared as %s%s%s%s)", s$file, { an <- unname(LDREF_POP_NAMES[s$ancestry]); if (length(an) && !is.na(an)) an else s$ancestry }, nstr(s),
+                                  if (nzchar(as.character(s$ncase %||% "")) && nzchar(as.character(s$ncontrol %||% ""))) sprintf(", %s cases and %s controls", format(as.numeric(s$ncase), big.mark = ",", scientific = FALSE), format(as.numeric(s$ncontrol), big.mark = ",", scientific = FALSE)) else "",
+                                  if (as.character(s$build %||% "") %in% c("37", "38")) sprintf(", genome build GRCh%s", s$build) else "")   # Round 99
       txt$methods <- c(txt$methods, sprintf("Exposure %s and outcome %s. Genetic associations with the exposure %s, and associations with the outcome %s. %s",
         p$exName, p$outName, side(sx, "were"), side(sy, "were"),
         if (!is.null(sx$og) && !is.null(sy$og)) "Ancestry and the units of the effect sizes are as reported by OpenGWAS; the genome build was not verified automatically." else "Ancestry, genome build and the units of the effect sizes are as declared by the analyst when files were imported; they were not verified automatically."))
@@ -388,7 +394,7 @@ report_text <- function(ctxs, study_name) {
         txt$methods <- c(txt$methods, sprintf("Instruments were the genome-wide significant variants of the exposure dataset (P < %s), %s (r\u00b2 < %s within %s kb, 1000 Genomes %s reference panel; ieugwasr %s). %s Of %d instruments, %d %s absent from the outcome%s. Exposure and outcome alleles were aligned with TwoSampleMR::harmonise_data (action 2: palindromic variants are aligned using allele frequency and dropped when the strand is ambiguous): %d variants had their alleles aligned to the exposure, %d palindromic variants were dropped and %d variants were dropped because the alleles did not match. %d instruments were used.",
           format(pr$pval), if (identical(pr$where, "server_live")) "clumped live on the OpenGWAS server with ieugwasr::tophits (force_server = TRUE)" else if (ogw_stored_clumps(pr)) "as returned by ieugwasr::tophits from the stored, pre-computed clumps of OpenGWAS (default settings, preclumped = 1)" else "clumped on the OpenGWAS server with ieugwasr::tophits",
           format(pr$r2), format(pr$kb, big.mark = ","), pr$pop, sx$og$packages$ieugwasr %||% "unknown",
-          if (!is.null(po)) sprintf("The same variants were extracted from the outcome dataset with TwoSampleMR::extract_outcome_data (%s; TwoSampleMR %s).", if (isTRUE(po$proxies)) sprintf("proxies allowed at r\u00b2 of at least %s, palindromic variants aligned by allele frequency only when the minor allele frequency was below %s", format(po$rsq), format(po$maf_threshold)) else "no proxies", sy$og$packages$TwoSampleMR %||% "unknown") else "The outcome associations were read from an imported file.",
+          if (!is.null(po)) sprintf("The same variants were extracted from the outcome dataset with TwoSampleMR::extract_outcome_data (%s; TwoSampleMR %s).", if (isTRUE(po$proxies)) sprintf("proxies allowed at r\u00b2 of at least %s, palindromic variants aligned by allele frequency only when the minor allele frequency was below %s", format(po$rsq), format(po$maf_threshold)) else "no proxies", sy$og$packages$TwoSampleMR %||% "unknown") else "The outcome associations were read from an imported file; instruments missing from it were not replaced by proxy variants.",
           L$instruments, L$missing_in_outcome, if (L$missing_in_outcome == 1) "was" else "were", if (!is.null(L$by_proxy) && L$by_proxy > 0) sprintf(" (a further %d %s found only through proxy variants)", L$by_proxy, if (L$by_proxy == 1) "was" else "were") else "", L$flipped, L$dropped_palindromic, L$dropped_mismatch, L$kept))
         if (isTRUE(L$ties$server) && isTRUE(L$ties$tied > 0)) txt$methods <- c(txt$methods, sprintf("%d instruments shared their P value with another instrument (%s). Because clumping was done on the OpenGWAS server, which of several variants with equal P was kept in a region could not be checked.", as.integer(L$ties$tied), p_store_phrase(L$ties)))
       } else       if (!is.null(L) && !is.null(L$clump)) {
@@ -484,7 +490,9 @@ report_text <- function(ctxs, study_name) {
                   else if (length(mm)) " The mode estimators relax the third assumption only if a plurality of the instruments are valid." else ""))
   if (anysim) lim <- c(lim, "SIMULATED DATA: at least one pair uses simulated demonstration traits. These results illustrate the software and must not be presented as scientific findings.")
   anyog <- any(vapply(ctxs, function(cx) !cx$simulated && !is.null(cx$src_x$og), TRUE)); anyfile <- any(vapply(ctxs, function(cx) !cx$simulated && (is.null(cx$src_x$og) || is.null(cx$src_y$og)), TRUE))
-  if (anyfile) lim <- c(lim, "For imported files, clumping was not performed by MR Studio: the independence of the instruments rests on the analyst's statement at import. Ancestry and genome build are declared, not verified, and the exposure and outcome files must come from the same genome build.")
+  xfile <- any(vapply(ctxs, function(cx) !cx$simulated && is.null(cx$src_x$og), TRUE))   # Round 99: the clumping sentence only when an exposure is an imported file
+  if (anyfile) lim <- c(lim, paste0(if (xfile) "For imported exposure files, clumping was not performed by MR Studio: the independence of the instruments rests on the analyst's statement at import. " else "",
+    "Ancestry and genome build of imported files are as declared by the analyst and were not verified; exposure and outcome must come from the same genome build when variants are matched by position."))
   nfw <- sum(vapply(ctxs, function(cx) identical(cx$ledger$strand, "forward"), TRUE))   # Round 26
   if (nfw) lim <- c(lim, sprintf("In %s, palindromic variants (A/T or C/G) were kept because the analyst declared that both datasets report alleles on the forward strand. This was not verified: if either dataset uses another strand convention, these variants enter with the wrong sign. A sensitivity analysis without them is advisable.", if (nfw == 1L) "one pair" else sprintf("%d pairs", nfw)))
   if (anyog) lim <- c(lim, "Instruments from OpenGWAS were clumped against 1000 Genomes reference panels (on its server or, where stated, on the analyst's computer with the same panel), so linkage disequilibrium was estimated in a reference sample and not in the study population. Proxy variants, where used, stand in for missing instruments and are listed in the harmonised data table.")
@@ -500,10 +508,10 @@ report_text <- function(ctxs, study_name) {
              if (nfew) sprintf("In %s, fewer than 4 variants were used, so the heterogeneity between the variants could not be estimated reliably and the IVW confidence interval and P value are uncertain [Burgess 2023].", if (nfew == 1) "one pair" else paste(nfew, "pairs")) else NULL },
            if (any(vapply(ctxs, function(x) x$n_weak > 0, TRUE))) "Some variants have an F statistic below 10, which can bias estimates toward the null in two-sample MR." else NULL,
            if (any(c("presso", "radial", "radegger") %in% used)) "Variants flagged by MR-PRESSO or radial MR were reported but not removed from the primary analysis. Detectors flag variants by a statistical rule and cannot tell horizontal pleiotropy from valid heterogeneity; any analysis without flagged variants is a post-hoc sensitivity analysis and must be reported as one [Burgess 2023]." else "Outlier detection (MR-PRESSO, radial MR) was not run in this study. Pleiotropy-robust estimators were compared with the IVW estimate; agreement in direction does not prove the assumptions hold.",
-           "No correction for multiple testing was applied across pairs.")
+           if (length(ctxs) > 1L) "No correction for multiple testing was applied across pairs." else NULL)   # Round 99: not with a single pair
   txt$limitations <- lim
   src <- unique(unlist(lapply(ctxs, function(cx) c(if (!cx$simulated) cx$src_x$file, if (!cx$simulated) cx$src_y$file)))); txt$src <- src
-  txt$availability <- c(if (length(src)) sprintf("Summary statistics were %s: %s.%s", if (all(grepl("^OpenGWAS:", src))) "obtained from the public OpenGWAS database (api.opengwas.io), dataset IDs" else "read from the following files", paste(sub("^OpenGWAS:", "", src), collapse = "; "), if (all(grepl("^OpenGWAS:", src))) "" else " [Add the public source, accession number or DOI of each file.]") else "No external data were used: the traits are simulated by MR Studio.",
+  txt$availability <- c(if (length(src)) .avail_sentence(src) else "No external data were used: the traits are simulated by MR Studio.",
                         "The analysis scripts, the harmonised data tables used in every calculation, all result tables and the replay check are provided in the reproducibility package of this study.")
   fi <- 0L
   for (cx in ctxs) { ce <- cx$ce; if (!nrow(ce)) next; fi <- fi + 1L

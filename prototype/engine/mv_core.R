@@ -149,7 +149,7 @@ mv_add_text <- function(txt, mvx) {
   ov <- Filter(function(x) !is.null(x$overlap), mvx); if (length(ov) && exists("overlap_limitations")) { o <- lapply(ov, function(x) { x$p$exName <- paste(x$labels, collapse = ", "); x }); txt$limitations <- unique(c(txt$limitations, overlap_limitations(o))) }
   src <- unique(c(txt$src, unlist(lapply(mvx, `[[`, "sources"))))   # Round 98: one sentence for the univariable and multivariable sources
   txt$availability <- txt$availability[!startsWith(txt$availability, "Summary statistics were")]
-  if (length(src)) { og <- grepl("^OpenGWAS:", src); txt$availability <- unique(c(sprintf("Summary statistics were %s.", paste(c(if (any(og)) sprintf("obtained from the public OpenGWAS database (api.opengwas.io), dataset IDs %s", paste(sub("^OpenGWAS:", "", src[og]), collapse = ", ")), if (any(!og)) sprintf("read from the files %s [add the public source, accession number or DOI of each file]", paste(src[!og], collapse = ", "))), collapse = "; and ")), txt$availability)) }
+  if (length(src)) txt$availability <- unique(c(.avail_sentence(src), txt$availability))   # Round 99: the same sentence as two-sample reports
   txt$limitations <- c(txt$limitations, "Multivariable MR estimates are direct effects conditional on the exposures included in the model; they change if exposures are added or removed, and they assume that each variant affects the outcome only through the exposures in the model. The conditional F statistic assumes that the exposure samples do not overlap.")
   txt
 }
