@@ -34,12 +34,25 @@ bidir_cml_script <- function(fwd, rev, xl, yl, seed, pthr) {
 }
 
 #' Run the script for every forward/reverse couple of a study. Returns a list of results tables (one per couple), or an empty list.
-bidir_cml_run <- function(h, pairs, pthr = 5e-8) {
-  pr <- Filter(function(p) !is.null(p$folder) && !isTRUE(p$mv), pairs); out <- list()
+# Round 95: the trait behind a dataset id. The reverse direction of an OpenGWAS pair uses other downloads of the same two GWAS (the
+# outcome's own instruments, the exposure looked up at them), so a forward pair and its reverse are matched by OpenGWAS dataset ID.
+.bidir_trait <- function(id, root = studies_root()) {
+  if (!is.character(id) || length(id) != 1L || !startsWith(id, "lib:")) return(id)
+  r <- tryCatch(.lib_recipe0(sub("^lib:", "", id), root), error = function(e) NULL)
+  if (!is.null(r) && (r$source$type %||% "") %in% c("opengwas", "opengwas_vcf") && !is.null(r$source$id)) paste0("ogw:", r$source$id) else id
+}
+bidir_cml_run <- function(h, pairs, pthr = 5e-8, root = studies_root(), reuse = FALSE) {
+  pr <- Filter(function(p) !is.null(p$folder) && !isTRUE(p$mv), pairs); out <- list(); tk <- function(id) .bidir_trait(id, root)
   for (p in Filter(function(p) !isTRUE(p$rev), pr)) {
-    r <- Filter(function(q) isTRUE(q$rev) && identical(q$ex, p$out) && identical(q$out, p$ex), pr); if (!length(r)) next
+    r <- Filter(function(q) isTRUE(q$rev) && identical(tk(q$ex), tk(p$out)) && identical(tk(q$out), tk(p$ex)), pr)
+    if (!length(r)) { out[[p$folder]] <- structure(list(error = sprintf("No reverse pair was found for %s on %s, so MR-cML in both directions was not run for it.", p$exName %||% p$ex, p$outName %||% p$out)), class = "bidir_cml_error"); next }
     rel <- file.path("04_across_pairs", "bidirectional_cml"); dir.create(file.path(h$dir, rel), recursive = TRUE, showWarnings = FALSE)
-    sf <- file.path(h$dir, rel, paste0(p$folder, ".R")); writeLines(bidir_cml_script(p$folder, r[[1]]$folder, p$exName, p$outName, .seed_of(paste("bidircml", p$folder)), p$pthr %||% pthr), sf)
+    sf <- file.path(h$dir, rel, paste0(p$folder, ".R")); code <- bidir_cml_script(p$folder, r[[1]]$folder, p$exName, p$outName, .seed_of(paste("bidircml", p$folder)), p$pthr %||% pthr)
+    rf <- file.path(h$dir, rel, paste0(p$folder, "_results.csv"))
+    # Round 95: the package reuses the saved result when the script is unchanged (the joint fit takes minutes on real data)
+    if (reuse && file.exists(rf) && file.exists(sf) && identical(readLines(sf, warn = FALSE), unlist(strsplit(paste(code, collapse = "\n"), "\n", fixed = TRUE)))) {
+      res <- utils::read.csv(rf, stringsAsFactors = FALSE); attr(res, "labels") <- c(x = p$exName, y = p$outName); out[[p$folder]] <- res; next }
+    writeLines(code, sf)
     old <- setwd(h$dir); res <- tryCatch({ sys.source(sf, envir = new.env(parent = globalenv()), keep.source = FALSE)
       utils::read.csv(file.path(rel, paste0(p$folder, "_results.csv")), stringsAsFactors = FALSE) }, error = function(e) e, finally = setwd(old))
     if (inherits(res, "error")) { out[[p$folder]] <- structure(list(error = conditionMessage(res)), class = "bidir_cml_error"); next }

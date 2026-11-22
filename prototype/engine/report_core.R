@@ -148,6 +148,7 @@ REFS$hemani2017 <- list(pmid = "29149188", key = "Hemani2017", authors = "Hemani
 REFS$skrivankova2021ee <- list(pmid = "34702754", key = "Skrivankova2021EE", authors = "Skrivankova VW, Richmond RC, Woolf BAR, et al.", title = "Strengthening the reporting of observational studies in epidemiology using mendelian randomisation (STROBE-MR): explanation and elaboration", journal = "BMJ", year = "2021", vol = "375", pages = "n2233", doi = "10.1136/bmj.n2233")
 REFS$chang2015 <- list(pmid = "25722852", key = "Chang2015", authors = "Chang CC, Chow CC, Tellier LC, Vattikuti S, Purcell SM, Lee JJ.", title = "Second-generation PLINK: rising to the challenge of larger and richer datasets", journal = "Gigascience", year = "2015", vol = "4", pages = "7", doi = "10.1186/s13742-015-0047-8")
 REFS$kgp2015 <- list(pmid = "26432245", key = "1000Genomes2015", authors = "1000 Genomes Project Consortium, Auton A, Brooks LD, et al.", title = "A global reference for human genetic variation", journal = "Nature", year = "2015", vol = "526", pages = "68-74", doi = "10.1038/nature15393")
+REFS$burgess2018 <- list(pmid = "30039250", key = "BurgessLabrecque2018", authors = "Burgess S, Labrecque JA.", title = "Mendelian randomization with a binary exposure variable: interpretation and presentation of causal estimates", journal = "Eur J Epidemiol", year = "2018", vol = "33", pages = "947-952", doi = "10.1007/s10654-018-0424-6")
 REFS$lee2012 <- list(pmid = "22714935", key = "Lee2012", authors = "Lee SH, Goddard ME, Wray NR, Visscher PM.", title = "A better coefficient of determination for genetic profile analysis", journal = "Genet Epidemiol", year = "2012", vol = "36", pages = "214-224", doi = "10.1002/gepi.21614")
 REFS$verbanck2018 <- list(pmid = "29686387", key = "Verbanck2018", authors = "Verbanck M, Chen CY, Neale B, Do R.", title = "Detection of widespread horizontal pleiotropy in causal relationships inferred from Mendelian randomization between complex traits and diseases", journal = "Nat Genet", year = "2018", vol = "50", pages = "693-698", doi = "10.1038/s41588-018-0099-7")
 REFS$bowden2018 <- list(pmid = "29961852", key = "Bowden2018", authors = "Bowden J, Spiller W, Del Greco M F, et al.", title = "Improving the visualization, interpretation and analysis of two-sample summary data Mendelian randomization via the Radial plot and Radial regression", journal = "Int J Epidemiol", year = "2018", vol = "47", pages = "1264-1278", doi = "10.1093/ije/dyy101")
@@ -330,8 +331,15 @@ steiger_facts <- function(cx) {
 #' TRUE when any pair ran the Steiger test with a binary trait (liability-scale variance explained, Lee 2012).
 steiger_any_binary <- function(ctxs) any(vapply(ctxs, function(cx) { f <- steiger_facts(cx); !is.null(f) && (f$bin_x || f$bin_y) }, TRUE))
 .prev_of <- function(note) sub(".*prevalence ", "", note)
+# Round 95: a bidirectional study, and pairs whose exposure is a binary trait (read per unit of its log odds)
+.ctx_bidir <- function(ctxs) any(vapply(ctxs, function(cx) isTRUE(cx$p$rev), TRUE))
+.ctx_bin_x <- function(ctxs) Filter(function(cx) { id <- cx$p$ex; if (!is.character(id) || length(id) != 1L) return(FALSE); startsWith(id, "lib:") && identical(tryCatch(library_recipe(sub("^lib:", "", id))$facts$kind, error = function(e) NULL), "binary") }, ctxs)
+binary_exposure_limitations <- function(ctxs) { b <- .ctx_bin_x(ctxs); if (!length(b)) return(NULL)
+  sprintf("%s %s binary: %s estimate is the change in the outcome per unit increase in the log odds of the exposure (multiply by 0.693 for a doubling of its odds), and it reflects the effect of the liability to the trait rather than of having it, so it should be read with care [Burgess and Labrecque 2018].",
+    paste(unique(vapply(b, function(cx) cx$p$exName %||% cx$p$ex, "")), collapse = " and "), if (length(unique(vapply(b, function(cx) cx$p$exName %||% cx$p$ex, ""))) == 1L) "is" else "are", if (length(b) == 1L) "its" else "each") }
 steiger_limitations <- function(ctxs) {
   f <- lapply(ctxs, steiger_facts); ran <- !vapply(f, is.null, TRUE)
+  if (!any(ran) && .ctx_bidir(ctxs)) return("The Steiger directionality test was not run. The direction of the effect was examined instead by estimating each pair in both directions (reverse MR), and jointly with bidirectional MR-cML where it ran.")
   if (!any(ran)) return("Directionality was not tested (the Steiger directionality test was not run), so reverse causation is not excluded by this analysis.")
   bad <- vapply(seq_along(f), function(i) ran[i] && !(f[[i]]$ok && is.finite(f[[i]]$p) && f[[i]]$p < 0.05), TRUE)
   c("The Steiger directionality test [Hemani 2017] compares the variance the variants explain in the exposure and in the outcome. It assumes the variants act on the outcome only through the exposure, it is sensitive to measurement error and horizontal pleiotropy. It does not exclude confounding or reverse causation.",
@@ -481,7 +489,7 @@ report_text <- function(ctxs, study_name) {
       if (done) sprintf("the Results report a sensitivity analysis without %s", if (sum(nf) == 1L) "it" else "them") else sprintf("a sensitivity analysis without %s is advisable", if (sum(nf) == 1L) "it" else "them"))) }
   if (any(vapply(ctxs, function(cx) !is.null(cx$outl), TRUE))) lim <- c(lim, "Outlier removal was a data-driven sensitivity analysis: the variants removed were chosen after seeing the data, so heterogeneity and pleiotropy P values after removal are optimistic and descriptive only. Heterogeneity can reflect real differences in the effects of valid variants and not only pleiotropy, and removing variants that act through the exposure pathway (vertical pleiotropy) can shift the estimate. The primary analysis used all instruments [Burgess 2023].")
   lim <- c(lim, overlap_limitations(ctxs),
-           steiger_limitations(ctxs),
+           steiger_limitations(ctxs), binary_exposure_limitations(ctxs),
            { nfew <- sum(vapply(ctxs, function(x) "ivw_mre" %in% x$methods && !is.null(x$kept) && nrow(x$kept) < 4, TRUE))   # Round 30, rule R21b
              if (nfew) sprintf("In %s, fewer than 4 variants were used, so the heterogeneity between the variants could not be estimated reliably and the IVW confidence interval and P value are uncertain [Burgess 2023].", if (nfew == 1) "one pair" else paste(nfew, "pairs")) else NULL },
            if (any(vapply(ctxs, function(x) x$n_weak > 0, TRUE))) "Some variants have an F statistic below 10, which can bias estimates toward the null in two-sample MR." else NULL,
@@ -541,7 +549,8 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   txt <- report_text(ctxs, basename(h$dir))
   med <- if (any(vapply(pairs, function(p) !is.null(p$med), TRUE))) tryCatch(mediation_run(h, pairs), error = function(e) NULL) else NULL   # Round 57: mediation
   if (!is.null(med)) { txt$methods <- c(txt$methods, MEDIATION_METHODS_TEXT); txt$results <- c(txt$results, mediation_results_text(med, attr(med, "spec"))); txt$limitations <- c(txt$limitations, MEDIATION_LIMITS_TEXT) }
-  bcm <- if (exists("bidir_cml_run") && any(vapply(pairs, function(p) isTRUE(p$rev), TRUE)) && requireNamespace("BiDirectCausal", quietly = TRUE)) tryCatch(Filter(is.data.frame, bidir_cml_run(h, pairs)), error = function(e) list()) else list()   # Round 63
+  bcm <- if (exists("bidir_cml_run") && any(vapply(pairs, function(p) isTRUE(p$rev), TRUE)) && requireNamespace("BiDirectCausal", quietly = TRUE)) tryCatch(Filter(is.data.frame, bidir_cml_run(h, pairs, reuse = TRUE)), error = function(e) list()) else list()   # Round 63; Round 95: the saved result is reused
+  if (any(vapply(pairs, function(p) isTRUE(p$rev), TRUE))) txt$methods <- c(txt$methods, "The study was bidirectional: each pair was also analysed in the reverse direction as a separate two-sample MR, with the instruments of the outcome trait and their effects looked up in the exposure trait.")   # Round 95
   if (length(bcm)) { txt$methods <- c(txt$methods, BIDIR_CML_METHODS_TEXT); txt$results <- c(txt$results, unlist(lapply(bcm, bidir_cml_text))) }
   lds <- if (exists("ldsc_pair_read")) Filter(Negate(is.null), lapply(Filter(function(p) !isTRUE(p$mv) && !is.null(p$folder), pairs), function(p) tryCatch(ldsc_pair_read(h, p), error = function(e) NULL))) else list()   # Round 64
   if (length(lds)) { txt$methods <- c(txt$methods, LDSC_METHODS_TEXT); txt$results <- c(txt$results, unlist(lapply(lds, ldsc_text))) }
@@ -564,7 +573,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     txt$limitations <- c(txt$limitations, unlist(lapply(recs, function(r) ldref_limitation(r, r$labels))))
   }
   txt <- .pfix(txt)   # Round 91: "P = < 1e-300" reads "P < 1e-300"
-  used <- unique(c("hemani2018", "burgess2023", "skrivankova2021", if (length(bcm)) "xue2022", if (length(lds)) c("bulik2015a", "bulik2015b", "grotzinger2019"), if (length(lhc)) "darrous2021", if (length(mlp)) "mounier2023", if (length(aps)) "hu2022", if (length(cau)) "morrison2020", if (!is.null(med)) c("carter2021", "carter2019", "sanderson2019"), unlist(METHOD_REFS[unlist(lapply(ctxs, function(x) x$methods))]), if (steiger_any_binary(ctxs)) "lee2012", if (any(vapply(ctxs, function(cx) !is.null(cx$ledger$clump), TRUE))) c("chang2015", "kgp2015")))
+  used <- unique(c("hemani2018", "burgess2023", "skrivankova2021", if (length(bcm)) "xue2022", if (length(lds)) c("bulik2015a", "bulik2015b", "grotzinger2019"), if (length(lhc)) "darrous2021", if (length(mlp)) "mounier2023", if (length(aps)) "hu2022", if (length(cau)) "morrison2020", if (!is.null(med)) c("carter2021", "carter2019", "sanderson2019"), unlist(METHOD_REFS[unlist(lapply(ctxs, function(x) x$methods))]), if (steiger_any_binary(ctxs)) "lee2012", if (length(.ctx_bin_x(ctxs))) "burgess2018", if (any(vapply(ctxs, function(cx) !is.null(cx$ledger$clump), TRUE))) c("chang2015", "kgp2015")))
   figs <- list(); wmm <- as.numeric(width_mm); wmm <- if (is.finite(wmm) && wmm >= 60) wmm else 180
   if (any(c("figs", "report", "text") %in% items)) {
     .say("Drawing the figures: forest and scatter plots of every pair, at the column width you chose", "Figures are written as PDF, SVG and PNG, so they can go straight into a manuscript.")

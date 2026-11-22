@@ -2455,4 +2455,35 @@ local({
          grepl("last.status === 'RUNNING' ? 'An analysis is running in the background. Open the study to follow it.'", js, fixed = TRUE))
 })
 
+local({
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  expect("Round 95: the Data panel of a bidirectional study says each pair is analysed in both directions and that the reverse is prepared at Check, and '1 pair' is singular",
+         grepl("outcome pair' + (pairs === 1 ? '' : 's')", js, fixed = TRUE) && grepl("analysed in both directions (' + 2 * pairs + ' analyses; the reverse is prepared at Check)", js, fixed = TRUE))
+  expect("Round 95: Check names a binary exposure (the reverse of a bidirectional study) and says its estimate is per unit of log odds, the effect of the liability, as a REVIEW item; instrument counts read 'each pair has at least N instruments'",
+         grepl("x.scale_x === 'log_or'", js, fixed = TRUE) && grepl("per unit increase in the log odds of the exposure (multiply by 0.693 for a doubling of its odds)", js, fixed = TRUE) && grepl("(each pair has at least ' + minI + ' instruments)", js, fixed = TRUE))
+})
+
+# Round 95: test B (bidirectional LDL and CHD on OpenGWAS): MR-cML found no reverse pair and gave nothing, silently
+local({
+  root <- tempfile("r95-"); dir.create(root)
+  mkr <- function(nm, id) { d <- file.path(library_dir(root), nm); dir.create(d, recursive = TRUE); jsonlite::write_json(list(trait = nm, source = list(type = "opengwas", id = id), facts = list(kind = "continuous")), file.path(d, "recipe.json"), auto_unbox = TRUE) }
+  mkr("LDL live clump", "ieu-a-300"); mkr("CHD for LDL", "ieu-a-7"); mkr("CHD own instruments", "ieu-a-7"); mkr("LDL for CHD", "ieu-a-300")
+  expect("Round 95: a forward pair and its reverse are recognised through their OpenGWAS dataset IDs although the reverse uses other downloads",
+         identical(.bidir_trait("lib:CHD for LDL", root), .bidir_trait("lib:CHD own instruments", root)) && identical(.bidir_trait("lib:LDL live clump", root), "ogw:ieu-a-300") &&
+         identical(.bidir_trait("expA", root), "expA"))
+  h <- list(dir = tempfile("r95s-")); dir.create(h$dir)
+  r <- bidir_cml_run(h, list(list(ex = "lib:LDL live clump", out = "lib:CHD for LDL", folder = "P01", exName = "LDL", outName = "CHD", rev = FALSE)), root = root)
+  expect("Round 95: a forward pair without a reverse pair is reported as an error, not dropped in silence",
+         inherits(r[["P01"]], "bidir_cml_error") && grepl("No reverse pair was found for LDL on CHD", r[["P01"]]$error, fixed = TRUE))
+  rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 95: the report states the bidirectional design, reuses the saved MR-cML result, says the reverse direction was estimated when Steiger did not run, and gives the binary-exposure caveat with its reference",
+         grepl("The study was bidirectional: each pair was also analysed in the reverse direction", rc, fixed = TRUE) && grepl("bidir_cml_run(h, pairs, reuse = TRUE)", rc, fixed = TRUE) &&
+         grepl("The direction of the effect was examined instead by estimating each pair in both directions", rc, fixed = TRUE) && grepl("[Burgess and Labrecque 2018]", rc, fixed = TRUE) &&
+         identical(REFS$burgess2018$pmid, "30039250") && grepl("if (length(.ctx_bin_x(ctxs))) \"burgess2018\"", rc, fixed = TRUE))
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  expect("Round 95: the screen pairs the two directions by OpenGWAS dataset ID too (both-directions panel and MR-cML), and shows an MR-cML error instead of nothing",
+         grepl("tkey(q.ex) === tkey(pair.out) && tkey(q.out) === tkey(pair.ex)", js, fixed = TRUE) && grepl("S.bcmlErr = m.errors || {}", js, fixed = TRUE) &&
+         grepl("Bidirectional MR-cML: ' + esc(er.error)", js, fixed = TRUE) && grepl("'bcml', 'bcmlErr'", js, fixed = TRUE))
+})
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)
