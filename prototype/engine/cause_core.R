@@ -108,12 +108,12 @@ cause_ties <- function(h, pair) {
 cause_ties_text <- function(res) {
   t <- if (is.data.frame(res)) attr(res, "ties") else res; if (is.null(t)) return(character())
   l <- if (is.data.frame(res)) attr(res, "labels") else NULL; who <- if (!is.null(l)) sprintf(" for %s on %s", l[["x"]], l[["y"]]) else ""
-  why <- if (all(t$p == "0")) "P = 0, too small for the computer to represent" else sprintf("P = %s, perhaps capped by the software that produced the GWAS", paste(t$p, collapse = ", "))
+  why <- if (all(t$p == "0")) "recorded as P = 0, a value too small to be stored" else sprintf("P = %s, perhaps capped by the software that produced the GWAS", paste(t$p, collapse = ", "))
   sprintf("When CAUSE%s clumped its variants, %d variants in %d region%s shared the smallest P value (%s), so the lead variant of %s was chosen arbitrarily rather than by the strength of association; another choice could change the variants CAUSE used.",
           who, t$variants, t$groups, if (t$groups == 1) "" else "s", why, if (t$groups == 1) "that region" else "those regions")
 }
 
-CAUSE_METHODS_TEXT <- "The causal effect was also assessed with CAUSE [Morrison 2020], which distinguishes a causal effect from correlated pleiotropy (a shared heritable factor) using variants with exposure P < 1e-3 (clumped at r2 < 0.01 against the 1000 Genomes European panel), with nuisance parameters, including the correlation that sample overlap brings, estimated from a random sample of up to one million variants. The causal model was compared with the sharing model by the expected log predictive density."
+CAUSE_METHODS_TEXT <- "The causal effect was also assessed with CAUSE [Morrison 2020], which distinguishes a causal effect from correlated pleiotropy (a shared heritable factor) using variants with exposure P < 1e-3 (clumped at r2 < 0.01 against the 1000 Genomes European panel), with nuisance parameters, including the correlation that sample overlap brings, estimated from a random sample of up to one million variants. The causal model was compared with the sharing model by the expected log predictive density. The random sample, and therefore the estimates, depend on a seed recorded in the script: the analysis replays exactly with that seed, and another seed changes the estimates slightly."   # Round 100: seed stated
 cause_text <- function(res) {
   if (!is.data.frame(res) || !nrow(res)) return(character())
   l <- attr(res, "labels"); r <- res[1, ]

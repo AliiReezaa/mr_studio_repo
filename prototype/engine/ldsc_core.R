@@ -196,7 +196,15 @@ ldsc_text <- function(res) {
   rg <- g("rg"); ci <- g("cross_trait_intercept")
   sprintf("LD score regression (%s variants): SNP heritability %s for %s and %s for %s; genetic correlation %s (95%% CI %.3f to %.3f; P = %s). Intercepts %s and %s; cross-trait intercept %s%s.",
           format(res$snps[1], big.mark = ","), f(g("h2", l[["x"]])), l[["x"]], f(g("h2", l[["y"]])), l[["y"]], f(rg), rg$ci_lower, rg$ci_upper, format(signif(rg$p, 2)),
-          f(g("intercept", l[["x"]])), f(g("intercept", l[["y"]])), f(ci), if (ci$p < 0.05) ", which suggests overlapping samples or shared confounding" else "")
+          f(g("intercept", l[["x"]])), f(g("intercept", l[["y"]])), f(ci), if (ci$p < 0.05) ", which suggests overlapping samples or shared confounding" else "") |>
+    paste0(.ldsc_low_intercept(g, l))
+}
+#' Round 100: an intercept clearly below 1 usually means the GWAS applied genomic control, which deflates its test statistics.
+.ldsc_low_intercept <- function(g, l) {
+  low <- Filter(function(t) { r <- g("intercept", t); is.finite(r$estimate) && is.finite(r$se) && r$estimate + 1.96 * r$se < 1 }, c(l[["x"]], l[["y"]]))
+  if (!length(low)) return("")
+  sprintf(" The intercept below 1 for %s usually means that genomic control was applied to %s, which deflates the test statistics; the genetic correlation is little affected, but the SNP heritability is then underestimated.",
+          paste(low, collapse = " and "), if (length(low) == 1L) "that GWAS" else "those GWAS")
 }
 
 # ---- Background computation (separate R process, progress in a file), so the app stays usable for the 10 to 30 minutes it takes ----
@@ -370,7 +378,7 @@ ldref_read <- function(h, pair, method) { f <- .ldref_file(h, pair, method); if 
 #' The Limitations sentence for one method and pair (empty for the official European scores or a panel of the GWAS's own ancestry).
 ldref_limitation <- function(rec, labels) {
   if (is.null(rec)) return(character())
-  nm <- LDREF_METHODS[[rec$method]]$name; pr <- sprintf("%s for %s → %s", nm, labels[[1]], labels[[2]])
+  nm <- LDREF_METHODS[[rec$method]]$name; pr <- sprintf("%s for %s and %s", nm, labels[[1]], labels[[2]])   # Round 100: plain words, as in the Results
   if (length(rec$accepted)) {
     un <- vapply(rec$unknown_ancestry, function(x) sprintf("%s (%s)", x$trait, x$label), "")
     return(sprintf("%s used %s, although the ancestry of %s has no matching LD reference; the analyst chose this panel and accepted on %s that LD in these samples may differ from it, which can bias %s.",

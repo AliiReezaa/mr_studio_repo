@@ -4,7 +4,8 @@
 # threshold (P < 5e-5, clumped locally with PLINK against the app's 1000 Genomes panel) and corrects for the selection bias that this
 # threshold brings. Everything runs on this computer: format_data -> est_paras -> clump -> MRAPSS.
 PIN_MRAPSS <- "85c18eaef8ccbc1b330d31db0b3984c2fd0f528f"
-MRAPSS_MEMORY_GB <- function(rows) 1.0 + 0.6 * max(rows, 0, na.rm = TRUE) / 1e6
+MRAPSS_MEMORY_GB <- function(rows) 1.0 + 0.3 * max(rows, 0, na.rm = TRUE) / 1e6   # Round 100: measured 3.0 GB peak in the shipped runtime (LDL 2.4 M and CHD 8.5 M variants, macOS; preparation 2.3 GB); was 0.6 per million (6.1 GB), an estimate
+MRAPSS_SAFE_SHARE <- 0.85   # Round 100: measured on real data, like CAUSE and MRlap
 
 #' MR-APSS input for one trait, in the column names format_data() reads by default: SNP A1 A2 b se n [freq].
 mrapss_prepare <- function(d) {
@@ -51,7 +52,7 @@ mrapss_pair_prepare <- function(h, pair, root = studies_root(), ldsc = ldsc_ref_
   ds <- lapply(ids, function(i) library_dataset(sub("^lib:", "", i), root))
   lr <- ldref_resolve(lapply(ds, `[[`, "recipe"), "mrapss", accept, ldsc)   # Round 81: LD scores and panel of the GWAS's ancestry, or the analyst's accepted choice
   rows <- vapply(ds, function(x) as.numeric(x$recipe$rows_kept %||% nrow(x$data)), 0)
-  if (exists("mem_check")) { mc <- mem_check(MRAPSS_MEMORY_GB(rows), "MR-APSS"); if (!mc$ok) stop(mc$msg, call. = FALSE) }
+  if (exists("mem_check")) { mc <- mem_check(MRAPSS_MEMORY_GB(rows), "MR-APSS", share = MRAPSS_SAFE_SHARE); if (!mc$ok) stop(mc$msg, call. = FALSE) }
   rel <- file.path("02_datasets", "mrapss"); dir.create(file.path(h$dir, rel), recursive = TRUE, showWarnings = FALSE); files <- character(2)
   for (k in 1:2) { tr <- ds[[k]]$recipe$trait; f <- file.path(rel, paste0(.ldsc_slug(tr), ".tsv.gz")); files[k] <- f
     if (!file.exists(file.path(h$dir, f))) { m <- mrapss_prepare(ds[[k]]$data)

@@ -10,13 +10,13 @@ RES_GUARD_FLOOR <- 0.10  # the guard stops a run when free memory falls below 10
 
 #' Total and available physical memory in GB (NA when the system does not tell). Available = what can be used without swapping:
 #' MemAvailable on Linux; on macOS the free percentage of memory_pressure (else free + inactive + speculative + purgeable pages);
-#' FreePhysicalMemory on Windows.
+#' on Windows the Available memory of the performance counters (as Task Manager shows), else FreePhysicalMemory.
 mem_info <- function() {
   tot <- NA_real_; av <- NA_real_
   tryCatch({
     if (.Platform$OS.type == "windows") {
-      o <- system2("powershell", c("-NoProfile", "-Command", shQuote("$o = Get-CimInstance Win32_OperatingSystem; \"$($o.TotalVisibleMemorySize) $($o.FreePhysicalMemory)\"")), stdout = TRUE, stderr = FALSE)
-      v <- as.numeric(strsplit(trimws(o[length(o)]), "\\s+")[[1]]); tot <- v[1] / 1048576; av <- v[2] / 1048576
+      o <- system2("powershell", c("-NoProfile", "-Command", shQuote("$o = Get-CimInstance Win32_OperatingSystem; $m = Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory; \"$($o.TotalVisibleMemorySize) $($o.FreePhysicalMemory) $($m.AvailableBytes)\"")), stdout = TRUE, stderr = FALSE)
+      v <- as.numeric(strsplit(trimws(o[length(o)]), "\\s+")[[1]]); tot <- v[1] / 1048576; av <- if (length(v) >= 3 && is.finite(v[3])) v[3] / 1073741824 else v[2] / 1048576   # Round 100: Available (free + standby cache, as Task Manager shows); FreePhysicalMemory leaves out the standby cache
     } else if (Sys.info()[["sysname"]] == "Darwin") {
       tot <- .num1(system2("sysctl", c("-n", "hw.memsize"), stdout = TRUE)) / 1073741824
       vs <- system2("vm_stat", stdout = TRUE); ps <- .num1(sub(".*page size of ([0-9]+) bytes.*", "\\1", vs[1]))

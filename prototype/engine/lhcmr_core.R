@@ -17,10 +17,17 @@ LHCMR_HLA <- c(28.5e6, 33.5e6)
 lhcmr_ref_dir <- function() file.path(ldsc_ref_dir(), "lhcmr")
 lhcmr_ref_status <- function(dir = lhcmr_ref_dir()) list(dir = dir, ld = file.exists(file.path(dir, LHCMR_REF$ld$file)), rho = file.exists(file.path(dir, LHCMR_REF$rho$file)),
                                                          package = nzchar(system.file(package = "lhcMR")))   # Round 84: installed? (loading it took 1.7 s on the first Results page)
+#' Round 100: one LD file, with time for 300 MB (R's default timeout of 60 s ended it) and up to three tries; plain words on failure.
+.lhcmr_download <- function(url, f, tries = 3L) {
+  old <- options(timeout = max(7200, getOption("timeout"))); on.exit(options(old))
+  for (i in seq_len(tries)) { ok <- tryCatch({ utils::download.file(url, f, mode = "wb", quiet = TRUE); TRUE }, error = function(e) FALSE, warning = function(w) FALSE)
+    if (ok && file.exists(f) && file.size(f) > 0) return(invisible(TRUE)); unlink(f); if (i < tries) Sys.sleep(5) }
+  stop(sprintf("The LD file %s of the LHC-MR authors could not be downloaded from Google Drive after %d tries. Check the internet connection and press Download again. If it keeps failing, Google Drive may be limiting downloads of this file for a while; try again later.", basename(f), tries), call. = FALSE)
+}
 lhcmr_ref_fetch <- function(dir = lhcmr_ref_dir(), files = NULL) {
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
   for (w in c("ld", "rho")) { r <- LHCMR_REF[[w]]; f <- file.path(dir, r$file)
-    if (!is.null(files[[w]])) file.copy(files[[w]], f, overwrite = TRUE) else if (!(file.exists(f) && identical(unname(tools::md5sum(f)), r$md5))) utils::download.file(r$url, f, mode = "wb", quiet = TRUE)
+    if (!is.null(files[[w]])) file.copy(files[[w]], f, overwrite = TRUE) else if (!(file.exists(f) && identical(unname(tools::md5sum(f)), r$md5))) .lhcmr_download(r$url, f)
     if (!identical(unname(tools::md5sum(f)), r$md5)) { unlink(f); stop(sprintf("The downloaded %s is not the authors' pinned file (MD5 differs).", r$file)) } }
   lhcmr_ref_status(dir)
 }

@@ -1496,7 +1496,7 @@ local({
          which(grepl("loadNamespace(\"ieugwasr\")", sc, fixed = TRUE))[1] < which(grepl("set.seed(seed)", sc, fixed = TRUE))[1])
   res <- data.frame(quantity = c("observed_effect", "corrected_effect", "difference"), estimate = c(0.0856, 0.1146, NA), se = c(0.0398, 0.0528, NA), p = c(0.031, 0.03, 0.037), z = NA,
                     ci_lower = c(0.008, 0.011, NA), ci_upper = c(0.163, 0.218, NA), instruments = 39L, rg = 0.19, int_crosstrait = -0.0011, int_crosstrait_se = 0.0063, h2_exposure = 0.24, h2_outcome = 0.14, stringsAsFactors = FALSE); attr(res, "labels") <- c(x = "BMI", y = "SBP")
-  expect("Round 68: the MRlap text gives the observed and corrected effects and says which to prefer", { t <- mrlap_text(res); grepl("39 instruments", t) && grepl("0.115", t) && grepl("corrected effect should be preferred", t) })
+  expect("Round 68: the MRlap text gives the observed and corrected effects (Round 100: on the standardised scale, with the size of the change, no preference)", { t <- mrlap_text(res); grepl("39 instruments selected by MRlap", t) && grepl("0.115", t) && grepl("on the standardised scale", t) && grepl("a change of", t) && !grepl("should be preferred", t) })
   sd <- tempfile("st68"); dir.create(sd); writeLines(c("writeLines(getwd(), 'where.txt')"), file.path(sd, "ok.R")); writeLines("stop('planned failure')", file.path(sd, "bad.R"))
   s1 <- file.path(sd, "s1.json"); s2 <- file.path(sd, "s2.json"); script_job_start(sd, "ok.R", s1, file.path(sd, "l1.log")); script_job_start(sd, "bad.R", s2, file.path(sd, "l2.log"))
   rd <- function(f) tryCatch(jsonlite::fromJSON(f)$state, error = function(e) "")
@@ -1946,7 +1946,7 @@ local({
   lim <- ldref_limitation(back, c("LDL", "CHD mixed"))
   expect("Round 81: the LD reference and the acceptance are saved beside the result, and the Limitations sentence names the dataset labelled Mixed, the panel, the date and what may be biased",
          file.exists(file.path(h$dir, "04_across_pairs", "cause", "P01_LDL__to__CHD_ld_reference.json")) && identical(back$pop, "EUR") && isTRUE(back$accepted$ok) &&
-         grepl("CAUSE for LDL → CHD mixed used the 1000 Genomes Phase 3 EUR panel", lim) && grepl("CHD mixed \\(Mixed\\)", lim) && grepl(substr(r2$accepted$at, 1, 10), lim, fixed = TRUE) && grepl("causal and sharing models", lim))
+         grepl("CAUSE for LDL and CHD mixed used the 1000 Genomes Phase 3 EUR panel", lim) && grepl("CHD mixed \\(Mixed\\)", lim) && grepl(substr(r2$accepted$at, 1, 10), lim, fixed = TRUE) && grepl("causal and sharing models", lim))
   # every method uses it: no European-only check is left in the four methods, and each saves its reference
   src <- paste(unlist(lapply(c("ldsc_core.R", "mrlap_core.R", "mrapss_core.R", "cause_core.R"), function(f) readLines(file.path(args_dir, f), warn = FALSE))), collapse = "\n")
   expect("Round 81: LDSC, MRlap, MR-APSS and CAUSE resolve their LD reference (no European-only check left) and save it with the result",
@@ -2161,7 +2161,7 @@ local({
   writeLines(character(), file.path(cd, "P01_X__to__Y_ties.txt")); b <- cause_ties(h, pr)          # a new run with no tie: the empty file wins over the log
   writeLines("4 variants for Zz share the smallest p-value (1e-200), e.g. because p-values were capped", file.path(cd, "P01_X__to__Y_ties.txt")); cc <- cause_ties(h, pr); tc <- cause_ties_text(cause_pair_read(h, pr))
   expect("Round 87: the CAUSE tie warning is read from the run (or, for an older run, its log): regions and variants counted, worded for P = 0 and for capped P values; none when the run had none",
-         identical(a$groups, 2L) && identical(a$variants, 5L) && grepl("5 variants in 2 regions shared the smallest P value (P = 0, too small for the computer to represent)", ta, fixed = TRUE) &&
+         identical(a$groups, 2L) && identical(a$variants, 5L) && grepl("5 variants in 2 regions shared the smallest P value (recorded as P = 0, a value too small to be stored)", ta, fixed = TRUE) &&
          grepl("CAUSE for LDL on CHD", ta, fixed = TRUE) && is.null(b) && identical(cc$variants, 4L) && grepl("P = 1e-200, perhaps capped", tc, fixed = TRUE) && grepl("of that region was chosen arbitrarily", tc, fixed = TRUE))
   cz <- paste(readLines(file.path(args_dir, "cause_core.R"), warn = FALSE), collapse = "\n"); rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n")
   app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
@@ -2581,6 +2581,56 @@ local({
          grepl("One trait of this pair is an OpenGWAS download", js, fixed = TRUE))
   expect("Round 99: a file imported through the Data library after leaving a study is selected in the study by its role when the analyst goes back",
          grepl("k = I && (I.fromKey || S.backKey || (rec && (rec.role === 'outcome' ? 'out' : rec.role === 'exposure' ? 'ex' : null)))", js, fixed = TRUE))
+})
+
+# Round 100: test F (LDL on CHD with complete OpenGWAS GWAS): MR-APSS in the shipped runtime, memory, and the report of genome-wide methods
+local({
+  rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n")
+  ac <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  rs <- paste(readLines(file.path(args_dir, "resource_core.R"), warn = FALSE), collapse = "\n")
+  ap <- paste(readLines(file.path(args_dir, "mrapss_core.R"), warn = FALSE), collapse = "\n")
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  ry <- file.path(args_dir, "..", "ci", "runtime.yml"); wf <- file.path(args_dir, "..", "..", ".github", "workflows", "prototype.yml")
+  expect("Round 100: the runtime installs mvtnorm, which MRAPSS calls without declaring it; the build checks it and the app says so before starting",
+         (!file.exists(ry) || any(trimws(readLines(ry, warn = FALSE)) == "- r-mvtnorm")) && (!file.exists(wf) || grepl("\"MRAPSS\", \"mvtnorm\")", paste(readLines(wf, warn = FALSE), collapse = "\n"), fixed = TRUE)) &&
+         grepl("MR-APSS needs the package mvtnorm", ac, fixed = TRUE))
+  expect("Round 100: MR-APSS memory is the measured peak (about 3.5 GB for 8.5 M variants) with the 85% share, so it starts with 9.9 GB free on a 16 GB computer",
+         MRAPSS_MEMORY_GB(8.5e6) > 3 && MRAPSS_MEMORY_GB(8.5e6) < 4 && identical(MRAPSS_SAFE_SHARE, 0.85) &&
+         isTRUE(mem_check(MRAPSS_MEMORY_GB(8.5e6), "MR-APSS", list(available_gb = 9.9, total_gb = 16), share = MRAPSS_SAFE_SHARE)$ok) &&
+         grepl('mem_check(MRAPSS_MEMORY_GB(rows), "MR-APSS", share = MRAPSS_SAFE_SHARE)', ap, fixed = TRUE))
+  expect("Round 100: on Windows free memory is the Available memory (with the standby cache), not FreePhysicalMemory alone",
+         grepl("Win32_PerfFormattedData_PerfOS_Memory", rs, fixed = TRUE) && grepl("v[3] / 1073741824", rs, fixed = TRUE))
+  expect("Round 100: a complete GWAS downloaded from OpenGWAS gives its population (the ancestry pill and the Methods were empty)",
+         identical(.gwas_pop(list(source = list(type = "opengwas_vcf", population = "Mixed"))), "Mixed") && is.null(.gwas_pop(list(source = list(type = "file")))))
+  res <- data.frame(quantity = c("observed_effect", "corrected_effect", "difference"), estimate = c(0.143, 0.149, 0.006), se = c(0.018, 0.018, 0.003), p = c(1e-16, 1e-16, 0.023),
+                    ci_lower = c(0.109, 0.113, NA), ci_upper = c(0.178, 0.186, NA), instruments = 87L, int_crosstrait = 0.02); attr(res, "labels") <- c(x = "LDL", y = "CHD")
+  t <- mrlap_text(res)
+  expect("Round 100: MRlap is reported on the standardised scale with the size of the change, and its Methods give the scale, its own instruments and the simulation seed",
+         grepl("on the standardised scale", t, fixed = TRUE) && grepl("a change of +4%", t, fixed = TRUE) && !grepl("preferred", t, fixed = TRUE) &&
+         grepl("cannot be compared in size", MRLAP_METHODS_TEXT, fixed = TRUE) && grepl("1000 simulated draws", MRLAP_METHODS_TEXT, fixed = TRUE) && grepl("its own instruments", MRLAP_METHODS_TEXT, fixed = TRUE))
+  lr <- function(icp) { d <- data.frame(quantity = c("h2", "h2", "rg", "intercept", "intercept", "cross_trait_intercept"), trait = c("LDL", "CHD", NA, "LDL", "CHD", NA),
+                                         estimate = c(0.108, 0.066, 0.222, 1.004, icp, 0.021), se = c(0.014, 0.005, 0.054, 0.02, 0.008, 0.006), ci_lower = c(NA, NA, 0.116, NA, NA, NA), ci_upper = c(NA, NA, 0.327, NA, NA, NA),
+                                         p = c(NA, NA, 3.8e-5, NA, NA, 4e-4), snps = 1173569); attr(d, "labels") <- c(x = "LDL", y = "CHD"); ldsc_text(d) }
+  expect("Round 100: an LDSC intercept clearly below 1 is explained by genomic control; one near 1 is not",
+         grepl("intercept below 1 for CHD usually means that genomic control was applied", lr(0.886), fixed = TRUE) && !grepl("genomic control", lr(0.99), fixed = TRUE))
+  expect("Round 100: CAUSE states that its estimates depend on the seed, and a tie of P = 0 is worded plainly",
+         grepl("depend on a seed recorded in the script", CAUSE_METHODS_TEXT, fixed = TRUE) && !grepl("too small for the computer", paste(deparse(cause_ties_text), collapse = " "), fixed = TRUE))
+  e <- list(x = list(run = FALSE, trait = "LDL", why = "The ancestry of \"LDL\" () is not one of the five 1000 Genomes ancestries."))
+  expect("Round 100: the allele-frequency sentence of an older ledger gives the OpenGWAS ancestry instead of empty brackets; OpenGWAS files are harmonised to the forward strand",
+         grepl("\"LDL\" (Mixed) is not one", eaf_check_text(e, list(x = "Mixed")), fixed = TRUE) &&
+         grepl("both datasets are OpenGWAS files", .strand_forward_text("(action 2: palindromic variants are aligned using allele frequency and dropped when the strand is ambiguous)", list(), TRUE), fixed = TRUE) &&
+         grepl("the analyst declared", .strand_forward_text("(action 2: palindromic variants are aligned using allele frequency and dropped when the strand is ambiguous)", list(), FALSE), fixed = TRUE))
+  expect("Round 100: Limitations no longer say clumping was not done when MR Studio clumped the file, name the methods that allow for overlap, and Data availability names OpenGWAS complete GWAS by ID",
+         grepl("is.null(cx$src_x$og) && is.null(cx$ledger$clump)", rc, fixed = TRUE) && grepl("reported in the Results, allow%s for sample overlap", rc, fixed = TRUE) &&
+         grepl("paste0(\"OpenGWAS:\", s$vcf$id, \" (complete summary statistics)\")", rc, fixed = TRUE) && grepl("of which 1 was absent", rc, fixed = TRUE))
+  expect("Round 100: the supplement has a sheet for each genome-wide method that ran",
+         grepl("Round 100: genome-wide methods in the supplement", rc, fixed = TRUE) && grepl("\"04_across_pairs\", m, \"*_results.csv\"", rc, fixed = TRUE))
+  ok <- tryCatch({ .lhcmr_download(paste0("file://", file.path(tempdir(), "no_such_file.gz")), file.path(tempdir(), "lhc_x.gz"), tries = 1L); "no error" }, error = function(e) conditionMessage(e))
+  expect("Round 100: the LHC-MR LD download allows time for a large file and fails in plain words",
+         grepl("could not be downloaded from Google Drive after 1 tries", ok, fixed = TRUE) && !grepl("drive.usercontent", ok, fixed = TRUE) && grepl("max(7200, getOption(\"timeout\"))", paste(deparse(.lhcmr_download), collapse = " "), fixed = TRUE))
+  expect("Round 100: the screen says it is waiting for memory instead of Ready, gives the start time instead of now, asks prevalence only for a binary trait, and words OpenGWAS strand",
+         grepl("Waiting for memory: press Run again when more memory is free.", js, fixed = TRUE) && !grepl("time: 'now'", js, fixed = TRUE) && grepl("time: nowStamp()", js, fixed = TRUE) &&
+         grepl("bx = !sb || !!sb.bin_x", js, fixed = TRUE) && grepl("which harmonises its files to the forward strand of the reference genome", js, fixed = TRUE))
 })
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

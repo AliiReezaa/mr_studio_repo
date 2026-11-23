@@ -166,7 +166,7 @@ library_catalogue <- function(root = studies_root()) {
        outcomes = lapply(Filter(function(r) isTRUE(r$usable_as_outcome), recs), mk, role = "outcome"))
 }
 # Round 80: the population OpenGWAS gives for a downloaded GWAS ("European", "Mixed", ...), as a panel code where there is one; NULL otherwise
-.gwas_pop <- function(rec) if (identical(rec$source$type, "opengwas") && length(rec$source$population)) .ogw_ancestry(rec$source$population) else NULL
+.gwas_pop <- function(rec) if ((rec$source$type %||% "") %in% c("opengwas", "opengwas_vcf") && length(rec$source$population)) .ogw_ancestry(rec$source$population) else NULL
 catalogue_all <- function(root = studies_root()) {
   d <- demo_catalogue(); l <- library_catalogue(root)
   list(exposures = c(l$exposures, d$exposures), outcomes = c(l$outcomes, d$outcomes))
@@ -313,8 +313,8 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   led$kept_palindromic <- sum(H$palindromic[match(d$variant_id, H$SNP)] %in% TRUE & d$mr_keep)
   if (led$kept < 2L) stop("Fewer than 2 instruments remain after harmonisation.")
   # Round 33: allele-frequency check of both datasets against the panel of their ancestry (reported, nothing removed)
-  ec <- list(x = tryCatch(eaf_panel_check(d, d$eaf_x, ex$dir, ex$recipe$facts$ancestry, ex$recipe$trait), error = function(e) list(run = FALSE, why = conditionMessage(e), trait = ex$recipe$trait)),
-             y = tryCatch(eaf_panel_check(d, d$eaf_y, ou$dir, ou$recipe$facts$ancestry, ou$recipe$trait), error = function(e) list(run = FALSE, why = conditionMessage(e), trait = ou$recipe$trait)))
+  ec <- list(x = tryCatch(eaf_panel_check(d, d$eaf_x, ex$dir, .gwas_pop(ex$recipe) %||% ex$recipe$facts$ancestry, ex$recipe$trait), error = function(e) list(run = FALSE, why = conditionMessage(e), trait = ex$recipe$trait)),
+             y = tryCatch(eaf_panel_check(d, d$eaf_y, ou$dir, .gwas_pop(ou$recipe) %||% ou$recipe$facts$ancestry, ou$recipe$trait), error = function(e) list(run = FALSE, why = conditionMessage(e), trait = ou$recipe$trait)))
   eaf_rows <- do.call(rbind, lapply(ec, `[[`, "rows")); led$eaf_check <- lapply(ec, function(z) z[setdiff(names(z), "rows")])
   sc <- if (identical(ou$recipe$facts$kind, "binary")) "log_or" else "beta"
   scx <- if (identical(ex$recipe$facts$kind, "binary")) "log_or" else "beta"

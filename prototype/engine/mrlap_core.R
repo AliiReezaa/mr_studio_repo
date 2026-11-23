@@ -97,11 +97,13 @@ mrlap_pair_start <- function(h, pair, root = studies_root(), accept = NULL) {
 mrlap_pair_read <- function(h, pair) { f <- file.path(h$dir, "04_across_pairs", "mrlap", paste0(pair$folder, "_results.csv"))
   if (!file.exists(f)) return(NULL); r <- utils::read.csv(f, stringsAsFactors = FALSE); attr(r, "labels") <- c(x = pair$exName, y = pair$outName); r }
 
-MRLAP_METHODS_TEXT <- "IVW estimates were also corrected for weak-instrument bias and winner's curse, allowing for sample overlap estimated by cross-trait LD score regression, with MRlap [Mounier 2023], which selects its instruments from the full summary statistics (P < 5e-8, distance pruning 500 kb); the corrected and observed effects were compared with its difference test."
+MRLAP_METHODS_TEXT <- "IVW estimates were also corrected for weak-instrument bias and winner's curse, allowing for sample overlap estimated by cross-trait LD score regression, with MRlap [Mounier 2023]. MRlap selects its own instruments from the full summary statistics (P < 5e-8, distance pruning 500 kb), so their number can differ from that of the clumped instruments above, and it works on the standardised scale (each effect is the Z statistic divided by the square root of the sample size); its estimates are therefore in standard deviations and cannot be compared in size with the estimates above. The corrected and observed effects were compared with its difference test, whose standard error MRlap obtains from 1000 simulated draws; the seed is recorded in the script, and another seed can change the P value slightly."   # Round 100: scale, instruments and simulation stated
 mrlap_text <- function(res) {
   if (!is.data.frame(res) || !nrow(res)) return(character())
   l <- attr(res, "labels"); g <- function(q) res[res$quantity == q, ][1, ]; o <- g("observed_effect"); k <- g("corrected_effect"); d <- g("difference")
   f <- function(r) sprintf("%.3f (95%% CI %.3f to %.3f)", r$estimate, r$ci_lower, r$ci_upper)
-  sprintf("MRlap (%d instruments; cross-trait intercept %.3f): the IVW effect of %s on %s was %s and %s after correction for weak instruments, winner's curse and sample overlap (difference P = %s)%s.",
-          o$instruments, o$int_crosstrait, l[["x"]], l[["y"]], f(o), f(k), format(signif(d$p, 2)), if (is.finite(d$p) && d$p < 0.05) "; the corrected effect should be preferred" else "; the observed IVW effect is not materially biased")
+  ch <- if (is.finite(o$estimate) && o$estimate != 0) 100 * (k$estimate - o$estimate) / abs(o$estimate) else NA_real_   # Round 100: the size of the correction, not a preference
+  sprintf("MRlap (%d instruments selected by MRlap; cross-trait intercept %.3f), on the standardised scale: the IVW effect of %s on %s was %s, and %s after correction for weak instruments, winner's curse and sample overlap%s (difference P = %s%s).",
+          o$instruments, o$int_crosstrait, l[["x"]], l[["y"]], f(o), f(k), if (is.finite(ch)) sprintf(", a change of %s%.0f%%", if (ch > 0) "+" else "", ch) else "", format(signif(d$p, 2)),
+          if (is.finite(d$p) && d$p < 0.05) "; the difference is statistically detectable, and its size shows how much these biases matter" else "; no detectable bias from these sources")
 }

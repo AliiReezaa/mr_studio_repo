@@ -393,7 +393,7 @@ mr_server <- function(engine_dir) {
         },
         mrapss_get = , mrapss_start = {   # Round 69: MR-APSS, run in a separate process (minutes)
           req(rv$h); p <- Find(function(q) identical(q$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (is.null(p)) return()
-          r <- if (identical(t, "mrapss_start")) tryCatch({ if (!requireNamespace("MRAPSS", quietly = TRUE)) stop("MRAPSS is not installed in this runtime.", call. = FALSE); mrapss_pair_start(rv$h, p, accept = a$accept) }, error = function(e) e) else NULL
+          r <- if (identical(t, "mrapss_start")) tryCatch({ if (!requireNamespace("MRAPSS", quietly = TRUE)) stop("MRAPSS is not installed in this runtime.", call. = FALSE); if (!requireNamespace("mvtnorm", quietly = TRUE)) stop("MR-APSS needs the package mvtnorm, which is not installed in this runtime. Install the latest MR Studio.", call. = FALSE); mrapss_pair_start(rv$h, p, accept = a$accept) }, error = function(e) e) else NULL
           res <- mrapss_pair_read(rv$h, p)
           ev("mrapss", folder = a$folder, job = mrapss_job_read(rv$h, p), anc = .pair_ldref(p, "mrapss"), ldref = ldref_read(rv$h, p, "mrapss"), ldsc_official = ldsc_ref_status()$official, panel = !is.na(plink_bin()) && file.exists(file.path(ld_panel_dir(), "EUR.bed")),
              msg = if (inherits(r, "error")) conditionMessage(r) else "", rows = if (is.null(res)) list() else lapply(seq_len(nrow(res)), function(i) as.list(res[i, , drop = FALSE])), text = if (is.null(res)) "" else mrapss_text(res))

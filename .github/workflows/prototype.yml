@@ -237,7 +237,7 @@ jobs:
             if (!file.exists(ss) || !identical(digest::digest(file = ss, algo = "sha256"), "738704c61016276f1a01e0764a525ec9e5b0743003dfdf53487822a6ba881c6f"))
               stop("simsalapar 1.0-13 source could not be downloaded or its checksum differs")
             install.packages(c(ss, Sys.getenv(c("PK_GENOMICSEM", "PK_MRCML", "PK_LHCMR", "PK_MRLAP", "PK_MRAPSS"))), repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
-            for (n in c("mixtools", "simsalapar", "GenomicSEM", "MRcML", "lhcMR", "MRlap", "MRAPSS")) { if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n); cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n)))) }
+            for (n in c("mixtools", "simsalapar", "GenomicSEM", "MRcML", "lhcMR", "MRlap", "MRAPSS", "mvtnorm")) { if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n); cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n)))) }
             # MRCD is compiled (C++ and LAPACK); where the runner cannot build it, the app reports that BiDirectCausal is not installed.
             mk <- file.path(tempdir(), "Makevars"); writeLines("FLIBS=", mk); Sys.setenv(R_MAKEVARS_USER = mk)
             tryCatch(install.packages(unname(Sys.getenv(c("PK_MRCD", "PK_BIDIRECTCAUSAL"))), repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch")), error = function(e) message("optional: ", conditionMessage(e)))
