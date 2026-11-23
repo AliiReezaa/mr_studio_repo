@@ -2386,7 +2386,7 @@ local({
     expect("Round 92: the engine version agrees with the installer (tauri.conf.json) and the shell (Cargo.toml)", identical(tv, MRS_VERSION) && identical(cv, MRS_VERSION))
   }
   d <- run_diagnostics(tempfile("r92-"))
-  expect("Round 92: Run diagnostics lists the MR Studio version first", identical(d[[1]]$name, "MR Studio") && identical(d[[1]]$detail, paste("version", MRS_VERSION)))
+  expect("Round 92: Run diagnostics lists the MR Studio version first", identical(d[[1]]$name, "MR Studio") && identical(d[[1]]$detail, paste("version", mrs_version_text())) && startsWith(d[[1]]$detail, paste("version", MRS_VERSION)))   # Round 101: a build adds its number and commit
   htm <- paste(readLines(file.path(pkd, "report.html"), warn = FALSE), collapse = "\n")
   ses <- { z <- file.path(pkd, "reproducibility_capsule.zip"); n <- grep("SESSION.txt$", utils::unzip(z, list = TRUE)$Name, value = TRUE)[1]
            td <- tempfile("r92z-"); utils::unzip(z, n, exdir = td); readLines(file.path(td, n), warn = FALSE) }
