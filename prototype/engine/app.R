@@ -311,7 +311,7 @@ mr_server <- function(engine_dir) {
       tryCatch((function() switch(t,
         init = {
           s <- settings_read(); root <- studies_root()
-          ev("init", version = MRS_VERSION, settings = s, library = library_list(), templates = template_list(), studies = studies_overview(root), catalogue = catalogue_all(), schemas = param_schemas(), root = root, diag = run_diagnostics(root), ld = ld_panel_status(), fgjobs = fullgwas_jobs())
+          ev("init", version = mrs_version_text(), settings = s, library = library_list(), templates = template_list(), studies = studies_overview(root), catalogue = catalogue_all(), schemas = param_schemas(), root = root, diag = run_diagnostics(root), ld = ld_panel_status(), fgjobs = fullgwas_jobs())
           ogw_ev()
         },
         study_folder = open_in_file_manager(file.path(studies_root(), basename(a$name))),
@@ -431,6 +431,7 @@ mr_server <- function(engine_dir) {
         run_all = {   # Round 75f: the engine runs the queue of pairs itself (see run_queue_step)
           req(rv$h); if (!is.null(rq$pairs)) stop(sprintf("A run is already going on in \"%s\". Wait until it ends, or stop it there, before starting another.", rq$name))
           rq$dir <- rv$h$dir; rq$name <- basename(rv$h$dir); rq$pairs <- a$pairs; rq$k <- 1L; rq$pause <- FALSE; rq$stop <- FALSE; rq$ok <- 0L; rq$total <- as.integer(a$total %||% length(a$pairs)); rq$study <- a$study %||% ""
+          if (identical(length(a$pairs), rq$total)) tryCatch(prune_pairs(rv$h$con, a$pairs), error = function(e) NULL)   # Round 101: a full run drops pairs no longer in the design
           rq$done_before <- rq$total - length(a$pairs); later::later(run_queue_step, 0.05) },
         run_pause = { rq$pause <- isTRUE(a$on); if (!rq$pause && !is.null(rq$pairs)) later::later(run_queue_step, 0.05) },
         run_stop = { rq$stop <- TRUE; if (isTRUE(rq$pause) || is.null(rq$pairs)) { rq$pause <- FALSE; later::later(run_queue_step, 0.05) } },

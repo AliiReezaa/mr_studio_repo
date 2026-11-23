@@ -401,7 +401,7 @@ eaf_panel_check <- function(d, eaf, ds_dir, ancestry, trait, dir = ld_panel_dir(
   kept <- d$mr_keep %in% TRUE; e <- eaf; e[!kept] <- NA_real_
   if (!any(is.finite(e))) return(no(sprintf("\"%s\" reports no effect-allele frequency.", trait)))
   pop <- ld_pop_for(ancestry)
-  if (is.na(pop)) return(no(sprintf("The ancestry of \"%s\" (%s) is not one of the five 1000 Genomes ancestries.", trait, ancestry %||% "unknown")))
+  if (is.na(pop)) return(no(sprintf("Its ancestry (%s) is not one of the five 1000 Genomes ancestries.", ancestry %||% "unknown")))
   if (is.na(bin)) return(no("PLINK is not available in this installation."))
   if (!all(file.exists(file.path(dir, paste0(pop, c(".bed", ".bim", ".fam"))))))
     return(no(sprintf("The %s (%s) reference panel is not installed (Settings > Data and access).", LD_POP_NAMES[[pop]], pop)))

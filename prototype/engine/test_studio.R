@@ -2617,7 +2617,7 @@ local({
          grepl("depend on a seed recorded in the script", CAUSE_METHODS_TEXT, fixed = TRUE) && !grepl("too small for the computer", paste(deparse(cause_ties_text), collapse = " "), fixed = TRUE))
   e <- list(x = list(run = FALSE, trait = "LDL", why = "The ancestry of \"LDL\" () is not one of the five 1000 Genomes ancestries."))
   expect("Round 100: the allele-frequency sentence of an older ledger gives the OpenGWAS ancestry instead of empty brackets; OpenGWAS files are harmonised to the forward strand",
-         grepl("\"LDL\" (Mixed) is not one", eaf_check_text(e, list(x = "Mixed")), fixed = TRUE) &&
+         grepl("its ancestry (Mixed) is not one", eaf_check_text(e, list(x = "Mixed")), fixed = TRUE) &&
          grepl("both datasets are OpenGWAS files", .strand_forward_text("(action 2: palindromic variants are aligned using allele frequency and dropped when the strand is ambiguous)", list(), TRUE), fixed = TRUE) &&
          grepl("the analyst declared", .strand_forward_text("(action 2: palindromic variants are aligned using allele frequency and dropped when the strand is ambiguous)", list(), FALSE), fixed = TRUE))
   expect("Round 100: Limitations no longer say clumping was not done when MR Studio clumped the file, name the methods that allow for overlap, and Data availability names OpenGWAS complete GWAS by ID",
@@ -2631,6 +2631,52 @@ local({
   expect("Round 100: the screen says it is waiting for memory instead of Ready, gives the start time instead of now, asks prevalence only for a binary trait, and words OpenGWAS strand",
          grepl("Waiting for memory: press Run again when more memory is free.", js, fixed = TRUE) && !grepl("time: 'now'", js, fixed = TRUE) && grepl("time: nowStamp()", js, fixed = TRUE) &&
          grepl("bx = !sb || !!sb.bin_x", js, fixed = TRUE) && grepl("which harmonises its files to the forward strand of the reference genome", js, fixed = TRUE))
+})
+
+local({   # Round 101: a full run keeps only the pairs of the current design (test E: a replaced outcome stayed in the package)
+  h101 <- studio_new("Round 101 prune"); on.exit(DBI::dbDisconnect(h101$con), add = TRUE)
+  ui_state_set(h101$con, "pairs", list(list(ex = "lib:BMI", out = "lib:T2D", folder = "P01_old"), list(ex = "lib:BMI", out = "lib:T2D v2", folder = "P02_new"),
+                                       list(ex = list("lib:A", "lib:B"), out = "lib:C", mv = TRUE, folder = "P03_mv"), list(ex = "lib:T2D v2", out = "lib:BMI", rev = TRUE, folder = "P04_rev")))
+  prune_pairs(h101$con, list(list(i = 0, ex = "lib:BMI", out = "lib:T2D v2", rev = FALSE), list(i = 1, ex = c("lib:A", "lib:B"), out = "lib:C", rev = FALSE), list(i = 2, ex = "lib:T2D v2", out = "lib:BMI", rev = TRUE)))
+  kept <- vapply(ui_state_get(h101$con, "pairs"), `[[`, "", "folder")
+  ap <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  expect("Round 101: a full run drops pairs left out of the design and keeps multivariable and reverse pairs",
+         identical(kept, c("P02_new", "P03_mv", "P04_rev")) && grepl("if (identical(length(a$pairs), rq$total)) tryCatch(prune_pairs(rv$h$con, a$pairs)", ap, fixed = TRUE))
+})
+
+local({   # Round 101: an LHC-MR download error saved by an earlier version is shown in plain words
+  d <- file.path(tempdir(), "lhc101"); dir.create(d, showWarnings = FALSE)
+  writeLines(jsonlite::toJSON(list(state = "error", msg = "download from 'https://drive.usercontent.google.com/x' failed"), auto_unbox = TRUE), file.path(d, "fetch_status.json"))
+  st <- tryCatch(lhcmr_status(dir = d), error = function(e) NULL)
+  expect("Round 101: an old raw LHC-MR download error is replaced by a plain message", !is.null(st) && grepl("^The LD files of the LHC-MR authors could not be downloaded", st$fetch$msg) && !grepl("drive.usercontent", st$fetch$msg, fixed = TRUE))
+})
+
+local({   # Round 101: wording found by tests F, E and 6
+  w <- function(t, a) sprintf("The ancestry of \"%s\" (%s) is not one of the five 1000 Genomes ancestries.", t, a)
+  e2 <- eaf_check_text(list(x = list(run = FALSE, trait = "LDL", why = w("LDL", "Mixed")), y = list(run = FALSE, trait = "CHD", why = "Its ancestry (Mixed) is not one of the five 1000 Genomes ancestries.")))
+  expect("Round 101: allele frequencies not checked for an ancestry outside 1000 Genomes read as one sentence, without quotes or a capital after a colon",
+         identical(e2, "The effect-allele frequencies of LDL and CHD were not compared with a reference panel, because their ancestry (Mixed) is not one of the five 1000 Genomes ancestries.") &&
+         grepl("not compared with a reference panel (no allele frequency in the file).", eaf_check_text(list(x = list(run = FALSE, trait = "A", why = "No allele frequency in the file."))), fixed = TRUE))
+  expect("Round 101: lists read A, B and C", identical(.and_join(c("MRlap", "MR-APSS", "CAUSE")), "MRlap, MR-APSS and CAUSE") && identical(.and_join(c("MRlap", "CAUSE")), "MRlap and CAUSE"))
+  un <- list(list(trait = "LDL", label = "Mixed"), list(trait = "CHD", label = "Mixed")); acc <- list(at = "2026-11-23T10:00:00")
+  rr <- lapply(c("ldsc", "mrlap", "mrapss"), function(m) list(method = m, reference = "the LDSC authors' European LD scores", unknown_ancestry = un, accepted = acc, labels = c("LDL", "CHD")))
+  rr[[4]] <- list(method = "cause", reference = "the 1000 Genomes Phase 3 EUR panel (503 people)", unknown_ancestry = un, accepted = acc, labels = c("LDL", "CHD"))
+  lim <- ldref_limitations(rr)
+  expect("Round 101: the LD panels accepted for one pair on one day make one limitation sentence that names every method and its bias",
+         length(lim) == 1L && grepl("^For LDL and CHD, LD score regression, MRlap and MR-APSS used the LDSC authors' European LD scores and CAUSE used the 1000 Genomes Phase 3 EUR panel", lim) &&
+         grepl("the analyst chose these panels and accepted on 2026-11-23", lim, fixed = TRUE) && grepl("the corrected effect (MRlap)", lim, fixed = TRUE) && length(ldref_limitations(rr[1])) == 1L)
+  rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n"); js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  expect("Round 101: MR-APSS states the standardised scale in the Methods, the Results and on screen, as MRlap does; Steiger limitation without a comma splice",
+         grepl("works on the standardised scale", MRAPSS_METHODS_TEXT, fixed = TRUE) && grepl("on the standardised scale: %s on %s", paste(deparse(mrapss_text), collapse = " "), fixed = TRUE) &&
+         lengths(regmatches(js, gregexpr("On the standardised scale (Z divided by the square root of N)", js, fixed = TRUE))) == 2L && grepl("only through the exposure and is sensitive", rc, fixed = TRUE) && !grepl("exposure, it is sensitive", rc, fixed = TRUE))
+  expect("Round 101: the import asks for the type of trait instead of presetting continuous; Publish no longer promises to open the folder; Settings names the studies folder",
+         grepl("kind: '',", js, fixed = TRUE) && grepl("Choose the type of trait: continuous, or binary (cases and controls).", js, fixed = TRUE) &&
+         !grepl("The package folder opens when it is done", js, fixed = TRUE) && grepl("When it is done, press Show the package folder.", js, fixed = TRUE) && !grepl(">Local data library<", js, fixed = TRUE))
+  d <- file.path(tempdir(), "bi101"); dir.create(d, showWarnings = FALSE); writeLines('{"build":"build-49","commit":"0123456789abcdef"}', file.path(d, "BUILD_INFO.json"))
+  dg <- run_diagnostics(); wf <- paste(readLines(file.path(args_dir, "..", "..", ".github", "workflows", "prototype.yml"), warn = FALSE), collapse = "\n")
+  expect("Round 101: the build number and commit come from BUILD_INFO.json, written by the workflow; diagnostics list the genome-wide method packages",
+         identical(mrs_build(d), "build-49, commit 0123456") && identical(mrs_build(tempfile()), "") && grepl("BUILD_INFO.json", wf, fixed = TRUE) &&
+         any(vapply(dg, function(x) identical(x$name, "Genome-wide method packages") && grepl("MRAPSS", x$detail, fixed = TRUE) && grepl("mvtnorm", x$detail, fixed = TRUE), TRUE)))
 })
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

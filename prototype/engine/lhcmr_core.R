@@ -188,5 +188,6 @@ lhcmr_fetch_start <- function(dir = lhcmr_ref_dir(), engine = getOption("mrgui.e
 lhcmr_status <- function(h = NULL, pair = NULL, dir = lhcmr_ref_dir()) {
   f <- file.path(dir, "fetch_status.json"); fj <- if (file.exists(f)) tryCatch(jsonlite::fromJSON(f), error = function(e) NULL) else NULL
   mb <- sum(file.size(file.path(dir, c(LHCMR_REF$ld$file, LHCMR_REF$rho$file))), na.rm = TRUE) / 1e6
+  if (identical(fj$state, "error") && grepl("^download from '", fj$msg %||% "")) fj$msg <- "The LD files of the LHC-MR authors could not be downloaded from Google Drive. Check the internet connection and press Download again; a partly downloaded file is checked and replaced."   # Round 101: an error saved by an earlier version showed R's raw message
   c(lhcmr_ref_status(dir), list(fetch = fj, fetched_mb = round(mb), ldsc_official = ldsc_ref_status()$official, job = if (!is.null(h) && !is.null(pair)) lhcmr_job_read(h, pair) else NULL))
 }

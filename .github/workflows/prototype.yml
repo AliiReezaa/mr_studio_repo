@@ -330,6 +330,14 @@ jobs:
           if [[ "$RUNNER_OS" == "macOS" ]]; then codesign --force --sign - prototype/engine/tools/plink/plink; fi   # Apple Silicon runs only signed code; ad hoc is enough
           prototype/engine/tools/plink/$PB --version
 
+      - name: Record the build number and commit for Settings and diagnostics
+        shell: python
+        run: |
+          import json, os
+          info = {"build": os.environ["REL_TAG"], "commit": os.environ["GITHUB_SHA"]}
+          open(os.path.join("prototype", "engine", "BUILD_INFO.json"), "w").write(json.dumps(info))
+          print(info)
+
       - name: Contract tests with the moved runtime
         run: |
           cd contracts

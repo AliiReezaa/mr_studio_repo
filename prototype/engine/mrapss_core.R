@@ -80,10 +80,10 @@ mrapss_pair_start <- function(h, pair, root = studies_root(), accept = NULL) {
 mrapss_pair_read <- function(h, pair) { f <- file.path(h$dir, "04_across_pairs", "mrapss", paste0(pair$folder, "_results.csv"))
   if (!file.exists(f)) return(NULL); r <- utils::read.csv(f, stringsAsFactors = FALSE); attr(r, "labels") <- c(x = pair$exName, y = pair$outName); r }
 
-MRAPSS_METHODS_TEXT <- "The causal effect was also estimated with MR-APSS [Hu 2022], which accounts for pleiotropy and sample structure (population stratification, cryptic relatedness and sample overlap) estimated from the full summary statistics, selects instruments at P < 5e-5 (clumped at r2 < 0.001 within 1,000 kb against the 1000 Genomes European panel) and corrects for the resulting selection bias."
+MRAPSS_METHODS_TEXT <- "The causal effect was also estimated with MR-APSS [Hu 2022], which accounts for pleiotropy and sample structure (population stratification, cryptic relatedness and sample overlap) estimated from the full summary statistics, selects instruments at P < 5e-5 (clumped at r2 < 0.001 within 1,000 kb against the 1000 Genomes European panel) and corrects for the resulting selection bias. Like MRlap, it works on the standardised scale (each effect is the Z statistic divided by the square root of the sample size), so its estimate is in standard deviations and cannot be compared in size with the IVW and other two-sample estimates."   # Round 101: scale stated
 mrapss_text <- function(res) {
   if (!is.data.frame(res) || !nrow(res)) return(character())
   l <- attr(res, "labels"); r <- res[1, ]
-  sprintf("MR-APSS (%d instruments at P < 5e-5, corrected for selection bias, pleiotropy and sample structure): %s on %s %.3f (95%% CI %.3f to %.3f; P = %s).",
+  sprintf("MR-APSS (%d instruments at P < 5e-5, corrected for selection bias, pleiotropy and sample structure), on the standardised scale: %s on %s %.3f (95%% CI %.3f to %.3f; P = %s).",
           r$instruments, l[["x"]], l[["y"]], r$estimate, r$ci_lower, r$ci_upper, format(signif(r$p, 2)))
 }

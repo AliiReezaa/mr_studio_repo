@@ -14,3 +14,6 @@ __pycache__/
 # PLINK is put here by the build pipeline (pinned, checksummed official build); not stored in the repository
 prototype/engine/tools/plink/*
 !prototype/engine/tools/plink/README.txt
+
+# written by the release workflow only
+prototype/engine/BUILD_INFO.json

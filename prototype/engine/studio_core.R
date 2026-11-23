@@ -3,6 +3,13 @@
 
 # App version, the same as prototype/shell/tauri.conf.json and Cargo.toml (a test checks they agree).
 MRS_VERSION <- "0.9.0"
+# Round 101: the build number and commit, written into BUILD_INFO.json by the release workflow; empty when run from the source
+mrs_build <- function(dir = getOption("mrgui.engine_dir", "")) {
+  f <- file.path(dir, "BUILD_INFO.json"); if (!nzchar(dir) || !file.exists(f)) return("")
+  b <- tryCatch(jsonlite::fromJSON(f), error = function(e) NULL); if (is.null(b$build)) return("")
+  paste0(b$build, if (length(b$commit) && nzchar(b$commit)) paste0(", commit ", substr(b$commit, 1, 7)) else "")
+}
+mrs_version_text <- function() { b <- mrs_build(); if (nzchar(b)) sprintf("%s (%s)", MRS_VERSION, b) else MRS_VERSION }
 
 CONTRACT_FILES <- c("canonical.R", "adapter.R", "security.R", "runner.R", file.path("adapters", "reference_adapters.R"),
                     "script.R", file.path("adapters", "reference_adapters_v11.R"), "study.R")
@@ -563,6 +570,14 @@ ui_state_get <- function(con, key) {
   r <- DBI::dbGetQuery(con, "SELECT value_json FROM ui_state WHERE key = ?", params = list(key))
   if (!nrow(r)) NULL else jsonlite::fromJSON(r$value_json, simplifyVector = FALSE)
 }
+# Round 101: a run of the whole design is the study's list of pairs. A pair left out of it (an outcome replaced on the Data step)
+# kept its record, so the package still reported it; its folder stays on disk, but it leaves the list that the package and Results use.
+.pair_key <- function(p) paste(paste(unlist(p$ex), collapse = "+"), paste(unlist(p$out), collapse = "+"), isTRUE(p$rev), sep = "|")
+prune_pairs <- function(con, specs) {
+  pl <- ui_state_get(con, "pairs") %||% list(); if (!length(pl) || !length(specs)) return(invisible(pl))
+  keep <- vapply(specs, .pair_key, ""); pl <- Filter(function(p) .pair_key(p) %in% keep, pl)
+  ui_state_set(con, "pairs", pl); invisible(pl)
+}
 ui_state_set <- function(con, key, value) {
   DBI::dbExecute(con, "INSERT OR REPLACE INTO ui_state(key, value_json, updated_at) VALUES (?, ?, ?)",
                  params = list(key, as.character(jsonlite::toJSON(value, auto_unbox = TRUE, null = "null", digits = NA)), format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")))
@@ -668,7 +683,9 @@ folder_size_bytes <- function(path) {
 run_diagnostics <- function(root = studies_root(), net = FALSE) {
   chk <- function(name, expr) { r <- tryCatch(expr, error = function(e) list(ok = FALSE, detail = conditionMessage(e))); c(list(name = name), r) }
   Filter(Negate(is.null), list(
-    chk("MR Studio", list(ok = TRUE, detail = paste("version", MRS_VERSION))),
+    chk("MR Studio", list(ok = TRUE, detail = paste("version", mrs_version_text()))),   # Round 101: with the build number
+    chk("Genome-wide method packages", { pk <- c("GenomicSEM", "MRlap", "MRAPSS", "mvtnorm", "cause", "lhcMR"); have <- vapply(pk, requireNamespace, TRUE, quietly = TRUE)   # Round 101
+      list(ok = all(have), detail = paste(vapply(pk, function(p) if (have[[p]]) paste(p, as.character(utils::packageVersion(p))) else paste(p, "missing"), ""), collapse = "; ")) }),
     chk("R engine", list(ok = TRUE, detail = R.version.string)),
     chk("TwoSampleMR package", list(ok = requireNamespace("TwoSampleMR", quietly = TRUE), detail = if (requireNamespace("TwoSampleMR", quietly = TRUE)) paste("version", as.character(utils::packageVersion("TwoSampleMR"))) else "not installed")),
     chk("Script runner (Rscript)", { r <- default_rscript(); list(ok = file.exists(r), detail = if (file.exists(r)) "found" else paste("missing:", r)) }),

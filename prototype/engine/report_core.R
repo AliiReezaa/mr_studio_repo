@@ -349,7 +349,7 @@ steiger_limitations <- function(ctxs) {
   if (!any(ran) && .ctx_bidir(ctxs)) return("The Steiger directionality test was not run. The direction of the effect was examined instead by estimating each pair in both directions (reverse MR), and jointly with bidirectional MR-cML where it ran.")
   if (!any(ran)) return("Directionality was not tested (the Steiger directionality test was not run), so reverse causation is not excluded by this analysis.")
   bad <- vapply(seq_along(f), function(i) ran[i] && !(f[[i]]$ok && is.finite(f[[i]]$p) && f[[i]]$p < 0.05), TRUE)
-  c("The Steiger directionality test [Hemani 2017] compares the variance the variants explain in the exposure and in the outcome. It assumes the variants act on the outcome only through the exposure, it is sensitive to measurement error and horizontal pleiotropy. It does not exclude confounding or reverse causation.",
+  c("The Steiger directionality test [Hemani 2017] compares the variance the variants explain in the exposure and in the outcome. It assumes the variants act on the outcome only through the exposure and is sensitive to measurement error and horizontal pleiotropy. It does not exclude confounding or reverse causation.",
     {
       pv <- unlist(lapply(ctxs[ran], function(cx) { fx <- steiger_facts(cx); c(if (fx$bin_x) sprintf("%s %s", cx$p$exName, .prev_of(fx$note_x)), if (fx$bin_y) sprintf("%s %s", cx$p$outName, .prev_of(fx$note_y))) }))
       if (length(pv)) sprintf("For binary traits the variance explained was computed on the liability scale [Lee 2012] and depends on the population prevalence entered by the analyst (%s); a different prevalence can change the result.", paste(pv, collapse = "; ")) else NULL
@@ -564,6 +564,7 @@ package_dir <- function(h) { root <- file.path(h$dir, "05_publication"); dir.cre
   lv <- if (length(lev) == 1L) sprintf("%g%%", 100 * lev) else "the stated"
   sprintf("Estimate: the effect of the exposure on the outcome per unit of the exposure (β; for a binary outcome the log odds ratio, whose exponential is the odds ratio); for multivariable MR, the direct effect given the other exposures. Lower and upper confidence limits: the %s confidence interval. P value: two-sided. Instruments: the variants the method used.", lv)
 }
+.and_join <- function(x) if (length(x) < 3L) paste(x, collapse = " and ") else paste0(paste(x[-length(x)], collapse = ", "), " and ", x[length(x)])   # Round 101: "A, B and C"
 build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   pairs <- pairs %||% (ui_state_get(h$con, "pairs") %||% list()); pairs <- Filter(function(p) !is.null(p$folder) && !is.null(pair_results(h$dir, p$folder)), pairs)
   if (!length(pairs)) stop("There are no saved results to put in a package. Run the analysis first.")
@@ -588,7 +589,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   if (length(cau)) { txt$methods <- c(txt$methods, CAUSE_METHODS_TEXT); txt$results <- c(txt$results, unlist(lapply(cau, cause_text))); txt$limitations <- c(txt$limitations, unlist(lapply(cau, cause_ties_text))) }
   txt$methods <- gsub("of which 1 were absent", "of which 1 was absent", txt$methods, fixed = TRUE)   # Round 100: grammar
   adj <- c(if (length(mlp)) "MRlap", if (length(aps)) "MR-APSS", if (length(cau)) "CAUSE")   # Round 100: the overlap limitation names the methods that allow for it
-  if (length(adj)) { txt$limitations <- sub("MR Studio did not correct for this. ", sprintf("The IVW and the other two-sample estimates were not corrected for it; %s, reported in the Results, allow%s for sample overlap. ", paste(adj, collapse = " and "), if (length(adj) == 1L) "s" else ""), txt$limitations, fixed = TRUE)
+  if (length(adj)) { txt$limitations <- sub("MR Studio did not correct for this. ", sprintf("The IVW and the other two-sample estimates were not corrected for it; %s, reported in the Results, allow%s for sample overlap. ", .and_join(adj), if (length(adj) == 1L) "s" else ""), txt$limitations, fixed = TRUE)
     txt$limitations <- sub(" Consider an outcome from a different cohort or a method designed for overlapping samples.", " Compare their estimates with the IVW estimate.", txt$limitations, fixed = TRUE) }   # Round 87: tied lead variants
   # Round 81: the LD reference of every genome-wide method that gave a result; non-European panels and the analyst's accepted choices for Mixed data
   if (exists("ldref_read")) {
@@ -598,7 +599,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     for (m in c("cause", "mrapss")) { pp <- unique(unlist(lapply(Filter(function(r) identical(r$method, m), recs), `[[`, "pop")))
       if (length(pp) && !identical(pp, "EUR")) { hit <- which(txt$methods == get(if (m == "cause") "CAUSE_METHODS_TEXT" else "MRAPSS_METHODS_TEXT"))
         if (length(hit)) txt$methods[hit] <- sub("the 1000 Genomes European panel", sprintf("the 1000 Genomes %s panel%s", paste(LDREF_POP_NAMES[pp], collapse = " or "), if (length(pp) > 1) ", as recorded for each pair in its LD reference file (04_across_pairs)" else ""), txt$methods[hit], fixed = TRUE) } }
-    txt$limitations <- c(txt$limitations, unlist(lapply(recs, function(r) ldref_limitation(r, r$labels))))
+    txt$limitations <- c(txt$limitations, ldref_limitations(recs))   # Round 101: one sentence per pair and panel choice
   }
   txt <- .pfix(txt)   # Round 91: "P = < 1e-300" reads "P < 1e-300"
   used <- unique(c("hemani2018", "burgess2023", "skrivankova2021", if (length(bcm)) "xue2022", if (length(lds)) c("bulik2015a", "bulik2015b", "grotzinger2019"), if (length(lhc)) "darrous2021", if (length(mlp)) "mounier2023", if (length(aps)) "hu2022", if (length(cau)) "morrison2020", if (!is.null(med)) c("carter2021", "carter2019", "sanderson2019"), unlist(METHOD_REFS[unlist(lapply(ctxs, function(x) x$methods))]), if (steiger_any_binary(ctxs)) "lee2012", if (length(.ctx_bin_x(ctxs))) "burgess2018", if (any(vapply(ctxs, function(cx) !is.null(cx$ledger$clump), TRUE))) c("chang2015", "kgp2015")))
@@ -724,7 +725,8 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
 eaf_check_text <- function(E, anc = list()) {
   one <- function(e, a = NULL) {
     if (is.null(e)) return(NULL)
-    if (!isTRUE(e$run)) return(sprintf("The effect-allele frequencies of %s were not compared with a reference panel: %s", e$trait, sub("\\.?$", ".", sub("\" \\(\\) is not", sprintf("\" (%s) is not", a %||% "not reported"), e$why %||% "not available.", fixed = FALSE))))   # Round 100: older ledgers of OpenGWAS complete GWAS
+    if (!isTRUE(e$run)) { an <- .eaf_anc(e, a); if (!is.na(an)) return(sprintf("The effect-allele frequencies of %s were not compared with a reference panel, because its ancestry (%s) is not one of the five 1000 Genomes ancestries.", e$trait, an))   # Round 101: one plain sentence
+      w <- sub("\\.?$", ".", e$why %||% "no reason was recorded."); return(sprintf("The effect-allele frequencies of %s were not compared with a reference panel (%s", e$trait, sub("\\.$", ").", paste0(tolower(substr(w, 1, 1)), substring(w, 2))))) }
     j <- as.integer(e$judged %||% 0L); f <- as.integer(e$flagged %||% 0L); mx <- suppressWarnings(as.numeric(e$max_difference %||% NA))
     sprintf("The effect-allele frequencies of %s were compared with the 1000 Genomes %s reference panel: of the %d variant%s that could be judged (not palindromic, panel minor allele frequency below %s), %s (largest difference %s).%s",
             e$trait, e$pop, j, if (j == 1L) "" else "s", format(e$maf_limit %||% EAF_FLIP_MAF_LIMIT),
@@ -732,8 +734,13 @@ eaf_check_text <- function(E, anc = list()) {
             if (is.finite(mx)) sprintf("%.2f", mx) else "none",
             if (f) " Flagged variants were kept in the analysis and are listed in allele_frequency_check.csv." else "")
   }
+  ax <- if (!is.null(E$x) && !isTRUE(E$x$run)) .eaf_anc(E$x, anc$x) else NA; ay <- if (!is.null(E$y) && !isTRUE(E$y$run)) .eaf_anc(E$y, anc$y) else NA
+  if (!is.na(ax) && identical(ax, ay)) return(sprintf("The effect-allele frequencies of %s and %s were not compared with a reference panel, because their ancestry (%s) is not one of the five 1000 Genomes ancestries.", E$x$trait, E$y$trait, ax))   # Round 101: both in one sentence
   paste(c(one(E$x, anc$x), one(E$y, anc$y)), collapse = " ")
 }
+# Round 101: the ancestry named in an "is not one of the five 1000 Genomes ancestries" reason (filled in when the ledger left it empty), else NA
+.eaf_anc <- function(e, a = NULL) { w <- e$why %||% ""; if (!grepl("is not one of the five 1000 Genomes ancestries", w, fixed = TRUE)) return(NA_character_)
+  m <- regmatches(w, regexpr("\\(([^()]*)\\) is not one", w)); an <- if (length(m)) sub("^\\(([^()]*)\\).*$", "\\1", m) else ""; if (!nzchar(an)) an <- a %||% "not reported"; an }
 
 #' Round 26: the harmonisation sentence when both files were declared to report alleles on the forward strand (action 1).
 .strand_forward_text <- function(m, L, og = FALSE) {   # Round 100: og, both datasets are OpenGWAS files

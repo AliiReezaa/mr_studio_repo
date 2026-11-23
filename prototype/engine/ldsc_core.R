@@ -375,6 +375,26 @@ ldref_save <- function(h, pair, r) {
   invisible(f)
 }
 ldref_read <- function(h, pair, method) { f <- .ldref_file(h, pair, method); if (!file.exists(f)) NULL else jsonlite::fromJSON(f, simplifyVector = FALSE) }
+# Round 101: accepted LD panels of the same pair, ancestry and day make one sentence instead of one near-identical sentence per method
+ldref_limitations <- function(recs) {
+  if (!length(recs)) return(character())
+  acc <- vapply(recs, function(r) length(r$accepted) > 0, TRUE)
+  key <- vapply(recs, function(r) if (length(r$accepted)) paste(paste(unlist(r$labels), collapse = "|"), paste(vapply(r$unknown_ancestry, function(x) paste(x$trait, x$label), ""), collapse = "|"), substr(r$accepted$at, 1, 10), sep = "#") else "", "")
+  out <- character(); seen <- character()
+  for (i in seq_along(recs)) {
+    if (!acc[i] || sum(key == key[i]) < 2L) { out <- c(out, ldref_limitation(recs[[i]], recs[[i]]$labels)); next }
+    if (key[i] %in% seen) next; seen <- c(seen, key[i]); g <- recs[key == key[i]]; r <- g[[1]]
+    refs <- unique(vapply(g, `[[`, "", "reference")); nm <- function(x) LDREF_METHODS[[x$method]]$name
+    used <- vapply(refs, function(ref) { ms <- vapply(Filter(function(x) identical(x$reference, ref), g), nm, ""); sprintf("%s used %s", .ldref_and(ms), ref) }, "")
+    un <- vapply(r$unknown_ancestry, function(x) sprintf("%s (%s)", x$trait, x$label), "")
+    bias <- vapply(g, function(x) sprintf("%s (%s)", LDREF_BIAS[[x$method]], nm(x)), "")
+    out <- c(out, sprintf("For %s and %s, %s, although the ancestry of %s has no matching LD reference; the analyst chose %s and accepted on %s that LD in these samples may differ from %s, which can bias %s.",
+                          r$labels[[1]], r$labels[[2]], .ldref_and(used), paste(un, collapse = " and "), if (length(refs) > 1) "these panels" else "this panel",
+                          substr(r$accepted$at, 1, 10), if (length(refs) > 1) "them" else "it", .ldref_and(bias)))
+  }
+  out
+}
+.ldref_and <- function(x) if (length(x) < 3L) paste(x, collapse = " and ") else paste0(paste(x[-length(x)], collapse = ", "), " and ", x[length(x)])
 #' The Limitations sentence for one method and pair (empty for the official European scores or a panel of the GWAS's own ancestry).
 ldref_limitation <- function(rec, labels) {
   if (is.null(rec)) return(character())
