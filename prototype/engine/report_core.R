@@ -4,6 +4,7 @@
 .rm_empty_dirs <- function(dir) { d <- list.dirs(dir, recursive = TRUE, full.names = TRUE); d <- d[order(-nchar(d))]
   for (x in d) if (!identical(normalizePath(x), normalizePath(dir)) && !length(list.files(x, all.files = TRUE, no.. = TRUE))) unlink(x, recursive = TRUE); invisible(dir) }
 .mrs_ver <- function() if (exists("MRS_VERSION")) MRS_VERSION else "(version unknown)"
+.mrs_ver_build <- function() if (exists("mrs_version_text")) mrs_version_text() else .mrs_ver()
 # Everything written here is a DRAFT for the author to check: numbers come from the saved result tables of the study,
 # texts are assembled from the settings recorded in the generated scripts, and every limitation that applies is stated.
 # Nothing here is an estimator.
@@ -282,12 +283,20 @@ pair_context <- function(h, p) {
 # ---------- text ----------
 .ci_phrase <- function(r, scale) { ratio <- scale %in% c("log_or"); f <- function(x) if (ratio) exp(x) else x
   sprintf("%s = %s (%s CI %s to %s; P = %s)", if (ratio) "OR" else "beta", .fnum(f(r$estimate)), .pct(r$ci_level), .fnum(f(r$ci_lower)), .fnum(f(r$ci_upper)), .fp(r$p)) }
+#' Round 102: the limitation sentence about heterogeneity, for pairs whose IVW Cochran's Q has P below 0.05.
+heterogeneity_limitation <- function(ctxs) {
+  het <- vapply(ctxs, function(cx) { d <- Filter(function(d) identical(d$method, "ivw_mre") && identical(d$name, "cochran_q"), cx$pay$diagnostics %||% list())
+    length(d) > 0 && is.numeric(d[[1]]$p) && isTRUE(d[[1]]$p < 0.05) }, TRUE)
+  if (!any(het)) return(NULL)
+  who <- if (length(ctxs) == 1L) "Cochran's Q showed" else sprintf("In %d of %d pairs, Cochran's Q showed", sum(het), length(ctxs))
+  paste(who, "more heterogeneity between the variants than chance allows (P < 0.05), which usually reflects horizontal pleiotropy. The IVW estimate uses multiplicative random effects to allow for it, and the robust methods estimate the effect under weaker assumptions; heterogeneity was reported, not removed [Burgess 2023].")
+}
 #' The limitation sentences about sample overlap. Overlap is never calculated by MR Studio; the sentence says what the analyst declared.
 overlap_limitations <- function(ctxs) {
   real <- Filter(function(cx) !isTRUE(cx$simulated), ctxs)
   bias <- "Overlap biases estimates toward the observational association, most strongly with weak instruments."
   untested <- "Sample overlap between the exposure and outcome studies was not tested. "
-  if (!length(real)) return(paste0(untested, bias))
+  if (!length(real)) return("The simulated exposure and outcome were generated independently, so their samples do not overlap. With real data, overlap biases estimates toward the observational association, most strongly with weak instruments.")
   nm <- function(cx) paste0(cx$p$exName %||% cx$p$ex %||% "exposure", " and ", cx$p$outName %||% cx$p$out %||% "outcome")
   ans <- vapply(real, function(cx) cx$overlap$answer %||% "unanswered", "")
   out <- character(0)
@@ -513,6 +522,7 @@ report_text <- function(ctxs, study_name) {
            steiger_limitations(ctxs), binary_exposure_limitations(ctxs),
            { nfew <- sum(vapply(ctxs, function(x) "ivw_mre" %in% x$methods && !is.null(x$kept) && nrow(x$kept) < 4, TRUE))   # Round 30, rule R21b
              if (nfew) sprintf("In %s, fewer than 4 variants were used, so the heterogeneity between the variants could not be estimated reliably and the IVW confidence interval and P value are uncertain [Burgess 2023].", if (nfew == 1) "one pair" else paste(nfew, "pairs")) else NULL },
+           heterogeneity_limitation(ctxs),
            if (any(vapply(ctxs, function(x) x$n_weak > 0, TRUE))) "Some variants have an F statistic below 10, which can bias estimates toward the null in two-sample MR." else NULL,
            if (any(c("presso", "radial", "radegger") %in% used)) "Variants flagged by MR-PRESSO or radial MR were reported but not removed from the primary analysis. Detectors flag variants by a statistical rule and cannot tell horizontal pleiotropy from valid heterogeneity; any analysis without flagged variants is a post-hoc sensitivity analysis and must be reported as one [Burgess 2023]." else "Outlier detection (MR-PRESSO, radial MR) was not run in this study. Pleiotropy-robust estimators were compared with the IVW estimate; agreement in direction does not prove the assumptions hold.",
            if (length(ctxs) > 1L) "No correction for multiple testing was applied across pairs." else NULL)   # Round 99: not with a single pair
@@ -684,7 +694,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   if ("report" %in% items) {
     .say("Writing the full report (Word and PDF): summary table, methods, results, figures, limitations and references")
     est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { ce <- ctxs[[i]]$ce; if (!nrow(ce)) return(NULL); data.frame(Pair = i, Exposure = if (!is.null(ce$exposure_label)) ce$exposure_label else ctxs[[i]]$p$exName, Outcome = ctxs[[i]]$p$outName, Method = ce$name, `Estimate (β or log OR)` = .fnum(ce$estimate), `Lower confidence limit` = .fnum(ce$ci_lower), `Upper confidence limit` = .fnum(ce$ci_upper), `P value` = .fp(ce$p), `Instruments (variants used)` = ce$n_ivs, check.names = FALSE, stringsAsFactors = FALSE) }))
-    bl <- c(list(list(type = "title", text = sprintf("Mendelian randomization report: %s", basename(h$dir))), list(type = "note", text = sprintf("Generated by MR Studio %s on %s. A draft for the authors to check.", .mrs_ver(), format(Sys.Date())))), list(list(type = "h1", text = "Summary of estimates"), list(type = "table", data = est), list(type = "note", text = .est_key(ctxs))), blocks_text(TRUE))
+    bl <- c(list(list(type = "title", text = sprintf("Mendelian randomization report: %s", basename(h$dir))), list(type = "note", text = sprintf("Generated by MR Studio %s on %s. A draft for the authors to check.", .mrs_ver_build(), format(Sys.Date())))), list(list(type = "h1", text = "Summary of estimates"), list(type = "table", data = est), list(type = "note", text = .est_key(ctxs))), blocks_text(TRUE))
     f <- file.path(pk, "report.docx"); docx_write(f, bl); add(f)
     fp <- file.path(pk, "report.pdf"); r46 <- tryCatch({ pdf_write(fp, bl); TRUE }, error = function(e) { if (file.exists(fp)) unlink(fp); note <<- c(note, paste("The PDF report could not be written:", conditionMessage(e))); FALSE }); if (r46) add(fp)   # Round 46
     esc <- function(x) .xe(x); svg_k <- 0L; svgs <- function(files) { s <- grep("\\.svg$", files, value = TRUE); if (!length(s)) return("<p><em>Figure not available on this computer.</em></p>"); svg_k <<- svg_k + 1L; p <- sprintf("f%d-", svg_k)
@@ -705,7 +715,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     .say("Packing the reproducibility capsule: every pair folder with its scripts, data, results and replay check, and the R version", "Anyone can rerun the whole analysis from the capsule and compare the numbers.")
     fs <- list.files(file.path(h$dir, c("03_pairs", "04_across_pairs")), recursive = TRUE, full.names = TRUE); rel <- substring(fs, nchar(h$dir) + 2L)   # Round 98: with the analyses across pairs
     ent <- setNames(lapply(fs, .file_raw), rel)
-    ent[["SESSION.txt"]] <- .txt(c(sprintf("MR Studio reproducibility capsule, written %s", format(Sys.time())), sprintf("MR Studio version: %s", .mrs_ver()), R.version.string, sprintf("Platform: %s", R.version$platform), sprintf("TwoSampleMR commit pinned by the adapters: %s", ADAPTER_IVW_MRE_V11$packages$TwoSampleMR), "", "Each pair folder holds its scripts (02_scripts), data (01_data), results (04_tables), console output and replay check. Open a pair folder and run 02_scripts/00_run_all.R from it."))
+    ent[["SESSION.txt"]] <- .txt(c(sprintf("MR Studio reproducibility capsule, written %s", format(Sys.time())), sprintf("MR Studio version: %s", .mrs_ver_build()), R.version.string, sprintf("Platform: %s", R.version$platform), sprintf("TwoSampleMR commit pinned by the adapters: %s", ADAPTER_IVW_MRE_V11$packages$TwoSampleMR), "", "Each pair folder holds its scripts (02_scripts), data (01_data), results (04_tables), console output and replay check. Open a pair folder and run 02_scripts/00_run_all.R from it."))
     f <- file.path(pk, "reproducibility_capsule.zip"); zip_write(f, ent); add(f)
   }
   strobe <- NULL
