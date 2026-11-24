@@ -656,6 +656,17 @@ pair_payload_json <- function(study, pair_folder) {
   if (is.null(hit$json)) { hit$json <- shiny:::toJSON(pay); assign(pd, hit, envir = .PAY_CACHE) }
   hit$json
 }
+#' Round 103: bootstrap MR-Egger and pIVW (bootstrap Fieller) give P as the share of bootstrap draws, so a P of 0 means only
+#' "below 1 / number of draws". Each such estimate gets p_resolution = 1 / draws, and every display shows "< 0.001" there,
+#' never "< 1e-300". The numbers in the tables are unchanged.
+p_resolution_mark <- function(est, dg) {
+  nb <- function(m, name, dflt) { d <- Filter(function(x) identical(x$name, name), dg[[m]] %||% list()); v <- if (length(d)) suppressWarnings(as.numeric(d[[1]]$value)) else NA_real_; if (is.finite(v) && v > 0) v else dflt }
+  for (m in intersect(names(est), c("egger_boot", "pivw"))) {
+    draws <- if (m == "egger_boot") nb(m, "egger_boot_nboot", 1000) else 1000
+    est[[m]] <- lapply(est[[m]], function(e) { if (m == "egger_boot" || identical(e$ci_method, "bootstrap")) e$p_resolution <- 1 / draws; e })
+  }
+  est
+}
 .pair_payload_build <- function(study, pair_folder) {
   pd <- file.path(study, "03_pairs", pair_folder)
   rd <- function(f) if (file.exists(f)) utils::read.csv(f, stringsAsFactors = FALSE) else NULL
@@ -666,6 +677,7 @@ pair_payload_json <- function(study, pair_folder) {
     g <- rd(file.path(pd, "04_tables", paste0(m, "_diagnostics.csv")))
     if (!is.null(g)) dg[[m]] <- lapply(seq_len(nrow(g)), function(i) c(list(method = m), as.list(g[i, , drop = FALSE])))
   }
+  est <- p_resolution_mark(est, dg)
   v <- rd(Sys.glob(file.path(pd, "01_data", "analysis_data_*.csv"))[1])
   vars <- if (!is.null(v)) lapply(seq_len(nrow(v)), function(i) list(id = v$variant_id[i], bx = v$beta_x[i], by = v$beta_y[i], sx = v$se_x[i], sy = v$se_y[i], keep = isTRUE(as.logical(v$mr_keep[i])))) else list()
   out <- list(folder = pair_folder, estimates = unname(unlist(est, recursive = FALSE)), diagnostics = unname(unlist(dg, recursive = FALSE)), variants = vars, settings = pair_settings(study, pair_folder),

@@ -2692,4 +2692,47 @@ local({
   expect("Round 102: the package note and the capsule's SESSION.txt name the build", identical(v, paste0(MRS_VERSION, " (build-77, commit abcdef0)")))
 })
 
+# ---- Round 103: every univariable method in one run (Part 1 on build-53) ----
+local({
+  est <- list(egger_boot = list(list(method = "egger_boot", estimand = "causal_effect", p = 0, ci_method = "wald"), list(method = "egger_boot", estimand = "pleiotropy_intercept", p = 0.476, ci_method = "wald")),
+              pivw = list(list(method = "pivw", estimand = "causal_effect", p = 0, ci_method = "bootstrap")), divw = list(list(method = "divw", estimand = "causal_effect", p = 0, ci_method = "wald")))
+  dg <- list(egger_boot = list(list(method = "egger_boot", name = "egger_boot_nboot", value = 500)))
+  mk <- p_resolution_mark(est, dg); mk2 <- p_resolution_mark(list(pivw = list(list(method = "pivw", p = 0, ci_method = "wald"))), list())
+  expect("Round 103: a bootstrap P (bootstrap MR-Egger, pIVW with bootstrap Fieller) carries its resolution, 1 / draws; other estimates do not",
+         identical(mk$egger_boot[[1]]$p_resolution, 1 / 500) && identical(mk$egger_boot[[2]]$p_resolution, 1 / 500) && identical(mk$pivw[[1]]$p_resolution, 1 / 1000) &&
+         is.null(mk$divw[[1]]$p_resolution) && is.null(mk2$pivw[[1]]$p_resolution) && identical(mk$egger_boot[[1]]$p, 0))
+  r <- data.frame(estimate = 0.292, ci_lower = 0.194, ci_upper = 0.390, ci_level = 0.95, p = 0, p_resolution = 0.001)
+  expect("Round 103: a bootstrap P of 0 reads \"< 0.001\" in the text and the tables, never \"< 1e-300\"; an underflowed P without a resolution keeps \"< 1e-300\"",
+         identical(.fp_res(c(0, 0.5, 0), c(0.001, 0.001, NA)), c("< 0.001", "0.500", "< 1e-300")) && identical(.pfix(.ci_phrase(r, "beta")), "beta = 0.292 (95% CI 0.194 to 0.390; P < 0.001)") &&
+         identical(.pfix("P = < 0.001"), "P < 0.001") && identical(.fp_res(numeric(0), NULL), character(0)))
+  s1 <- software_sentence(c("ivw_mre", "pivw", "raps", "bwmr")); s2 <- software_sentence(c("ivw_mre", "egger"))
+  expect("Round 103: the Methods name the package of every method that was run, and MR Studio's own BWMR, instead of 'All estimates come from TwoSampleMR'",
+         grepl("TwoSampleMR (commit 5e93ee7d8e)", s1, fixed = TRUE) && grepl("MendelianRandomization (version ", s1, fixed = TRUE) && grepl("mr.raps (commit ", s1, fixed = TRUE) &&
+         grepl("and with MR Studio's own implementation of BWMR", s1, fixed = TRUE) && !grepl("MendelianRandomization", s2, fixed = TRUE) && startsWith(s2, "The estimates were computed with TwoSampleMR") &&
+         !grepl("All estimates come from", paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n"), fixed = TRUE))
+  cx <- list(p = list(exName = "X", outName = "Y"), pay = list(diagnostics = list(list(method = "sign", name = "sign_concordance", value = 0.75, df = 40, p = 1.38e-6),
+    list(method = "rucker", name = "rucker_model", value = NA, note = "B"), list(method = "rucker", name = "q_diff", value = 0.2466, df = 1, p = 0.6195))))
+  mt <- method_result_text(cx)
+  expect("Round 103: the sign concordance test and Rucker's choice are reported in the Results (they were described in the Methods only)",
+         length(mt) == 2L && identical(mt[1], "Sign concordance test: 35 of 40 variants (88%) had associations with X and Y in the same direction (binomial test P = 1.38e-06).") &&
+         identical(mt[2], "Rucker's model selection chose the random-effects IVW model (model B); the fall in Q from adding the MR-Egger intercept was 0.25 (P = 0.620).") &&
+         length(method_result_text(list(p = cx$p, pay = list(diagnostics = list())))) == 0L)
+  rc <- paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n"); sc <- paste(readLines(file.path(args_dir, "strobe_core.R"), warn = FALSE), collapse = "\n")
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  expect("Round 103: the report's scatter line, the Results card and the screen's scatter use MR-Egger's own intercept; the workbook has a Diagnostics sheet; STROBE 9a names the packages used",
+         grepl('cx$est$estimand == "pleiotropy_intercept" & cx$est$method == "egger"]', rc, fixed = TRUE) && grepl("list(Diagnostics = dgs)", rc, fixed = TRUE) &&
+         lengths(regmatches(js, gregexpr("e.method === 'egger' && e.estimand === 'pleiotropy_intercept'", js, fixed = TRUE))) == 3L &&
+         !grepl("find((e) => e.estimand === 'pleiotropy_intercept')", js, fixed = TRUE) && grepl("software_pkgs(", sc, fixed = TRUE) && !grepl("TwoSampleMR commit", sc, fixed = TRUE))
+  ids <- c("ivw_steiger", "bwmr", "grip", "mrmix", "egger_boot", "pwm", "smode_nome", "wmode_nome", "rucker", "maxlik", "mbe", "cml", "robust_ivw", "pivw", "divw", "raps", "conmix", "lasso", "egger_simex", "wm", "smed", "mode", "smode", "presso", "radial")
+  mc <- regmatches(js, regexpr("const MCOL = \\{[^\n]*", js))
+  expect("Round 103: the screen's scatter draws a coloured line for every method in its legend (it drew 8 of 27)",
+         all(vapply(ids, function(i) grepl(paste0(i, ": '"), mc, fixed = TRUE), TRUE)) && grepl("filter((e) => ['ivw_mre', 'egger', 'radegger'].indexOf(e.method) < 0)", js, fixed = TRUE) && grepl("function methodResults(pay)", js, fixed = TRUE))
+  if (nzchar(Sys.which("node"))) {
+    gl <- function(n) { L <- strsplit(js, "\n", fixed = TRUE)[[1]]; sub("^const ", "var ", L[startsWith(L, paste0("const ", n, " = "))][1]) }
+    f <- tempfile(fileext = ".js"); writeLines(c(gl("fp"), gl("fpr"), "console.log([fpr(0, 0.001) === '< 0.001', fpr(0) === '< 1e-300', fpr(0.0123, 0.001) === '0.012', fpr(0.0005, 0.001) === '< 0.001'].join(' '));"), f)
+    o <- paste(system2("node", f, stdout = TRUE, stderr = TRUE), collapse = " ")
+    expect("Round 103: on the screen a bootstrap P of 0 reads \"< 0.001\"", identical(o, "true true true true"))
+  }
+})
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

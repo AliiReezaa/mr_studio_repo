@@ -14,7 +14,8 @@
 .fnum <- function(x, d = 3) ifelse(is.na(x), "NA", formatC(x, digits = d, format = "f"))
 .nth <- function(x, i) if (i <= length(x)) x[[i]] else NULL   # Round 50: lists that cover only the univariable pairs
 .fp <- function(p) ifelse(is.na(p), "NA", ifelse(p < 1e-300, "< 1e-300", ifelse(p < 0.001, formatC(p, digits = 2, format = "e"), formatC(p, digits = 3, format = "f"))))   # Round 91: an underflowed P (0) is "< 1e-300", never "0.00e+00"
-.pfix <- function(x) if (is.character(x)) gsub("= < 1e-300", "< 1e-300", x, fixed = TRUE) else if (is.list(x)) lapply(x, .pfix) else x
+.fp_res <- function(p, res = NA_real_) { res <- rep_len(as.numeric(res %||% NA_real_), length(p)); out <- .fp(p); lo <- !is.na(p) & is.finite(res) & p < res; out[lo] <- paste("<", format(res[lo])); out }   # Round 103: a bootstrap P of 0 is "< 0.001" (1 / draws)
+.pfix <- function(x) if (is.character(x)) gsub("= < ", "< ", x, fixed = TRUE) else if (is.list(x)) lapply(x, .pfix) else x
 # Round 42: the radial detectors' level, as written in their scripts.
 .radial_level_txt <- function(st) if (identical(st$alpha_correction %||% "bonferroni", "none")) sprintf("alpha = %s per variant, no correction", format(st$alpha %||% 0.05)) else sprintf("alpha = %s divided by the number of variants (Bonferroni)", format(st$alpha %||% 0.05))
 .pct <- function(l) paste0(format(round(l * 100, 1), nsmall = 0), "%")
@@ -239,7 +240,7 @@ subset_facts <- function(pay) {
 # ---------- gathering what the report needs ----------
 .est_df <- function(pay) {
   if (!length(pay$estimates)) return(NULL)
-  d <- do.call(rbind, lapply(pay$estimates, function(e) data.frame(method = e$method, name = e$method_name, estimand = e$estimand, estimate = e$estimate, se = e$se, ci_lower = e$ci_lower, ci_upper = e$ci_upper, ci_level = e$ci_level, p = e$p, n_ivs = e$n_ivs_used, scale = e$scale %||% "beta", exposure_id = as.character(e$exposure_id %||% NA_character_), stringsAsFactors = FALSE)))
+  d <- do.call(rbind, lapply(pay$estimates, function(e) data.frame(method = e$method, name = e$method_name, estimand = e$estimand, estimate = e$estimate, se = e$se, ci_lower = e$ci_lower, ci_upper = e$ci_upper, ci_level = e$ci_level, p = e$p, p_resolution = as.numeric(e$p_resolution %||% NA_real_), n_ivs = e$n_ivs_used, scale = e$scale %||% "beta", exposure_id = as.character(e$exposure_id %||% NA_character_), stringsAsFactors = FALSE)))
   d
 }
 .short <- c(loo = "Leave-one-out", steiger = "Steiger", ivw_steiger = "IVW (Steiger-filtered)", bwmr = "BWMR", grip = "MR-GRIP", mrmix = "MRMix", egger_boot = "MR-Egger (bootstrap)", pwm = "Pen. weighted median", smode_nome = "Simple mode (NOME)", wmode_nome = "Weighted mode (NOME)", rucker = "Rucker", sign = "Sign test", ivw_mre = "IVW", divw = "dIVW", maxlik = "Max. likelihood", mbe = "MBE", cml = "MR-cML", robust_ivw = "MR-Robust", pivw = "pIVW", raps = "MR-RAPS", conmix = "ConMix", lasso = "MR-Lasso", egger_simex = "MR-Egger (SIMEX)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial Egger")
@@ -282,7 +283,34 @@ pair_context <- function(h, p) {
 
 # ---------- text ----------
 .ci_phrase <- function(r, scale) { ratio <- scale %in% c("log_or"); f <- function(x) if (ratio) exp(x) else x
-  sprintf("%s = %s (%s CI %s to %s; P = %s)", if (ratio) "OR" else "beta", .fnum(f(r$estimate)), .pct(r$ci_level), .fnum(f(r$ci_lower)), .fnum(f(r$ci_upper)), .fp(r$p)) }
+  sprintf("%s = %s (%s CI %s to %s; P = %s)", if (ratio) "OR" else "beta", .fnum(f(r$estimate)), .pct(r$ci_level), .fnum(f(r$ci_lower)), .fnum(f(r$ci_upper)), .fp_res(r$p, r$p_resolution)) }
+#' Round 103: the packages behind the methods that were run, from each method's adapter (a version number or a pinned commit),
+#' and the methods MR Studio implements itself. Before, the text named TwoSampleMR for every estimate.
+software_pkgs <- function(used) {
+  ad <- param_adapters(); ms <- intersect(used, names(ad)); pk <- list(); own <- character(0)
+  for (m in ms) { pp <- ad[[m]]$packages %||% list(); if (!length(pp)) own <- c(own, m); for (n in names(pp)) if (is.null(pk[[n]])) pk[[n]] <- as.character(pp[[n]]) }
+  list(ver = unname(vapply(names(pk), function(n) { v <- pk[[n]]; if (grepl("^[0-9a-f]{40}$", v)) sprintf("%s (commit %s)", n, substr(v, 1, 10)) else sprintf("%s (version %s)", n, v) }, "")), own = own)
+}
+software_sentence <- function(used) {
+  sp <- software_pkgs(used); ver <- sp$ver; own <- sp$own
+  if (!length(ver) && !length(own)) return("The estimates were computed")
+  lst <- function(x) if (length(x) <= 1L) paste(x, collapse = "") else paste(paste(x[-length(x)], collapse = ", "), "and", x[length(x)])
+  nm <- function(m) if (m %in% names(.short)) .short[[m]] else m
+  paste0("The estimates were computed with ", lst(ver), if (length(own)) sprintf("%s MR Studio's own implementation of %s", if (length(ver)) ", and with" else "", lst(vapply(own, nm, ""))) else "")
+}
+#' Round 103: results of the methods that give no causal estimate (the sign concordance test) or that choose a model (Rucker),
+#' which were run and described in the Methods but reported nowhere.
+method_result_text <- function(cx) {
+  dg <- cx$pay$diagnostics %||% list(); g <- function(m, n) { x <- Filter(function(d) identical(d$method, m) && identical(d$name, n), dg); if (length(x)) x[[1]] else NULL }
+  out <- character(0); s <- g("sign", "sign_concordance"); v <- if (is.null(s)) NA_real_ else suppressWarnings(as.numeric(s$value)); k <- if (is.null(s)) NA_real_ else suppressWarnings(as.numeric(s$df))
+  if (is.finite(v) && is.finite(k) && k > 0) { same <- as.integer(round((v / 2 + 0.5) * k))
+    out <- c(out, sprintf("Sign concordance test: %d of %d variants (%s%%) had associations with %s and %s in the same direction (binomial test P = %s).", same, as.integer(k), format(round(100 * same / k)), cx$p$exName, cx$p$outName, .fp(suppressWarnings(as.numeric(s$p))))) }
+  r <- g("rucker", "rucker_model"); qd <- g("rucker", "q_diff")
+  lab <- c(A = "the fixed-effect IVW model", B = "the random-effects IVW model", C = "the fixed-effect MR-Egger model", D = "the random-effects MR-Egger model")
+  if (!is.null(r) && !is.null(r$note) && !is.na(r$note) && r$note %in% names(lab)) out <- c(out, sprintf("Rucker's model selection chose %s (model %s)%s.", lab[[r$note]], r$note,
+    if (!is.null(qd) && is.finite(suppressWarnings(as.numeric(qd$p)))) sprintf("; the fall in Q from adding the MR-Egger intercept was %.2f (P = %s)", as.numeric(qd$value), .fp(as.numeric(qd$p))) else ""))
+  out
+}
 #' Round 102: the limitation sentence about heterogeneity, for pairs whose IVW Cochran's Q has P below 0.05.
 heterogeneity_limitation <- function(ctxs) {
   het <- vapply(ctxs, function(cx) { d <- Filter(function(d) identical(d$method, "ivw_mre") && identical(d$name, "cochran_q"), cx$pay$diagnostics %||% list())
@@ -464,8 +492,8 @@ report_text <- function(ctxs, study_name) {
       ". It gives no causal estimate [Hemani 2017]."),
     radegger = sprintf("Radial MR-Egger was used to flag outlying variants and to estimate the effect allowing for directional pleiotropy (outlier level %s, %s weights); flagged variants are reported but were not removed [Bowden 2018].", .radial_level_txt(st1), c("1" = "first-order", "2" = "second-order", "3" = "modified second-order")[[as.character(st1$weights %||% "1")]]), ""), "")
   if (any(vapply(ctxs, function(cx) !is.null(cx$outl), TRUE))) desc <- c(desc, outl = OUTLIER_METHODS_TEXT, if (any(vapply(ctxs, function(cx) length(cx$outl$lookup$rows) > 0, TRUE))) c(outl_lookup = OUTLIER_LOOKUP_METHODS))   # Round 42
-  txt$methods <- c(txt$methods, unname(desc[nzchar(desc)]), sprintf("Confidence intervals are %s intervals. All estimates come from TwoSampleMR (commit %s)%s in %s. Bootstrap-based methods use a fixed seed recorded in each script, and every pair was re-run from its saved scripts in a fresh R session; the replay check was %s.",
-    .pct(ctxs[[1]]$ce$ci_level[1] %||% 0.95), substr(ADAPTER_IVW_MRE_V11$packages$TwoSampleMR, 1, 10), if (any(c("presso", "radial", "radegger") %in% used)) sprintf(", with %s%s%s", if ("presso" %in% used) sprintf("MRPRESSO (commit %s)", substr(PIN_MRPRESSO, 1, 10)) else "", if ("presso" %in% used && any(c("radial", "radegger") %in% used)) " and " else "", if (any(c("radial", "radegger") %in% used)) sprintf("RadialMR (commit %s)", substr(PIN_RADIALMR, 1, 10)) else "") else "", R.version.string, paste(unique(vapply(ctxs, function(x) x$pay$replay$status %||% "not run", "")), collapse = " / ")))
+  txt$methods <- c(txt$methods, unname(desc[nzchar(desc)]), sprintf("Confidence intervals are %s intervals. %s in %s. Bootstrap-based methods use a fixed seed recorded in each script, and every pair was re-run from its saved scripts in a fresh R session; the replay check was %s.",
+    .pct(ctxs[[1]]$ce$ci_level[1] %||% 0.95), software_sentence(used), R.version.string, paste(unique(vapply(ctxs, function(x) x$pay$replay$status %||% "not run", "")), collapse = " / ")))
   for (cx in ctxs) {
     ce <- cx$ce; if (!nrow(ce)) next; sc <- ce$scale[1]; ratio <- sc == "log_or"
     unit <- if (ratio) sprintf("odds of %s per unit of %s", cx$p$outName, cx$p$exName) else sprintf("units of %s per unit of %s", cx$p$outName, cx$p$exName)
@@ -489,6 +517,7 @@ report_text <- function(ctxs, study_name) {
     sf <- steiger_facts(cx)
     if (!is.null(sf)) txt$results <- c(txt$results, sprintf("Steiger directionality test: the variants explained %s of the variance in %s and %s of the variance in %s (R2), %s (P = %s); %d of %d variants explained more variance in the outcome than in the exposure.",
       .fnum(sf$r2x, 3), cx$p$exName, .fnum(sf$r2y, 3), cx$p$outName, if (sf$ok) "so the exposure explains more, as expected if it acts on the outcome" else "so the outcome explains more, which does not match the assumed direction", .fp(sf$p), as.integer(sf$wrong), as.integer(sf$n)))
+    txt$results <- c(txt$results, method_result_text(cx))
     for (dm in intersect(c("presso", "radial", "radegger"), cx$ce$method)) {
       dg <- Filter(function(d) d$method == dm, cx$pay$diagnostics); od <- Filter(function(d) grepl("_outliers$", d$name), dg)
       ids <- if (length(od) && !is.null(od[[1]]$note) && !is.na(od[[1]]$note) && nzchar(od[[1]]$note)) strsplit(od[[1]]$note, ";")[[1]] else character(0)
@@ -625,7 +654,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
         figs[[i]] <- list(forest = ff, fh = fh); for (f in ff) add(f); next }
       fh <- max(40, 22 + 8 * nrow(est)); ff <- .fig_write(file.path(pk, "figures", paste0(tag, "_forest")), wmm, fh, function() .draw_forest(est))
       ceS <- ce[ce$method != "radegger", , drop = FALSE]   # the radial Egger intercept is on a weighted scale, so it cannot be drawn as a line on this plot
-      ln <- lapply(seq_len(nrow(ceS)), function(j) { m <- ceS$method[j]; ic <- cx$est$estimate[cx$est$estimand == "pleiotropy_intercept"]; list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else if (m == "egger") 2 else 3, a = if (m == "egger" && length(ic)) ic[1] else 0, b = ceS$estimate[j]) })
+      ln <- lapply(seq_len(nrow(ceS)), function(j) { m <- ceS$method[j]; ic <- cx$est$estimate[cx$est$estimand == "pleiotropy_intercept" & cx$est$method == "egger"]; list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else if (m == "egger") 2 else 3, a = if (m == "egger" && length(ic)) ic[1] else 0, b = ceS$estimate[j]) })
       sf <- .fig_write(file.path(pk, "figures", paste0(tag, "_scatter")), wmm, round(wmm * 0.75), function() .draw_scatter(cx$kept, ln, paste("Effect on", cx$p$exName), paste("Effect on", cx$p$outName)))
       figs[[i]] <- list(forest = ff, scatter = sf, fh = fh, sh = round(wmm * 0.75)); for (f in c(ff, sf)) add(f)
       lf <- loo_facts(cx); iv <- ce[ce$method == "ivw_mre", , drop = FALSE]   # Round 39: supplementary leave-one-out and funnel plots
@@ -660,7 +689,11 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   if ("tables" %in% items) {
     .say("Building the supplement workbook: estimates, settings and the instruments of every pair", "A supplement with every instrument and setting lets reviewers check the analysis.")
     est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { e <- ctxs[[i]]$est; data.frame(pair = i, exposure = ctxs[[i]]$p$exName, outcome = ctxs[[i]]$p$outName, e, check.names = FALSE, stringsAsFactors = FALSE) }))
+    dgs <- do.call(rbind, lapply(seq_along(ctxs), function(i) { d <- Filter(function(x) !identical(x$method, "loo"), ctxs[[i]]$pay$diagnostics %||% list()); if (!length(d)) return(NULL)   # Round 103: every method's diagnostics in one sheet
+      f <- function(k, num = TRUE) vapply(d, function(x) { v <- x[[k]]; if (is.null(v) || !length(v)) NA_character_ else as.character(v[[1]]) }, ""); nu <- function(x) suppressWarnings(as.numeric(x))
+      data.frame(pair = i, method = vapply(d, function(x) if (x$method %in% names(.short)) .short[[x$method]] else x$method, ""), method_id = f("method"), name = f("name"), value = nu(f("value")), df = nu(f("df")), p = nu(f("p")), note = f("note"), stringsAsFactors = FALSE) }))
     sheets <- list(Estimates = est, Settings = do.call(rbind, lapply(seq_along(ctxs), function(i) { s <- ctxs[[i]]$settings; data.frame(pair = i, setting = names(s), value = vapply(s, function(v) paste(v, collapse = ","), ""), stringsAsFactors = FALSE) })))
+    if (!is.null(dgs) && nrow(dgs)) sheets <- c(sheets[1], list(Diagnostics = dgs), sheets[-1])
     for (i in seq_along(ctxs)) sheets[[sprintf("Pair %d variants", i)]] <- if (isTRUE(ctxs[[i]]$mv)) { f <- Sys.glob(file.path(h$dir, "03_pairs", ctxs[[i]]$p$folder, "01_data", "analysis_data_*.csv")); if (length(f)) utils::read.csv(f[1], stringsAsFactors = FALSE) else data.frame() } else transform(ctxs[[i]]$vars, ratio = by / bx, F = (bx / sx)^2)
     for (i in seq_along(ctxs)) { lf <- loo_facts(ctxs[[i]]); if (!is.null(lf)) sheets[[sprintf("Pair %d leave-one-out", i)]] <- stats::setNames(lf, c("variant_left_out", "ivw_estimate_without", "ivw_se_without", "ivw_p_without", "wald_ratio", "wald_ratio_se", "wald_ratio_p")) }
     if (!is.null(med)) { ms <- as.data.frame(med); attr(ms, "spec") <- NULL; sheets[["Mediation"]] <- ms }   # Round 98
@@ -693,7 +726,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   if ("text" %in% items) { .say("Writing the draft Methods, Results and Limitations with your numbers and settings", "The draft names and cites every method; the limitations include every item the Check screen asked you to review."); f <- file.path(pk, "draft_methods_results_limitations.docx"); docx_write(f, c(list(list(type = "title", text = "Draft text: Methods, Results, Limitations")), list(list(type = "note", text = "Draft generated from the saved results and settings. Check every statement and edit it before use.")), blocks_text(FALSE))); add(f) }
   if ("report" %in% items) {
     .say("Writing the full report (Word and PDF): summary table, methods, results, figures, limitations and references")
-    est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { ce <- ctxs[[i]]$ce; if (!nrow(ce)) return(NULL); data.frame(Pair = i, Exposure = if (!is.null(ce$exposure_label)) ce$exposure_label else ctxs[[i]]$p$exName, Outcome = ctxs[[i]]$p$outName, Method = ce$name, `Estimate (β or log OR)` = .fnum(ce$estimate), `Lower confidence limit` = .fnum(ce$ci_lower), `Upper confidence limit` = .fnum(ce$ci_upper), `P value` = .fp(ce$p), `Instruments (variants used)` = ce$n_ivs, check.names = FALSE, stringsAsFactors = FALSE) }))
+    est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { ce <- ctxs[[i]]$ce; if (!nrow(ce)) return(NULL); data.frame(Pair = i, Exposure = if (!is.null(ce$exposure_label)) ce$exposure_label else ctxs[[i]]$p$exName, Outcome = ctxs[[i]]$p$outName, Method = ce$name, `Estimate (β or log OR)` = .fnum(ce$estimate), `Lower confidence limit` = .fnum(ce$ci_lower), `Upper confidence limit` = .fnum(ce$ci_upper), `P value` = .fp_res(ce$p, ce$p_resolution), `Instruments (variants used)` = ce$n_ivs, check.names = FALSE, stringsAsFactors = FALSE) }))
     bl <- c(list(list(type = "title", text = sprintf("Mendelian randomization report: %s", basename(h$dir))), list(type = "note", text = sprintf("Generated by MR Studio %s on %s. A draft for the authors to check.", .mrs_ver_build(), format(Sys.Date())))), list(list(type = "h1", text = "Summary of estimates"), list(type = "table", data = est), list(type = "note", text = .est_key(ctxs))), blocks_text(TRUE))
     f <- file.path(pk, "report.docx"); docx_write(f, bl); add(f)
     fp <- file.path(pk, "report.pdf"); r46 <- tryCatch({ pdf_write(fp, bl); TRUE }, error = function(e) { if (file.exists(fp)) unlink(fp); note <<- c(note, paste("The PDF report could not be written:", conditionMessage(e))); FALSE }); if (r46) add(fp)   # Round 46
