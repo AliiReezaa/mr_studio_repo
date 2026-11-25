@@ -490,6 +490,8 @@ mr_server <- function(engine_dir) {
         run_end = { keep_awake_stop()
           if (isTRUE(settings_read()$notify)) { d <- as.integer(a$done %||% 0); n <- as.integer(a$total %||% 0)
             notify_done("MR Studio", sprintf("%s finished: %d of %d pair%s saved.", if (nzchar(a$study %||% "")) a$study else "The analysis", d, n, if (n == 1) "" else "s")) } },
+        folder_pick = { r <- tryCatch(.with_user_env(pick_folder(a$start %||% "")), error = function(e) e)   # Round 106: the system's folder picker
+          if (inherits(r, "error")) ev("folder_picked", ok = FALSE, msg = paste(conditionMessage(r), "You can type the path instead.")) else ev("folder_picked", ok = TRUE, path = r) },
         open_guide = {   # Round 72: the user guide and tutorial, in the default browser (a fixed address, never one from the page)
           r <- tryCatch({ .with_user_env(utils::browseURL(GUIDE_URL)); TRUE }, error = function(e) e)
           if (inherits(r, "error")) ev("error", msg = paste("The browser could not be opened. The guide is at", GUIDE_URL)) },

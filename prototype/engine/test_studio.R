@@ -2783,4 +2783,23 @@ local({
     grepl("--bg:#F5F3EE", sh, fixed = TRUE) && isFALSE(SETTINGS_DEFAULT$offline))
 })
 
+# ---- Round 106: Dr. Akbarzadeh walkthrough on build-56 ----
+local({
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  ap <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  expect("Round 106: Settings offers the system's folder picker for the studies folder; the chosen path fills the box and Save checks it as before",
+    grepl("data-a=\"folder_pick\"", js, fixed = TRUE) && grepl("Choose folder...", js, fixed = TRUE) && grepl("case 'folder_picked'", js, fixed = TRUE) &&
+    grepl("folder_pick = { r <- tryCatch(.with_user_env(pick_folder(", ap, fixed = TRUE) && is.function(pick_folder))
+  if (!identical(.Platform$OS.type, "windows") && !identical(Sys.info()[["sysname"]], "Darwin"))
+    expect("Round 106: where there is no folder picker the user is told to type the path", grepl("type the path", err_of(pick_folder()), fixed = TRUE))
+  d <- tempfile("r106-"); dir.create(file.path(d, "02_scripts"), recursive = TRUE); dir.create(file.path(d, "04_tables")); dir.create(file.path(d, "03_console"))
+  for (x in c("01_ivw_mre.R", "02_egger.R", "03_wmedian.R")) writeLines("x", file.path(d, "02_scripts", x))
+  said <- character(); op <- options(mrstudio.say = function(msg, why = "") said <<- c(said, msg)); on.exit(options(op), add = TRUE)
+  live_scripts(d, "replay_console.txt")
+  for (m in c("ivw_mre", "egger")) writeLines("x", file.path(d, "04_tables", paste0(m, "_estimates.csv")))
+  live_scripts(d, "replay_console.txt")
+  expect("Round 106: the replay check names the quick methods that finished between two looks",
+    any(grepl("^Replay check: finished .*\\(2 of 3\\)$", said)))
+})
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

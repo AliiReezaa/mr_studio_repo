@@ -69,6 +69,8 @@ live_scripts <- function(dir, console_name = "run_all_console.txt") {
       oth <- setdiff(good, st$cur); if (length(oth)) .say(sprintf("Finished: %s (%d of %d)", paste(vapply(oth, .method_label, ""), collapse = ", "), length(done), length(ids)))
       for (b in bad) .say(sprintf("%s stopped with an error; the other methods continue (%d of %d)", .method_label(b), length(done), length(ids)))
     }
+    # Round 106: the replay check names every method it has rerun, the quick ones too (they finish between two looks)
+    if (length(newly) && replay) .say(sprintf("Replay check: finished %s (%d of %d)", paste(vapply(newly, .method_label, ""), collapse = ", "), length(done), length(ids)))
     st$done <- done
     if (nzchar(nxt) && !replay) .say(sprintf("Method %d of %d: %s", match(nxt, ids), length(ids), .method_label(nxt)), METHOD_WHY[[nxt]] %||% "")
     if (nzchar(nxt) && replay && (length(ids) <= 10L || match(nxt, ids) %% 10 == 1)) .say(sprintf("Replay check: method %d of %d (%s)", match(nxt, ids), length(ids), .method_label(nxt)))

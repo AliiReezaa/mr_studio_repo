@@ -534,6 +534,20 @@ study_files <- function(study) {
 #' Run a program that belongs to the user (an editor, RStudio) without the engine's own R settings. The bundled R sets R_HOME and
 #' library paths; a program started from here would otherwise inherit them and could pick up the bundled R instead of its own.
 GUIDE_URL <- "https://github.com/AliiReezaa/mr_studio_repo/blob/main/docs/USER_GUIDE.md"   # Round 72: user guide and tutorial (docs/)
+#' Round 106: the system's own folder picker for the studies folder (macOS choose folder, Windows choose.dir). Returns the chosen
+#' path, or "" when the user cancels; stops with a message where no picker is available (then the path is typed as before).
+pick_folder <- function(start = "") {
+  prompt <- "Choose the folder for your MR Studio studies"
+  if (.Platform$OS.type == "windows") { p <- utils::choose.dir(default = if (nzchar(start) && dir.exists(start)) normalizePath(start, winslash = "\\") else "", caption = prompt)
+    return(if (is.na(p)) "" else normalizePath(p, winslash = "/", mustWork = FALSE)) }
+  if (identical(Sys.info()[["sysname"]], "Darwin")) {
+    loc <- if (nzchar(start) && dir.exists(start)) sprintf(" default location (POSIX file \"%s\")", gsub("[\"\\\\]", "", start)) else ""
+    out <- suppressWarnings(system2("/usr/bin/osascript", c("-e", shQuote("activate"), "-e", shQuote(sprintf("POSIX path of (choose folder with prompt \"%s\"%s)", prompt, loc))), stdout = TRUE, stderr = TRUE))
+    st <- attr(out, "status") %||% 0L
+    if (st != 0L) { if (any(grepl("-128", out))) return(""); stop("The folder picker could not be opened: ", paste(out, collapse = " ")) }
+    return(sub("/$", "", out[length(out)])) }
+  stop("This system has no folder picker; type the path instead.")
+}
 .with_user_env <- function(expr) {
   nm <- c("R_HOME", "R_SHARE_DIR", "R_INCLUDE_DIR", "R_DOC_DIR", "R_LIBS", "R_LIBS_SITE", "R_LIBS_USER", "R_ARCH", "R_PLATFORM", "R_PAPERSIZE", "R_ENVIRON", "R_PROFILE")
   old <- Sys.getenv(nm, unset = NA); on.exit({ for (n in nm) if (!is.na(old[[n]])) do.call(Sys.setenv, stats::setNames(list(old[[n]]), n)) }, add = TRUE)
