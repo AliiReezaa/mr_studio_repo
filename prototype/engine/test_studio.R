@@ -2757,4 +2757,18 @@ local({
     grepl("white-space:nowrap\">P ' + fpr(e.p, e.p_resolution)", js, fixed = TRUE) && grepl("length(ids) <= 10L ||", lc, fixed = TRUE))
 })
 
+# ---- Round 104b: no empty folder in a study, its package or its capsule, for every study kind ----
+local({
+  empt <- function(d) { x <- list.dirs(d, recursive = TRUE, full.names = TRUE); x <- x[!grepl("/[.]engine(/|$)", x)]
+    x[vapply(x, function(p) !length(list.files(p, all.files = TRUE, no.. = TRUE)), TRUE)] }
+  zempt <- function(z) { if (!file.exists(z)) return(character(0)); n <- utils::unzip(z, list = TRUE)$Name; d <- n[endsWith(n, "/")]
+    d[vapply(d, function(x) !any(startsWith(n, x) & n != x), TRUE)] }
+  full <- c("scripts", "report", "figs", "tables", "text", "strobe", "refs", "capsule")
+  kinds <- list(two_sample = hl, multivariable = h50, mediation = h57)
+  if (exists("h63")) { ui_state_set(h63$con, "pairs", lapply(pr63, function(p) c(p, list(methods = list("ivw_mre"))))); kinds$bidirectional <- h63 }
+  for (k in names(kinds)) { h <- studio_open(basename(kinds[[k]]$dir)); study_plan_save(h, list(kind = k, aim = "", prereg = FALSE)); pk <- build_package(h, full, 140)   # the app saves the plan when a study is made
+    e <- c(empt(h$dir), zempt(file.path(pk$dir, "reproducibility_capsule.zip")))
+    expect(sprintf("Round 104b: a %s study, its full package and its capsule have no empty folder%s", gsub("_", "-", k), if (length(e)) paste0(" (", paste(sub(h$dir, "", e, fixed = TRUE), collapse = ", "), ")") else ""), !length(e)) }
+})
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)
