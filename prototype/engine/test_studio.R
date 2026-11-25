@@ -2802,4 +2802,22 @@ local({
     any(grepl("^Replay check: finished .*\\(2 of 3\\)$", said)))
 })
 
+# ---- Round 107: quitting MR Studio during a run (scenario A walkthrough on build-56) ----
+local({
+  if (!exists("bg_orphan_runs")) source(file.path(args_dir, "bg_core.R"))
+  st <- tempfile("r107-"); mk <- function(nm, state, t = "run_pair") { j <- file.path(.bg_jobs_dir(st), nm); dir.create(j, recursive = TRUE)
+    saveRDS(list(t = t, a = list(ex = "lib:LDL", out = "lib:CHD"), act = "run_all"), file.path(j, "args.rds"))
+    .bg_write_status(j, state = state, t = t, started = "2026-11-25 17:52:09", pid = Sys.getpid()); normalizePath(j, winslash = "/") }
+  run <- mk("run_pair_a", "running"); mk("run_pair_b", "done"); mk("build_package_c", "running", "build_package")
+  o <- bg_orphan_runs(st)
+  expect("Round 107: a pair run still going from before MR Studio was closed is found, with its pair and start time; finished jobs and other kinds are not",
+    length(o) == 1L && identical(o[[1]]$pair, "LDL -> CHD") && identical(o[[1]]$started, "17:52"))
+  expect("Round 107: a run this window already watches is not reported again", !length(bg_orphan_runs(st, watched = vapply(o, `[[`, "", "job"))))
+  ap <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n"); js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  expect("Round 107: opening the study says what is still finishing and that the rest must be run again; a new run is refused until it ends; its end is announced",
+    grepl("bg_watch(o$job, name, quiet = TRUE, on_done = function(r) ev(\"bg_finished\", study = name))", ap, fixed = TRUE) &&
+    grepl("is still finishing in the background. Wait until it ends", ap, fixed = TRUE) && grepl("An analysis is still finishing", js, fixed = TRUE) &&
+    grepl("case 'bg_finished'", js, fixed = TRUE) && grepl("If you close MR Studio, the pair being calculated still finishes", js, fixed = TRUE))
+})
+
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

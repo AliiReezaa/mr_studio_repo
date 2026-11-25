@@ -249,12 +249,12 @@ mr_server <- function(engine_dir) {
     bg_tick <- function() {
       for (job in names(bg$jobs)) { j <- bg$jobs[[job]]
         r <- tryCatch(bg_poll(job, j$at), error = function(e) list(lines = character(), at = j$at, done = TRUE))
-        for (ln in r$lines) { tryCatch(session$sendCustomMessage("evraw", list(s = j$study, j = ln)), error = function(e) NULL); if (is.function(j$on_line)) tryCatch(j$on_line(ln), error = function(e) NULL) }
+        for (ln in r$lines) { if (!isTRUE(j$quiet)) tryCatch(session$sendCustomMessage("evraw", list(s = j$study, j = ln)), error = function(e) NULL); if (is.function(j$on_line)) tryCatch(j$on_line(ln), error = function(e) NULL) }
         if (isTRUE(r$done)) { bg$jobs[[job]] <- NULL; bg_studies(); if (is.function(j$on_done)) j$on_done(r) } else bg$jobs[[job]]$at <- r$at }
       if (length(bg$jobs)) later::later(bg_tick, BG_POLL_S); invisible()
     }
-    bg_watch <- function(job, study, on_line = NULL, on_done = NULL) {
-      first <- !length(bg$jobs); bg$jobs[[job]] <- list(at = 0, study = study, on_line = on_line, on_done = on_done)
+    bg_watch <- function(job, study, on_line = NULL, on_done = NULL, quiet = FALSE) {   # quiet: only its end is reported (Round 107)
+      first <- !length(bg$jobs); bg$jobs[[job]] <- list(at = 0, study = study, on_line = on_line, on_done = on_done, quiet = quiet)
       if (first) later::later(bg_tick, BG_POLL_S); bg_studies(); invisible(job)
     }
     bg_studies <- function() tryCatch(ev("studies", studies = studies_overview(), root = studies_root()), error = function(e) NULL)   # the list shows RUNNING while a job of a study runs
@@ -276,7 +276,11 @@ mr_server <- function(engine_dir) {
       pairs <- Filter(function(p) !is.null(p$folder), pairs)
       sens <- ui_state_get(h$con, "sens") %||% list()
       for (sn in sens) if (!is.null(sn$folder) && dir.exists(file.path(h$dir, "03_pairs", sn$folder)) && !is.null(pair_results(h$dir, sn$folder))) payloads[[sn$folder]] <- pair_payload_json(h$dir, sn$folder)
-      ev(t, name = name, dir = h$dir, root = root, plan = plan, pairs = pairs, sens = sens, mvcov = ui_state_get(h$con, "mv_cov") %||% list(), outliers = ui_state_get(h$con, "outliers") %||% list(), payloads = payloads, overlap = overlap_get(h), to = to, jobs = length(bg_running(h$dir)), queue = !is.null(rq$pairs) && identical(rq$dir, h$dir), studies = studies_overview(root))
+      # Round 107: a pair run left going when MR Studio was closed is watched quietly, and the screen says what is still finishing
+      orph <- tryCatch(bg_orphan_runs(h$dir, names(bg$jobs)), error = function(e) list())
+      for (o in orph) bg_watch(o$job, name, quiet = TRUE, on_done = function(r) ev("bg_finished", study = name))
+      orph <- lapply(orph, function(o) o[c("started", "pair")])
+      ev(t, name = name, dir = h$dir, root = root, plan = plan, orphan = orph, pairs = pairs, sens = sens, mvcov = ui_state_get(h$con, "mv_cov") %||% list(), outliers = ui_state_get(h$con, "outliers") %||% list(), payloads = payloads, overlap = overlap_get(h), to = to, jobs = length(bg_running(h$dir)), queue = !is.null(rq$pairs) && identical(rq$dir, h$dir), studies = studies_overview(root))
     }
 
     # Round 55: individual-level file for the MVMR covariances. Only its header is read here; the covariances are computed on request.
@@ -430,6 +434,8 @@ mr_server <- function(engine_dir) {
         run_pair = bg_go("run_pair", a),   # Round 83: in the background
         run_all = {   # Round 75f: the engine runs the queue of pairs itself (see run_queue_step)
           req(rv$h); if (!is.null(rq$pairs)) stop(sprintf("A run is already going on in \"%s\". Wait until it ends, or stop it there, before starting another.", rq$name))
+          orph <- tryCatch(bg_orphan_runs(rv$h$dir), error = function(e) list())   # Round 107: not while a pair from before MR Studio was closed still runs
+          if (length(orph)) stop(sprintf("A run is already going on in \"%s\": the pair %s, started at %s before MR Studio was closed, is still finishing in the background. Wait until it ends (a message appears), then run again: pairs already saved are reused.", basename(rv$h$dir), orph[[1]]$pair, orph[[1]]$started))
           rq$dir <- rv$h$dir; rq$name <- basename(rv$h$dir); rq$pairs <- a$pairs; rq$k <- 1L; rq$pause <- FALSE; rq$stop <- FALSE; rq$ok <- 0L; rq$total <- as.integer(a$total %||% length(a$pairs)); rq$study <- a$study %||% ""
           if (identical(length(a$pairs), rq$total)) tryCatch(prune_pairs(rv$h$con, a$pairs), error = function(e) NULL)   # Round 101: a full run drops pairs no longer in the design
           rq$done_before <- rq$total - length(a$pairs); later::later(run_queue_step, 0.05) },

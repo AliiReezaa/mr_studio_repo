@@ -36,6 +36,14 @@ bg_running <- function(study_dir) {
   j[vapply(j, function(x) { s <- .bg_status(x); identical(s$state, "running") && .bg_alive(s$pid) }, TRUE)]
 }
 
+#' Round 107: the pair-run jobs of a study still running but not started by this window (for example from before MR Studio was closed):
+#' the job folder, when it started and the pair it runs.
+bg_orphan_runs <- function(study_dir, watched = character()) {
+  j <- setdiff(bg_running(study_dir), watched)
+  Filter(Negate(is.null), lapply(j, function(x) { s <- .bg_status(x); if (!identical(s$t, "run_pair")) return(NULL)
+    a <- tryCatch(readRDS(file.path(x, "args.rds"))$a, error = function(e) list()); nm <- function(v) sub("^lib:", "", paste(unlist(v), collapse = " + "))
+    list(job = x, started = substr(s$started %||% "", 12, 16), pair = if (length(a$ex)) sprintf("%s -> %s", nm(a$ex), nm(a$out)) else "") }))
+}
 #' Open a study for a job, or for the screen while a job of it runs: like studio_open, without the crash recovery.
 studio_attach <- function(dir) {
   study <- normalizePath(dir, winslash = "/", mustWork = TRUE)
