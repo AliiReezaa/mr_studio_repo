@@ -51,7 +51,7 @@ DBI::dbDisconnect(h2$con)
 # ---- new core functions (settings, catalogue, facts, overview, payload, diagnostics) --------------------------------------
 Sys.setenv(MRGUI_CONFIG_DIR = tempfile("cfg-"))
 st <- settings_read()
-expect("settings default: aurora theme, setup not done", identical(st$theme, "aurora") && identical(st$setup_done, FALSE))
+expect("settings default: paper theme (light), setup not done", identical(st$theme, "paper") && identical(st$setup_done, FALSE))
 settings_set("theme", "rose"); expect("a theme choice is saved and read back", identical(settings_read()$theme, "rose"))
 settings_set("theme", "peach"); expect("the Sage and Peach themes are accepted", identical(settings_read()$theme, "peach") && "sage" %in% SETTINGS_THEMES)
 expect("an unknown theme is refused", grepl("theme", err_of(settings_set("theme", "neon")), ignore.case = TRUE))
@@ -2769,6 +2769,18 @@ local({
   for (k in names(kinds)) { h <- studio_open(basename(kinds[[k]]$dir)); study_plan_save(h, list(kind = k, aim = "", prereg = FALSE)); pk <- build_package(h, full, 140)   # the app saves the plan when a study is made
     e <- c(empt(h$dir), zempt(file.path(pk$dir, "reproducibility_capsule.zip")))
     expect(sprintf("Round 104b: a %s study, its full package and its capsule have no empty folder%s", gsub("_", "-", k), if (length(e)) paste0(" (", paste(sub(h$dir, "", e, fixed = TRUE), collapse = ", "), ")") else ""), !length(e)) }
+})
+
+# ---- Round 105: first launch (clean-install walkthrough as Dr. Chang) ----
+local({
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  sh <- paste(readLines(file.path(args_dir, "..", "shell", "dist", "index.html"), warn = FALSE), collapse = "\n")
+  expect("Round 105: the first Home screen says Welcome, not Welcome back, and says MR Studio made the studies folder and that it can be changed in Settings",
+    grepl("h1(st.length ? 'Welcome back' : 'Welcome')", js, fixed = TRUE) && grepl("MR Studio saves your studies in a folder it made for you", js, fixed = TRUE) &&
+    grepl("You can change it in Settings.", js, fixed = TRUE) && !grepl("Your studies are kept in", js, fixed = TRUE))
+  expect("Round 105: a new install starts in the light Paper theme, in the settings, the screen and the loading screen",
+    identical(SETTINGS_DEFAULT$theme, "paper") && grepl("theme: 'paper', settings: {}", js, fixed = TRUE) && grepl("THEMES[S.theme] || THEMES.paper", js, fixed = TRUE) &&
+    grepl("--bg:#F5F3EE", sh, fixed = TRUE) && isFALSE(SETTINGS_DEFAULT$offline))
 })
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

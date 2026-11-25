@@ -48,7 +48,7 @@ settings_dir <- function() {
   d <- Sys.getenv("MRGUI_CONFIG_DIR", "")
   if (nzchar(d)) d else tools::R_user_dir("MRStudio", "config")
 }
-SETTINGS_DEFAULT <- list(theme = "aurora", setup_done = FALSE, offline = FALSE, update = TRUE, awake = TRUE, notify = TRUE,
+SETTINGS_DEFAULT <- list(theme = "paper", setup_done = FALSE, offline = FALSE, update = TRUE, awake = TRUE, notify = TRUE,
                          studies_root = "")
 SETTINGS_THEMES <- c("aurora", "paper", "graphite", "ocean", "rose", "lilac", "sage", "peach")   # Sage and Peach added 2026-11-05
 settings_read <- function() {
@@ -58,7 +58,7 @@ settings_read <- function() {
     u <- tryCatch(jsonlite::fromJSON(f, simplifyVector = TRUE), error = function(e) list())
     for (k in names(s)) if (!is.null(u[[k]]) && length(u[[k]]) == 1L && identical(class(u[[k]]), class(s[[k]]))) s[[k]] <- u[[k]]
   }
-  if (!s$theme %in% SETTINGS_THEMES) s$theme <- "aurora"
+  if (!s$theme %in% SETTINGS_THEMES) s$theme <- "paper"
   s
 }
 settings_set <- function(key, value) {
