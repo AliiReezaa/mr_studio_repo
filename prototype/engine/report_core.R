@@ -286,17 +286,21 @@ pair_context <- function(h, p) {
   sprintf("%s = %s (%s CI %s to %s; P = %s)", if (ratio) "OR" else "beta", .fnum(f(r$estimate)), .pct(r$ci_level), .fnum(f(r$ci_lower)), .fnum(f(r$ci_upper)), .fp_res(r$p, r$p_resolution)) }
 #' Round 103: the packages behind the methods that were run, from each method's adapter (a version number or a pinned commit),
 #' and the methods MR Studio implements itself. Before, the text named TwoSampleMR for every estimate.
+# Round 104: methods whose estimator MR Studio computes itself although their script loads a package (Q-minimisation uses
+# MendelianRandomization only to read the data and boot only for bootstrap intervals).
+OWN_IMPL <- c(mvqhet = "MVMR Q-minimisation")
+.own_name <- function(m) if (m %in% names(OWN_IMPL)) OWN_IMPL[[m]] else if (m %in% names(.short)) .short[[m]] else if (exists(".short_mv") && !is.na(.short_mv(m))) .short_mv(m) else m
 software_pkgs <- function(used) {
   ad <- param_adapters(); ms <- intersect(used, names(ad)); pk <- list(); own <- character(0)
-  for (m in ms) { pp <- ad[[m]]$packages %||% list(); if (!length(pp)) own <- c(own, m); for (n in names(pp)) if (is.null(pk[[n]])) pk[[n]] <- as.character(pp[[n]]) }
+  for (m in ms) { pp <- ad[[m]]$packages %||% list(); if (!length(pp) || m %in% names(OWN_IMPL)) { own <- c(own, m); next }; for (n in names(pp)) if (is.null(pk[[n]])) pk[[n]] <- as.character(pp[[n]]) }
   list(ver = unname(vapply(names(pk), function(n) { v <- pk[[n]]; if (grepl("^[0-9a-f]{40}$", v)) sprintf("%s (commit %s)", n, substr(v, 1, 10)) else sprintf("%s (version %s)", n, v) }, "")), own = own)
 }
 software_sentence <- function(used) {
   sp <- software_pkgs(used); ver <- sp$ver; own <- sp$own
   if (!length(ver) && !length(own)) return("The estimates were computed")
   lst <- function(x) if (length(x) <= 1L) paste(x, collapse = "") else paste(paste(x[-length(x)], collapse = ", "), "and", x[length(x)])
-  nm <- function(m) if (m %in% names(.short)) .short[[m]] else m
-  paste0("The estimates were computed with ", lst(ver), if (length(own)) sprintf("%s MR Studio's own implementation of %s", if (length(ver)) ", and with" else "", lst(vapply(own, nm, ""))) else "")
+  nm <- .own_name
+  paste0("The estimates were computed with ", lst(ver), if (length(own)) sprintf("%s MR Studio's own implementation of %s", if (length(ver) > 1L) ", and with" else if (length(ver)) " and with" else "", lst(vapply(own, nm, ""))) else "")
 }
 #' Round 103: results of the methods that give no causal estimate (the sign concordance test) or that choose a model (Rucker),
 #' which were run and described in the Methods but reported nowhere.
@@ -394,6 +398,8 @@ steiger_limitations <- function(ctxs) {
     if (any(bad)) sprintf("For %s the test did not clearly support the assumed direction.", paste(vapply(ctxs[bad], function(cx) sprintf("%s -> %s", cx$p$exName, cx$p$outName), ""), collapse = "; ")),
     if (any(!ran)) sprintf("The test was not run for %s.", paste(vapply(ctxs[!ran], function(cx) sprintf("%s -> %s", cx$p$exName, cx$p$outName), ""), collapse = "; ")))
 }
+AVAIL_SIM <- "No external data were used: the traits are simulated by MR Studio."
+AVAIL_SCRIPTS <- "The analysis scripts, the harmonised data tables used in every calculation, all result tables and the replay check are provided in the reproducibility package of this study."
 #' Round 99: the Data availability sentence; OpenGWAS dataset IDs and imported files are named separately when a study has both.
 .ogw_both <- function(sx, sy) (!is.null(sx$og) || !is.null(sx$vcf)) && (!is.null(sy$og) || !is.null(sy$vcf))   # Round 100
 .avail_sentence <- function(src) { og <- grepl("^OpenGWAS:", src)
@@ -402,7 +408,7 @@ steiger_limitations <- function(ctxs) {
 #' Round 50: univariable pairs go through the text below; multivariable ones get their own paragraphs (mv_add_text).
 report_text <- function(ctxs, study_name) {
   mvx <- Filter(function(cx) isTRUE(cx$mv), ctxs); uni <- Filter(function(cx) !isTRUE(cx$mv), ctxs)
-  txt <- if (length(uni)) .report_text_uni(uni, study_name) else list(methods = MV_INTRO_TEXT, results = character(), limitations = "The three core MR assumptions (relevance, independence from confounders, and no effect of the variants on the outcome except through the exposures) cannot be proven from summary data.",
+  txt <- if (length(uni)) .report_text_uni(uni, study_name) else list(methods = sub("run in MR Studio,", sprintf("run in MR Studio %s,", .mrs_ver()), MV_INTRO_TEXT, fixed = TRUE), results = character(), limitations = "The three core MR assumptions (relevance, independence from confounders, and no effect of the variants on the outcome except through the exposures) cannot be proven from summary data.",
     availability = character(), legends = character(), supp = list(), supp_out = list())
   if (length(mvx)) txt <- mv_add_text(txt, mvx)
   txt
@@ -557,8 +563,7 @@ report_text <- function(ctxs, study_name) {
            if (length(ctxs) > 1L) "No correction for multiple testing was applied across pairs." else NULL)   # Round 99: not with a single pair
   txt$limitations <- lim
   src <- unique(unlist(lapply(ctxs, function(cx) if (!cx$simulated) vapply(list(cx$src_x, cx$src_y), function(s) if (!is.null(s$vcf)) paste0("OpenGWAS:", s$vcf$id, " (complete summary statistics)") else s$file %||% NA_character_, "")))); txt$src <- src   # Round 100: OpenGWAS complete GWAS by ID
-  txt$availability <- c(if (length(src)) .avail_sentence(src) else "No external data were used: the traits are simulated by MR Studio.",
-                        "The analysis scripts, the harmonised data tables used in every calculation, all result tables and the replay check are provided in the reproducibility package of this study.")
+  txt$availability <- c(if (length(src)) .avail_sentence(src) else AVAIL_SIM, AVAIL_SCRIPTS)
   fi <- 0L
   for (cx in ctxs) { ce <- cx$ce; if (!nrow(ce)) next; fi <- fi + 1L
     txt$legends <- c(txt$legends, sprintf("Figure %d. Forest plot of the Mendelian randomization estimates of %s on %s. Points are estimates and bars are %s confidence intervals for each method (%s). %d instruments were used.", 2L * fi - 1L, cx$p$exName, cx$p$outName, .pct(ce$ci_level[1]), paste(.short[ce$method], collapse = ", "), ce$n_ivs[1]),

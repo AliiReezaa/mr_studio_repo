@@ -1257,7 +1257,7 @@ r54b <- studio_run(h50, "MV Q-min boot", p50$outcome_label, p50$input, "mvqhet",
 expect("Round 54: the bootstrap option gives BCa intervals around the same estimate, and the methods text names the method and its uncertainty", all(e54b$ci_method == "bootstrap") &&
   all(e54b$ci_lower < e54b$estimate & e54b$estimate < e54b$ci_upper) && isTRUE(all.equal(e54b$estimate, .est_df(pair_payload(h50$dir, studio_run(h50, "MV Q-min 0", p50$outcome_label, p50$input, "mvqhet", idx = 5L, params = list(ci_level = 0.95))$pair_folder))$estimate)) && {
   tx <- report_text(list(mv_context(h50, list(folder = r54b$pair_folder, exNames = list("A", "B"), methods = list("mvqhet"), outName = "Y"))), "Q")
-  any(grepl("Q-statistic minimisation", tx$methods)) && any(grepl("bootstrap intervals \\(60 iterations\\)", tx$methods)) })
+  any(grepl("Q-statistic minimisation", tx$methods)) && any(grepl("bootstrap intervals \\(60 iterations, boot 1\\.3-32\\)", tx$methods)) })
 expect("Round 55: mv_snpcov gives the covariance of single-variant slopes whose diagonal is exactly lm()'s squared SE, and the file reader skips non-dosage columns and reads PLINK --recode A files", {
   set.seed(5); n <- 400; G <- sapply(1:3, function(j) rbinom(n, 2, 0.3)); colnames(G) <- c("rs1", "rs2", "rs3"); X <- cbind(G %*% c(.2, .1, 0) + rnorm(n), G %*% c(0, .1, .2) + rnorm(n))
   cv <- mv_snpcov(G, X); se <- summary(lm(X[, 2] ~ G[, 3]))$coefficients[2, 2]
@@ -2733,6 +2733,28 @@ local({
     o <- paste(system2("node", f, stdout = TRUE, stderr = TRUE), collapse = " ")
     expect("Round 103: on the screen a bootstrap P of 0 reads \"< 0.001\"", identical(o, "true true true true"))
   }
+})
+
+# ---- Round 104: every multivariable method in one run (Part 2 on build-54) ----
+local({
+  sp <- software_pkgs(c("mvivw", "mvegger", "mvqhet"))
+  expect("Round 104: MVMR Q-minimisation is named as MR Studio's own implementation, not as MendelianRandomization or boot",
+    identical(sp$own, "mvqhet") && identical(sp$ver, paste0("MendelianRandomization (version ", PIN_MENDELIANRANDOMIZATION, ")")))
+  expect("Round 104: the software sentence with one package and one own implementation",
+    identical(software_sentence(c("mvivw", "mvqhet")), paste0("The estimates were computed with MendelianRandomization (version ", PIN_MENDELIANRANDOMIZATION, ") and with MR Studio's own implementation of MVMR Q-minimisation")))
+  m <- paste(t50$methods, collapse = " ")
+  expect("Round 104: an MVMR-only report names MR Studio's version, the packages, the R version and the replay check",
+    grepl(paste0("run in MR Studio ", .mrs_ver(), ","), m, fixed = TRUE) && grepl("The estimates were computed with MendelianRandomization", m, fixed = TRUE) &&
+    grepl(R.version.string, m, fixed = TRUE) && grepl("the replay check was", m, fixed = TRUE) && !grepl("Methods (MendelianRandomization", m, fixed = TRUE))
+  expect("Round 104: an MVMR-only report has a Data availability statement",
+    length(t50$availability) >= 2L && AVAIL_SCRIPTS %in% t50$availability)
+  src <- paste(readLines(file.path(args_dir, "mv_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 104: MVMR-Egger names the exposure it is oriented to; Q-minimisation is credited to MR Studio",
+    grepl("oriented to %s [Rees 2017]", src, fixed = TRUE) && grepl("MR Studio's implementation of MVMR::qhet_mvmr", src, fixed = TRUE))
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  lc <- paste(readLines(file.path(args_dir, "live_core.R"), warn = FALSE), collapse = "\n")
+  expect("Round 104: the direct effects table puts P on its own line; the replay check names every method when there are 10 or fewer",
+    grepl("white-space:nowrap\">P ' + fpr(e.p, e.p_resolution)", js, fixed = TRUE) && grepl("length(ids) <= 10L ||", lc, fixed = TRUE))
 })
 
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)
