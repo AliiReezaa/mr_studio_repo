@@ -9,6 +9,7 @@ pdf_write <- function(path, blocks) {
   P <- .pdf_page; W <- P$w - P$ml - P$mr; y <- 0; page <- 0L
   open <- if (isTRUE(unname(capabilities("cairo")))) function() grDevices::cairo_pdf(path, width = P$w, height = P$h, onefile = TRUE, family = "sans")
           else function() grDevices::pdf(path, width = P$w, height = P$h, family = "Helvetica", onefile = TRUE)
+  if (exists(".fig_metric_reset")) .fig_metric_reset()   # Round 109a: no cached text height from a closed device (report_core.R)
   open(); on.exit(grDevices::dev.off())
   newpage <- function() { grid::grid.newpage(); page <<- page + 1L; y <<- P$mt
     grid::grid.text(as.character(page), x = grid::unit(P$w / 2, "inches"), y = grid::unit(P$mb / 2, "inches"), gp = grid::gpar(fontsize = 8, col = "grey45")) }

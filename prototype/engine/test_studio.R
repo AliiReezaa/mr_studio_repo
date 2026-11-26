@@ -3023,10 +3023,24 @@ expect("Round 109: each pair gets 05_figures/make_figures.R (in the capsule), an
   pk <- build_package(h109f, c("figs", "capsule"), 140); pr <- ui_state_get(h109f$con, "pairs")[[1]]; fd <- file.path(h109f$dir, "03_pairs", pr$folder, "05_figures")
   cap <- utils::unzip(file.path(pk$dir, "reproducibility_capsule.zip"), list = TRUE)$Name
   td <- tempfile("mkfig-"); dir.create(td); file.copy(list.files(fd, full.names = TRUE), td)
-  rb <- file.path(R.home("bin"), "Rscript")
+  rb <- default_rscript(); old <- Sys.getenv(c("RHOME", "R_LIBS"), unset = NA); Sys.setenv(RHOME = R.home(), R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep))   # as the app starts R (a moved runtime needs RHOME)
   wd <- getwd(); setwd(td); o <- suppressWarnings(system2(rb, c("--vanilla", "make_figures.R"), stdout = TRUE, stderr = TRUE)); setwd(wd)
+  for (v in names(old)) if (is.na(old[[v]])) Sys.unsetenv(v) else do.call(Sys.setenv, stats::setNames(list(old[[v]]), v))
   shipped <- list.files(file.path(pk$dir, "figures"), pattern = "^P1_.*[.]png$"); redrawn <- list.files(file.path(td, "figures"), pattern = "^P1_.*[.]png$")
   same <- vapply(shipped, function(f) file.exists(file.path(td, "figures", f)) && identical(unname(tools::md5sum(file.path(pk$dir, "figures", f))), unname(tools::md5sum(file.path(td, "figures", f)))), TRUE)
-  if (!all(same)) for (f in shipped[!same]) { a <- png::readPNG(file.path(pk$dir, "figures", f)); b <- png::readPNG(file.path(td, "figures", f)); cat("  not identical:", f, if (identical(dim(a), dim(b))) sprintf("share of differing pixels %.5f, max diff %.3f", mean(abs(a - b) > 1e-6), max(abs(a - b))) else "size differs", "\n") }
-  file.exists(file.path(fd, "make_figures.R")) && any(grepl("05_figures/make_figures.R$", cap)) && length(shipped) >= 10L && setequal(shipped, redrawn) && all(same) })
+  if (!all(same) && nzchar(Sys.getenv("MRGUI_FIG_EVIDENCE"))) { ev <- Sys.getenv("MRGUI_FIG_EVIDENCE"); dir.create(ev, showWarnings = FALSE, recursive = TRUE); for (f in shipped[!same]) { file.copy(file.path(pk$dir, "figures", f), file.path(ev, paste0("package_", f)), overwrite = TRUE); file.copy(file.path(td, "figures", f), file.path(ev, paste0("script_", f)), overwrite = TRUE) }; file.copy(file.path(td, "figure_inputs.rds"), ev, overwrite = TRUE); writeLines(c(Sys.getlocale(), paste(names(options()[c("scipen", "digits", "OutDec")]), unlist(options()[c("scipen", "digits", "OutDec")])), paste("devices:", paste(names(grDevices::dev.list()), collapse = " ")), utils::capture.output(print(utils::sessionInfo()))), file.path(ev, "package_session.txt")) }   # evidence of a mismatch, kept only when MRGUI_FIG_EVIDENCE names a folder
+  if (!all(same)) cat("  figures script output (last lines):", utils::tail(o, 8), sep = "\n    ")
+  if (!all(same)) for (f in shipped[!same]) { if (!file.exists(file.path(td, "figures", f))) { cat("  not redrawn:", f, "\n"); next }; a <- png::readPNG(file.path(pk$dir, "figures", f)); b <- png::readPNG(file.path(td, "figures", f)); cat("  not identical:", f, if (identical(dim(a), dim(b))) sprintf("share of differing pixels %.5f, max diff %.3f", mean(abs(a - b) > 1e-6), max(abs(a - b))) else "size differs", "\n") }
+  ck <- c(script = file.exists(file.path(fd, "make_figures.R")), capsule = any(grepl("05_figures/make_figures.R$", cap)), count = length(shipped) >= 10L, same_set = setequal(shipped, redrawn), identical = all(same))
+  if (!all(ck)) cat("  failed checks:", names(ck)[!ck], "| shipped only:", setdiff(shipped, redrawn), "| redrawn only:", setdiff(redrawn, shipped), "| status:", attr(o, "status") %||% 0L, "\n")
+  all(ck) })
+# ---- Round 109a: R's cached text height is cleared before every figure device (labels were sometimes drawn about 11 px off) ----
+expect("Round 109a: the cached height of M is cleared before each figure device and the report PDF, without leaving a device open", {
+  fw <- paste(deparse(.fig_write), collapse = "\n"); pw <- paste(deparse(pdf_write), collapse = "\n")
+  n0 <- length(grDevices::dev.list()); cur <- grDevices::dev.cur(); .fig_metric_reset(); same_dev <- identical(grDevices::dev.cur(), cur) && length(grDevices::dev.list()) == n0
+  td <- tempfile("mreset-"); dir.create(td); est <- data.frame(label = c("IVW", "MR-Egger", "Weighted median"), estimate = c(0.3, 0.2, 0.25), ci_lower = c(0.2, 0.05, 0.15), ci_upper = c(0.4, 0.35, 0.35), col = c("#2b3fc7", "#c0392b", "#16a085"), ratio = FALSE, unit = "beta", stringsAsFactors = FALSE)
+  f1 <- .fig_write(file.path(td, "a"), 140, 50, function() .draw_forest(est)); f2 <- .fig_write(file.path(td, "b"), 140, 50, function() .draw_forest(est))
+  p1 <- grep("[.]png$", f1, value = TRUE); p2 <- grep("[.]png$", f2, value = TRUE)
+  lengths(regmatches(fw, gregexpr(".fig_metric_reset()", fw, fixed = TRUE))) == 3L && grepl(".fig_metric_reset()", pw, fixed = TRUE) && same_dev &&
+    length(p1) == 1L && identical(unname(tools::md5sum(p1)), unname(tools::md5sum(p2))) })
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

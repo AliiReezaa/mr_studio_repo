@@ -235,15 +235,18 @@ subset_facts <- function(pay) {
 
 .MCOL <- c(ivw_steiger = "#6b7f3a", bwmr = "#5a4a8a", grip = "#9a4f2a", mrmix = "#3a7a6b", egger_boot = "#c2703a", pwm = "#5f86c4", smode_nome = "#d98fb0", wmode_nome = "#b85c8a", rucker = "#6f7d3a", ivw_mre = "#2b3fc7", divw = "#5b6b8c", maxlik = "#3f6fb5", mbe = "#a0527a", cml = "#2f8a7a", robust_ivw = "#6b5b2e", pivw = "#4a5aa0", gsmr = "#2f7d6d", grapple = "#6a5a2f", ppmr = "#2f5a6a", egger_rob = "#b8743a", hetpen = "#7a5a9a", clr = "#4f7f8f", mvivwme = "#3b6fa0", mvgmm = "#8a6a3a", raps = "#7a5c2e", conmix = "#4f7a3a", lasso = "#7a3a6b", egger_simex = "#d4874f", egger = "#b5541c", wm = "#2f7fd6", smed = "#8c4fd6", mode = "#d6407a", smode = "#2a9d8f", presso = "#b8860b", radial = "#3d9a38", radegger = "#a04a3d")
 .fig_cairo <- function() isTRUE(unname(capabilities("cairo")))
+#' Clears R's cached height of "M" (used to centre text), keyed by the device address: a new device at the address of one just closed
+#' could otherwise centre its text with the old device's units (labels about 11 px off at 300 dpi). A throwaway device measures "M" at an unusual size.
+.fig_metric_reset <- function() tryCatch({ f <- tempfile(fileext = ".png"); grDevices::png(f, width = 60, height = 60, type = if (isTRUE(unname(capabilities("cairo")))) "cairo" else getOption("bitmapType")); on.exit({ grDevices::dev.off(); unlink(f) }); graphics::par(mar = c(0, 0, 0, 0)); graphics::plot.new(); graphics::strheight("M", cex = 0.0137); invisible(NULL) }, error = function(e) invisible(NULL))
 .fig_write <- function(base, w_mm, h_mm, draw) {
   if (exists(".fig_record")) .fig_record(base, w_mm, h_mm, draw)   # Round 109: recorded for the figures script
   lc <- Sys.getlocale("LC_CTYPE"); if (!isTRUE(l10n_info()[["UTF-8"]])) { for (l in c("C.UTF-8", "en_US.UTF-8", "English_United States.utf8")) if (nzchar(suppressWarnings(Sys.setlocale("LC_CTYPE", l)))) break; on.exit(suppressWarnings(Sys.setlocale("LC_CTYPE", lc)), add = TRUE) }   # Round 109: symbols (phi, beta hat) drawn the same in every session
   w <- w_mm / 25.4; h <- h_mm / 25.4; out <- character()
   ok <- function(f, expr) { r <- tryCatch({ expr; TRUE }, error = function(e) FALSE); if (!r) { try(grDevices::dev.off(), silent = TRUE); if (file.exists(f)) unlink(f) }; if (r) out <<- c(out, f) }
-  f <- paste0(base, ".pdf"); ok(f, { if (.fig_cairo()) grDevices::cairo_pdf(f, width = w, height = h, family = "sans") else grDevices::pdf(f, width = w, height = h, useDingbats = FALSE); draw(); grDevices::dev.off() })   # Round 91: Cairo embeds the fonts, as journals ask
+  f <- paste0(base, ".pdf"); .fig_metric_reset(); ok(f, { if (.fig_cairo()) grDevices::cairo_pdf(f, width = w, height = h, family = "sans") else grDevices::pdf(f, width = w, height = h, useDingbats = FALSE); draw(); grDevices::dev.off() })   # Round 91: Cairo embeds the fonts, as journals ask
   if (isTRUE(unname(capabilities("cairo")))) {
-    f <- paste0(base, ".svg"); ok(f, { grDevices::svg(f, width = w, height = h); draw(); grDevices::dev.off() })
-    f <- paste0(base, ".png"); ok(f, { grDevices::png(f, width = w, height = h, units = "in", res = 300, type = "cairo"); draw(); grDevices::dev.off() })
+    f <- paste0(base, ".svg"); .fig_metric_reset(); ok(f, { grDevices::svg(f, width = w, height = h); draw(); grDevices::dev.off() })
+    f <- paste0(base, ".png"); .fig_metric_reset(); ok(f, { grDevices::png(f, width = w, height = h, units = "in", res = 300, type = "cairo"); draw(); grDevices::dev.off() })
   }
   out
 }
@@ -869,13 +872,13 @@ extra_figures <- function(cx, pk, tag, wmm, ci_level = 0.95) {
   g <- tryCatch(mrf_restyle(MendelianRandomization::mr_forest(mri, alpha = al, ordered = TRUE), wmm), error = function(e) NULL)
   if (!is.null(g)) put("mr_forest_variants", max(60, 20 + 3.2 * nrow(k)), g, sprintf("Variant forest plot (MendelianRandomization mr_forest) of %s: the ratio estimate of each variant with its %s confidence interval, ordered by estimate, and the IVW estimate (diamond).", nm, pc))
   mm <- unique(unname(.MRF_METHODS[intersect(names(.MRF_METHODS), ran)]))
-  g <- if (length(mm)) tryCatch(mrf_methods_plot(mri, al, mm, wmm), error = function(e) NULL) else NULL
+  g <- if (length(mm)) tryCatch(.fig_seeded(mrf_methods_plot(mri, al, mm, wmm)), error = function(e) NULL) else NULL
   if (!is.null(g)) put("mr_forest_methods", round(wmm / 1.617), g, sprintf("Methods forest plot (MendelianRandomization mr_forest) of %s: the estimate and %s confidence interval of each method that MendelianRandomization can draw among those run.", nm, pc))
   g <- tryCatch(mrf_restyle(MendelianRandomization::mr_funnel(mri, CI = TRUE), wmm), error = function(e) NULL)
   if (!is.null(g)) put("mr_funnel", round(wmm / 1.617), g, sprintf("Funnel plot (MendelianRandomization mr_funnel) of %s: each variant's ratio estimate (x) against its precision, |beta_x| / se_y (y), with 95%% intervals; solid line at zero, dashed line at the IVW estimate. It differs from the funnel plot above, which has the standard error on a reversed axis.", nm))
   g <- tryCatch(mrf_restyle(MendelianRandomization::mr_plot(mri, interactive = FALSE, labels = FALSE, line = "ivw", orientate = TRUE), wmm), error = function(e) NULL)
   if (!is.null(g)) put("mr_plot", round(wmm / 1.617), g, sprintf("Scatter plot (MendelianRandomization mr_plot) of %s, variants oriented to a positive effect on the exposure, with error bars on both axes and the IVW line (variant labels are in the supplement tables).", nm))
-  g <- tryCatch(mrf_restyle(MendelianRandomization::mr_plot(MendelianRandomization::mr_allmethods(mri, method = "all", alpha = al), interactive = FALSE), wmm), error = function(e) NULL)
+  g <- tryCatch(mrf_restyle(MendelianRandomization::mr_plot(.fig_seeded(MendelianRandomization::mr_allmethods(mri, method = "all", alpha = al)), interactive = FALSE), wmm), error = function(e) NULL)   # fixed random state: the robust fits sample at random
   if (!is.null(g)) put("mr_allmethods", round(wmm / 1.617), g, sprintf("All-methods plot (MendelianRandomization mr_allmethods, method = \"all\", and mr_plot) of %s: one line per estimator (medians, IVW and MR-Egger with their penalised and robust versions).", nm))
   if (any(c("mode", "smode", "smode_nome", "wmode_nome", "mbe") %in% ran)) { g <- mode_density_plot(k); if (!is.null(g)) put("mode_density", round(wmm * 0.6), g, sprintf("Density of the single-variant ratio estimates of %s (as mrrobust mrmodalplot), smoothed with bandwidth multipliers phi = 0.25, 0.5 and 1; the mode-based estimates are the peaks [Hartwig 2017].", nm)) }
   if (any(c("egger", "radegger", "egger_simex", "egger_boot", "egger_rob") %in% ran)) { g <- egger_plot(k, ci_level); if (!is.null(g)) put("mregger", round(wmm * 0.6), g, sprintf("MR-Egger plot of %s (as mrrobust mreggerplot): variants oriented to a positive effect on the exposure with %s confidence intervals, the MR-Egger line with its own intercept and the shaded %s confidence band.", nm, pc, pc)) }
@@ -981,6 +984,13 @@ FIG_REC <- new.env()
 FIG_NAMESPACES <- c("ggplot2", "MendelianRandomization", "cowplot", "simex")   # loaded before any figure is drawn (loading them changes how text is drawn)
 #' Draws a Greek letter once off-screen, so the symbol font is loaded before the first figure (its first use could differ).
 fig_warmup <- function() tryCatch({ f <- tempfile(fileext = ".png"); grDevices::png(f, type = "cairo"); grid::grid.text(expression(phi == lambda)); grDevices::dev.off(); unlink(f) }, error = function(e) NULL)
+#' Evaluates expr with a fixed random state, restored afterwards: robust fits (robustbase::lmrob in MendelianRandomization) draw random subsamples from the session state,
+#' so without this the package and make_figures.R could draw them differently.
+.fig_seeded <- function(expr, seed = 314159265L) {
+  had <- exists(".Random.seed", envir = globalenv(), inherits = FALSE); if (had) old <- get(".Random.seed", envir = globalenv()); ok <- RNGkind()
+  on.exit({ RNGkind(ok[1], ok[2], ok[3]); if (had) assign(".Random.seed", old, envir = globalenv()) else if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) rm(".Random.seed", envir = globalenv()) })
+  RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(seed); expr
+}
 .fig_record <- function(base, w_mm, h_mm, draw) {
   if (!isTRUE(FIG_REC$on)) return(invisible())
   env <- environment(draw); vars <- intersect(codetools::findGlobals(draw, merge = FALSE)$variables, ls(env, all.names = TRUE))
