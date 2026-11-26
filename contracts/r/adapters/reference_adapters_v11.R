@@ -1172,9 +1172,9 @@ PIN_BOOT <- "1.3-32"   # Round 54: boot, for the bootstrap BCa interval of the Q
       K <- sum(grepl("^beta_x_[0-9]+$", names(input$data))); n <- nrow(.mv_usable(input$data))
       if (K < 2) return(verdict("block", "FEAS_TOO_FEW_EXPOSURES", sprintf("%s needs at least 2 exposures; %d given.", label, K)))
       if (n < K + extra_k) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("%s needs at least %d variants with all %d exposures (exposures + %d); %d available.", label, K + extra_k, K, extra_k, n)))
-      if (id == "mvcml" && !(all(sprintf("n_x_%d", seq_len(K)) %in% names(input$data)) && "n_y" %in% names(input$data) && all(is.finite(unlist(.mv_usable(input$data)[, c(sprintf("n_x_%d", seq_len(K)), "n_y")])))))
-        return(verdict("block", "FEAS_NEEDS_N", "MVMR-cML needs the sample size of every exposure GWAS and of the outcome GWAS."))
-      if (id %in% c("mvivw", "mvqhet") && !any(grepl("^cov_x_", names(input$data))) && !.mv_cor_ok(params, K)) return(verdict("block", "FEAS_INVALID_CORRELATION", "The phenotypic correlations of the exposures do not form a valid correlation matrix (it must be positive definite). Check the values."))
+      if (id %in% c("mvcml", "mvgmm") && !(all(sprintf("n_x_%d", seq_len(K)) %in% names(input$data)) && "n_y" %in% names(input$data) && all(is.finite(unlist(.mv_usable(input$data)[, c(sprintf("n_x_%d", seq_len(K)), "n_y")])))))
+        return(verdict("block", "FEAS_NEEDS_N", sprintf("%s needs the sample size of every exposure GWAS and of the outcome GWAS.", label)))
+      if (id %in% c("mvivw", "mvqhet", "mvivwme", "mvgmm") && !any(grepl("^cov_x_", names(input$data))) && !.mv_cor_ok(params, K)) return(verdict("block", "FEAS_INVALID_CORRELATION", "The phenotypic correlations of the exposures do not form a valid correlation matrix (it must be positive definite). Check the values."))
       verdict("ok", character(), character())
     },
     run = function(input, params, ctx) {
@@ -1227,7 +1227,7 @@ ADAPTER_MVLASSO_V11 <- .mv_adapter("mvlasso", "MVMR-Lasso", 2L, .mv_orient_param
   a <- NULL
   a <- mrgui_adapter(id = id, adapter_version = "1.1.0", label = label, input_kind = "pair_iv", estimands = estimands,
     requires = list(min_ivs = min_ivs, needs_ld = "none", needs_eaf = FALSE, needs_n = needs_n, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
-    packages = switch(pkg, stats = stats::setNames(list(), character(0)), TwoSampleMR = list(TwoSampleMR = PIN_TWOSAMPLEMR_V11), MRMix = list(MRMix = PIN_MRMIX_V11), list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION)), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
+    packages = switch(pkg, stats = stats::setNames(list(), character(0)), mrclust = list(mrclust = PIN_MRCLUST_V11), TwoSampleMR = list(TwoSampleMR = PIN_TWOSAMPLEMR_V11), MRMix = list(MRMix = PIN_MRMIX_V11), list(MendelianRandomization = PIN_MENDELIANRANDOMIZATION)), stochastic = stochastic, supports_checkpoint = FALSE, runtime_class = "fast",
     params = c(.ci_param_v11, params, .minf_param_v11),
     check = function(input, params) {
       d <- .usable(input$data)
@@ -1277,7 +1277,7 @@ ADAPTER_MBE_V11 <- .mrpkg_adapter("mbe", "Mode-based estimate (MendelianRandomiz
   .num_p("mbe_phi", "double", 1, 0.1, 5, "Bandwidth multiplier (phi)", "Smaller values give a narrower kernel and a less biased but more variable estimate.", "phi",
          "MendelianRandomization::mr_mbe default (phi = 1)."),
   .num_p("mbe_iter", "integer", 10000L, 500L, 100000L, "Bootstrap iterations", "Iterations for the bootstrap standard error.", "iterations", "MendelianRandomization::mr_mbe default (iterations = 10000).", c("se", "ci", "p"))), TRUE, c(
-  "fit <- MendelianRandomization::mr_mbe(mri, weighting = mbe_weighting, stderror = mbe_stderror, phi = mbe_phi, seed = seed, iterations = mbe_iter, alpha = 1 - ci_level)",
+  "fit <- MendelianRandomization::mr_mbe(mri, weighting = if (identical(mbe_weighting, \"simple\")) \"unweighted\" else mbe_weighting, stderror = mbe_stderror, phi = mbe_phi, seed = seed, iterations = mbe_iter, alpha = 1 - ci_level)",
   "estimates <- est1(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
   "diagnostics <- drow(\"mbe_bootstrap\", mbe_iter, note = \"bootstrap iterations\")"))
 
@@ -1514,3 +1514,326 @@ ADAPTER_IVW_STEIGER_V11 <- .mrpkg_adapter("ivw_steiger", "IVW after Steiger filt
       pr <- .steiger_side_problem(d, s[[1]], s[[2]], s[[3]]); if (!is.null(pr)) return(verdict("block", pr$code, pr$msg)) }
     NULL })
 
+
+# ---- Round 109: further MendelianRandomization 0.10.0 estimators (help pages of mr_egger, mr_hetpen, mr_clr, mr_mvivwme, mr_mvgmm) ----
+# MR-Egger with robust regression and/or penalised weights (Burgess and Thompson 2017; Rees et al. 2019).
+ADAPTER_EGGER_ROB_V11 <- .mrpkg_adapter("egger_rob", "MR-Egger (robust / penalised)", 3L,
+  .enum_p("egr_variant", "both", c("both", "robust", "penalized"), c(both = "Robust regression with penalised weights", robust = "Robust regression (MM-estimation) only", penalized = "Penalised weights only"),
+          "Variant", "Robust regression down-weights outlying variants; penalised weights shrink the weight of variants whose ratio estimate is heterogeneous.", "robust, penalized",
+          "MendelianRandomization::mr_egger (robust, penalized); Rees et al. 2019 (PLoS One)."), FALSE, c(
+  "fit <- MendelianRandomization::mr_egger(mri, robust = egr_variant %in% c(\"both\", \"robust\"), penalized = egr_variant %in% c(\"both\", \"penalized\"), alpha = 1 - ci_level)",
+  "estimates <- est1(fit@Estimate, fit@StdError.Est, fit@CILower.Est, fit@CIUpper.Est, fit@Pvalue.Est, fit@SNPs)",
+  "diagnostics <- rbind(drow(\"egger_rob_intercept\", fit@Intercept, p = fit@Pvalue.Int, note = sprintf(\"intercept %.4g (SE %.4g, CI %.4g to %.4g)\", fit@Intercept, fit@StdError.Int, fit@CILower.Int, fit@CIUpper.Int)),",
+  "  drow(\"egger_rob_variant\", NA, note = egr_variant))"))
+
+# Heterogeneity-penalised model averaging (Burgess et al. 2018). The method weighs every subset of variants, so its time grows
+# exponentially with the number of variants: MR Studio allows at most HETPEN_MAX_IVS. Its interval can be several separate ranges.
+HETPEN_MAX_IVS <- 16L   # about 10 s at 16 variants on an Intel Mac; each 2 more variants take about four times as long
+.hetpen_check <- function(d, params) if (nrow(d) > HETPEN_MAX_IVS) verdict("block", "FEAS_TOO_MANY_IVS", sprintf("Heterogeneity-penalised model averaging weighs every subset of variants, so it takes hours with many variants; MR Studio allows at most %d (this pair has %d).", HETPEN_MAX_IVS, nrow(d))) else NULL
+ADAPTER_HETPEN_V11 <- .mrpkg_adapter("hetpen", "Heterogeneity-penalised", 3L, c(
+  .num_p("hp_prior", "double", 0.5, 0.01, 0.99, "Prior probability of a valid variant", "Prior probability that each variant is a valid instrument.", "prior", "MendelianRandomization::mr_hetpen default (prior = 0.5).", advanced = FALSE),
+  .num_p("hp_grid", "integer", 2000L, 200L, 20000L, "Grid points for the interval", "The interval is searched on this many points between the smallest and largest plausible values.", "CIStep", "MR Studio: the range of the ratio estimates widened by 1 on each side, split into this many steps.", c("ci"))), FALSE, c(
+  "r <- dat$beta_y / dat$beta_x; lo <- min(r) - 1; hi <- max(r) + 1   # search range for the interval: the ratio estimates plus 1 on each side",
+  "fit <- MendelianRandomization::mr_hetpen(mri, prior = hp_prior, CIMin = lo, CIMax = hi, CIStep = (hi - lo) / hp_grid, alpha = 1 - ci_level)",
+  "estimates <- est1(fit@Estimate, NA, min(fit@CILower), max(fit@CIUpper), NA, fit@SNPs, \"profile\")",
+  "ivs <- paste(sprintf(\"%.4g to %.4g\", fit@CILower, fit@CIUpper), collapse = \"; \")",
+  "diagnostics <- drow(\"hetpen_intervals\", length(fit@CILower), note = if (length(fit@CILower) > 1) paste(\"the interval is several ranges:\", ivs) else paste(\"one range:\", ivs))"),
+  check_extra = .hetpen_check)
+
+# Conditional likelihood ratio method (Wang and Kang 2022, as in MendelianRandomization): weak-instrument robust test and intervals
+# (Anderson-Rubin, Kleibergen, conditional likelihood ratio). It gives intervals, not a point estimate, so its results are diagnostics.
+.clr_n_check <- function(d, params) if (!all(c("n_x", "n_y") %in% names(d)) || !all(is.finite(d$n_x) & is.finite(d$n_y))) verdict("block", "FEAS_NEEDS_N", "The conditional likelihood ratio method needs the sample sizes of the exposure and outcome GWAS (n_x, n_y).") else NULL
+ADAPTER_CLR_V11 <- .mrpkg_adapter("clr", "Conditional likelihood ratio", 2L,
+  .num_p("clr_grid", "integer", 2000L, 200L, 20000L, "Grid points for the intervals", "The intervals are searched on this many points.", "CIStep", "MR Studio: the range of the ratio estimates widened by 1 on each side.", c("ci")), FALSE, c(
+  "r <- dat$beta_y / dat$beta_x; lo <- min(r) - 1; hi <- max(r) + 1",
+  "nx <- stats::median(dat$n_x); ny <- stats::median(dat$n_y)   # median sample sizes of the two GWAS",
+  "fit <- MendelianRandomization::mr_clr(mri, nx = nx, ny = ny, alpha = 1 - ci_level, CIMin = lo, CIMax = hi, CIStep = (hi - lo) / clr_grid)",
+  "iv <- function(l, u) if (!length(l) || all(is.na(l))) \"no value is compatible with the data\" else paste(sprintf(\"%.4g to %.4g\", l, u), collapse = \"; \")",
+  "estimates <- est1(NA, NA, NA, NA, NA, NA)[0, ]   # no point estimate",
+  "diagnostics <- rbind(drow(\"clr_interval\", length(fit@CLRlower), note = iv(fit@CLRlower, fit@CLRupper)), drow(\"clr_ar_interval\", length(fit@ARlower), note = iv(fit@ARlower, fit@ARupper)),",
+  "  drow(\"clr_k_interval\", length(fit@Klower), note = iv(fit@Klower, fit@Kupper)), drow(\"clr_n\", nx, note = sprintf(\"exposure N %g, outcome N %g\", nx, ny)))"),
+  needs_n = TRUE, check_extra = .clr_n_check)
+
+# MVMR-IVW allowing for measurement error in the variant-exposure associations (Yao et al. 2023) and multivariable GMM, robust to
+# weak instruments and sample overlap (Patel et al. 2024). The exposure correlation matrix is the phenotypic correlations (mv_r_i_j).
+.mv_rx <- "Rx <- diag(K); if (K > 1) for (i in seq_len(K - 1)) for (j in (i + 1):K) Rx[i, j] <- Rx[j, i] <- get(sprintf(\"mv_r_%d_%d\", i, j))   # exposure correlations"
+.mv_body$mvivwme <- c("# MVMR-IVW with measurement error in the exposure associations (MendelianRandomization::mr_mvivwme)", .mv_rx,
+  "fit <- MendelianRandomization::mr_mvivwme(inp, model = mv_model, correl.x = Rx, alpha = 1 - ci_level, seed = seed)",
+  "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, fit@SNPs)",
+  "diagnostics <- drow(\"mv_ivwme_heterogeneity\", fit@Heter.Stat[1], fit@SNPs - K, fit@Heter.Stat[2], \"heterogeneity statistic\")")
+.mv_body$mvgmm <- c("# Multivariable GMM (MendelianRandomization::mr_mvgmm), robust to weak instruments and overlapping samples", .mv_rx,
+  "nx <- vapply(seq_len(K), function(k) stats::median(dat[[sprintf(\"n_x_%d\", k)]]), 0); ny <- stats::median(dat$n_y)",
+  "fit <- MendelianRandomization::mr_mvgmm(inp, nx = nx, ny = ny, cor.x = Rx, robust = identical(mv_gmm_robust, \"robust\"), alpha = 1 - ci_level)",
+  "estimates <- est_rows(fit@Estimate, fit@StdError, fit@CILower, fit@CIUpper, fit@Pvalue, nrow(dat))",
+  "diagnostics <- rbind(drow(\"mv_gmm_heterogeneity\", fit@Heter.Stat[1], nrow(dat) - K, fit@Heter.Stat[2], \"heterogeneity statistic\"),",
+  "  do.call(rbind, lapply(seq_len(K), function(k) drow(sprintf(\"mv_gmm_cond_f_%d\", k), fit@CondFstat[k], note = sprintf(\"conditional F, exposure %d\", k)))))")
+.mv_gmm_params <- list(mv_gmm_robust = list(type = "enum", default = "robust", values = c("robust", "plain"), value_labels = c(robust = "Allow for balanced pleiotropy (robust, package default)", plain = "No pleiotropy"),
+  label = "Pleiotropy", hint = "Whether the estimator allows for balanced horizontal pleiotropy.", package_arg = "robust", kind = "enum", conventional = TRUE, advanced = FALSE,
+  evidence = "MendelianRandomization::mr_mvgmm default (robust = TRUE).", affects = c("estimate", "se", "ci", "p")))
+ADAPTER_MVIVWME_V11 <- .mv_adapter("mvivwme", "MVMR-IVW (measurement error)", 1L, c(.mv_model_param, .mv_cor_params), TRUE, "mvivwme")
+ADAPTER_MVGMM_V11 <- .mv_adapter("mvgmm", "MVMR GMM", 2L, c(.mv_gmm_params, .mv_cor_params), FALSE, "mvgmm")
+
+# Round 109: influence of each variant on the IVW fit (weighted regression of beta_y on beta_x through the origin, weights 1 / se_y^2):
+# Cook's distance (flagged above 4 / k) and the externally studentized residual (flagged when |r| is above the cut-off, 2 by default).
+# They give no causal estimate; the flagged variants feed the outlier analysis on the Instrument review screen.
+.infl_lines <- c("fit <- stats::lm(beta_y ~ beta_x - 1, data = dat, weights = 1 / dat$se_y^2)   # the IVW (fixed-effect) regression",
+  "estimates <- est1(NA, NA, NA, NA, NA, NA)[0, ]   # no causal estimate")
+ADAPTER_COOK_V11 <- .mrpkg_adapter("cook", "Cook's distance (IVW)", 3L,
+  .num_p("cook_mult", "double", 4, 1, 20, "Cut-off multiplier", "A variant is flagged when its Cook's distance is above this number divided by the number of variants (4 / k, the usual cut-off).", "", "Cook 1977; the 4 / k rule of thumb.", c("diagnostics")), FALSE, c(.infl_lines,
+  "cd <- stats::cooks.distance(fit); k <- nrow(dat); cut <- cook_mult / k; fl <- dat$variant_id[cd > cut]",
+  "diagnostics <- rbind(drow(\"cook_outliers\", length(fl), note = if (length(fl)) paste(fl, collapse = \";\") else NA_character_), drow(\"cook_cutoff\", cut, note = sprintf(\"%s / %d\", format(cook_mult), k)),",
+  "  drow(\"cook_max\", max(cd), note = dat$variant_id[which.max(cd)]))"), pkg = "stats")
+ADAPTER_STUDRES_V11 <- .mrpkg_adapter("studres", "Studentized residuals (IVW)", 3L,
+  .enum_p("stud_cut", "2", c("2", "3"), c("2" = "|r| above 2 (about 5% expected by chance)", "3" = "|r| above 3 (stricter)"), "Cut-off", "Variants whose externally studentized residual is larger than this are flagged.", "", "Usual cut-offs for studentized residuals.", c("diagnostics")), FALSE, c(.infl_lines,
+  "rs <- stats::rstudent(fit); fl <- dat$variant_id[abs(rs) > as.numeric(stud_cut)]",
+  "diagnostics <- rbind(drow(\"studres_outliers\", length(fl), note = if (length(fl)) paste(fl, collapse = \";\") else NA_character_), drow(\"studres_cutoff\", as.numeric(stud_cut)),",
+  "  drow(\"studres_max\", max(abs(rs)), note = dat$variant_id[which.max(abs(rs))]))"), pkg = "stats")
+
+# ---- Round 109: MR-Clust (Foley et al. 2021, Bioinformatics 37:531-541, PMID 32915962) ----
+# Clusters the variants by their ratio estimates (by / bx, SE se_y / |bx|) with a normal mixture fitted by EM, plus a null cluster
+# (ratio 0) and a junk cluster; the number of clusters is chosen by BIC. As in the package vignette, a variant counts towards a cluster
+# when its allocation probability is at least mc_prob and the cluster has at least mc_min such variants (pr_clust). The package gives
+# no standard error for a cluster mean, so each cluster is a diagnostic (value = cluster mean, df = number of variants, note = members),
+# not a causal estimate. mrclust 0.1.0 (GitHub cnfoley/mrclust, commit 039ed855, GPL-3, pure R), installed by SHA-256 in the build.
+PIN_MRCLUST_V11 <- "039ed855bda28b76195222a8ddd2b7b5041b775b"
+ADAPTER_MRCLUST_V11 <- .mrpkg_adapter("mrclust", "MR-Clust", 4L, c(
+  .num_p("mc_prob", "double", 0.8, 0.5, 0.99, "Allocation probability to keep a variant", "A variant counts towards a cluster only when its probability of belonging to that cluster is at least this value.", "prob",
+         "mrclust vignette and Foley et al. 2021: pr_clust(prob = 0.8).", c("diagnostics"), advanced = FALSE),
+  .num_p("mc_min", "integer", 4L, 1L, 50L, "Smallest cluster reported", "Clusters with fewer kept variants than this are not reported.", "min_obs", "mrclust vignette and Foley et al. 2021: pr_clust(min_obs = 4).", c("diagnostics"))), TRUE, c(
+  "theta <- dat$beta_y / dat$beta_x; theta_se <- dat$se_y / abs(dat$beta_x)   # ratio estimates and their first-order standard errors",
+  "fit <- mrclust::mr_clust_em(theta = theta, theta_se = theta_se, bx = dat$beta_x, by = dat$beta_y, bxse = dat$se_x, byse = dat$se_y, obs_names = dat$variant_id, plot_results = NULL)",
+  "best <- as.data.frame(fit$results$best); kept <- as.data.frame(mrclust::pr_clust(dta = fit$results$best, prob = mc_prob, min_obs = mc_min))",
+  "sub <- kept[!kept$cluster_class %in% c(\"Null\", \"Junk\"), , drop = FALSE]",
+  "cl <- unique(sub[, c(\"cluster_class\", \"cluster_mean\")]); cl <- cl[order(cl$cluster_mean), , drop = FALSE]",
+  "estimates <- est1(NA, NA, NA, NA, NA, NA)[0, ]   # clusters are reported as diagnostics (no standard error)",
+  "mem <- lapply(seq_len(nrow(cl)), function(i) { k <- cl$cluster_class[i]; drow(sprintf(\"mrclust_cluster_%d\", i), cl$cluster_mean[i], sum(sub$cluster_class == k), note = paste(sub$observation[sub$cluster_class == k], collapse = \";\")) })",
+  "diagnostics <- do.call(rbind, c(list(drow(\"mrclust_n_clusters\", nrow(cl), note = sprintf(\"clusters with at least %d variants of probability >= %s; each mrclust_cluster_i row: value = cluster mean, df = variants\", mc_min, format(mc_prob))),",
+  "  drow(\"mrclust_null\", sum(best$cluster_class == \"Null\"), note = paste(best$observation[best$cluster_class == \"Null\"], collapse = \";\")),",
+  "  drow(\"mrclust_junk\", sum(best$cluster_class == \"Junk\"), note = paste(best$observation[best$cluster_class == \"Junk\"], collapse = \";\")),",
+  "  drow(\"mrclust_unassigned\", nrow(dat) - nrow(kept), note = \"below the probability or cluster-size cut-off\")), mem))"),
+  pkg = "mrclust")
+
+# ---- Round 109: GSMR (item 6), from the methods helper (validated against the gsmr2 vignette example) ----
+# ---- Item 6: GSMR, generalised summary-data-based MR (Zhu et al. 2018, Nat Commun 9:224, PMID 29335400) ------------------
+# Every instrument is used together with the LD correlation between the instruments (from the 1000 Genomes panel, PLINK;
+# see ld_matrix_here.R): generalised least squares estimate of the causal effect, after removing variants in high LD
+# (ld_r2_thresh), and HEIDI-outlier filtering of pleiotropic variants. Optionally the reverse direction too (bi-directional GSMR).
+# gsmr2 (GitHub JianYang-Lab/gsmr2, commit e7953cc, GPL (>= 2)) with gsmr2_beta = 0, the original HEIDI-outlier method of the paper.
+# Needs survey (pchisqsum, multi-variant HEIDI) and markdown (Depends). Requires reference_adapters_v11.R sourced first.
+PIN_GSMR2 <- "e7953cc136ad1cfae14674facde21e90caddea5f"
+.gsmr_params <- c(
+  .enum_p("gsmr_std", "no", c("no", "yes"), c(no = "As given (effects in the exposure GWAS units)", yes = "Standardise the exposure effects (per SD, from EAF and N)"),
+          "Exposure effect scale", "GSMR's own example standardises the exposure effects with std_effect() (needs eaf_x and n_x, continuous exposure only), so the estimate is per SD of the exposure.",
+          "std_effect", "gsmr2::std_effect; Zhu et al. 2018 (PMID 29335400)."),
+  .enum_p("gsmr_dir", "forward", c("forward", "both"), c(forward = "Exposure on outcome", both = "Both directions (bi-directional GSMR)"),
+          "Direction", "Both directions also estimates the outcome on the exposure with the same variants (reported as a diagnostic).", "bi_gsmr", "gsmr2::bi_gsmr.", c("diagnostics")),
+  .enum_p("gsmr_heidi", "on", c("on", "off"), c(on = "Remove HEIDI outliers (package default)", off = "Keep every variant"),
+          "HEIDI-outlier filter", "Removes variants whose effects are heterogeneous with the top variant (pleiotropic outliers).", "heidi_outlier_flag", "gsmr2::gsmr default (heidi_outlier_flag = TRUE)."),
+  .num_p("gsmr_gwas_p", "double", 5e-8, 1e-300, 1, "Instrument P threshold", "Variants with an exposure P above this are left out (as weak). MR Studio has already selected the instruments; the package default is 5e-8.", "gwas_thresh", "gsmr2::gsmr default (gwas_thresh = 5e-8)."),
+  .num_p("gsmr_heidi_single", "double", 0.01, 1e-10, 0.5, "Single-variant HEIDI P threshold", "Variants with a single-variant HEIDI P below this are removed.", "single_snp_heidi_thresh", "gsmr2::gsmr default (0.01)."),
+  .num_p("gsmr_heidi_multi", "double", 0.01, 1e-10, 0.5, "Multi-variant HEIDI P threshold", "Threshold for the multi-variant HEIDI test.", "multi_snps_heidi_thresh", "gsmr2::gsmr default (0.01)."),
+  .num_p("gsmr_nsnps", "integer", 10L, 3L, 1000L, "Minimum number of variants", "GSMR stops when fewer variants remain after the filters. The package default is 10.", "nsnps_thresh", "gsmr2::gsmr default (nsnps_thresh = 10)."),
+  .num_p("gsmr_ld_r2", "double", 0.05, 0.001, 1, "LD r2 threshold", "Of two variants in LD above this, one is removed.", "ld_r2_thresh", "gsmr2::gsmr default (ld_r2_thresh = 0.05)."),
+  .num_p("gsmr_ld_fdr", "double", 0.05, 1e-6, 1, "LD FDR threshold", "Small LD correlations that may be chance (given the size of the reference panel) are set to 0 at this FDR.", "ld_fdr_thresh", "gsmr2::gsmr default (ld_fdr_thresh = 0.05)."),
+  .num_p("gsmr_n_ref", "integer", 503L, 50L, 1000000L, "Reference panel size", "Number of people in the LD reference. 503 is the 1000 Genomes European panel; MR Studio sets it from the panel used.", "n_ref", "1000 Genomes phase 3: EUR 503, EAS 504, AFR 661, AMR 347, SAS 489.", c("diagnostics")))
+# One body, run by the app (evaluated in an environment) and written into the script. It sees dat, ld (LD matrix with the rsIDs as
+# names, signed to the effect alleles), the settings, ci_level, est1() and drow().
+.gsmr_body <- c(
+  "ids <- as.character(dat$variant_id); ld <- ld[ids, ids, drop = FALSE]   # LD between the instruments, in the order of dat",
+  "bzx <- dat$beta_x; bzx_se <- dat$se_x",
+  "if (identical(gsmr_std, \"yes\")) { s <- gsmr2::std_effect(dat$eaf_x, dat$beta_x, dat$se_x, dat$n_x); bzx <- s$b; bzx_se <- s$se }   # per SD of the exposure",
+  "px <- if (\"p_x\" %in% names(dat)) dat$p_x else 2 * stats::pnorm(-abs(dat$beta_x / dat$se_x)); py <- if (\"p_y\" %in% names(dat)) dat$p_y else 2 * stats::pnorm(-abs(dat$beta_y / dat$se_y))",
+  "args <- list(bzx, bzx_se, px, dat$beta_y, dat$se_y, py, ld, ids, gsmr_n_ref, heidi_outlier_flag = identical(gsmr_heidi, \"on\"), gwas_thresh = gsmr_gwas_p,",
+  "  single_snp_heidi_thresh = gsmr_heidi_single, multi_snps_heidi_thresh = gsmr_heidi_multi, nsnps_thresh = gsmr_nsnps, ld_r2_thresh = gsmr_ld_r2, ld_fdr_thresh = gsmr_ld_fdr, gsmr2_beta = 0)",
+  "fit <- do.call(gsmr2::gsmr, args)   # forward GSMR (exposure on outcome)",
+  "z <- stats::qnorm(1 - (1 - ci_level) / 2)",
+  "estimates <- est1(fit$bxy, fit$bxy_se, fit$bxy - z * fit$bxy_se, fit$bxy + z * fit$bxy_se, fit$bxy_pval, length(fit$used_index))",
+  "lst <- function(x) if (length(x)) paste(x, collapse = \";\") else NA_character_",
+  "diagnostics <- rbind(drow(\"gsmr_n_used\", length(fit$used_index), note = lst(ids[fit$used_index])), drow(\"gsmr_n_weak\", length(fit$weak_snps), note = lst(fit$weak_snps)),",
+  "  drow(\"gsmr_n_linkage\", length(fit$linkage_snps), note = lst(fit$linkage_snps)), drow(\"gsmr_n_heidi_outliers\", length(fit$pleio_snps), note = lst(fit$pleio_snps)),",
+  "  drow(\"gsmr_scale\", NA, note = if (identical(gsmr_std, \"yes\")) \"per SD of the exposure (standardised with std_effect)\" else \"per unit of the exposure GWAS\"))",
+  "if (identical(gsmr_dir, \"both\")) {",
+  "  rv <- tryCatch(do.call(gsmr2::bi_gsmr, args), error = function(e) e)   # reverse: outcome on exposure, same variants",
+  "  diagnostics <- rbind(diagnostics, if (inherits(rv, \"error\")) drow(\"gsmr_reverse\", NA, note = conditionMessage(rv)) else",
+  "    drow(\"gsmr_reverse\", rv$reverse_bxy, p = rv$reverse_bxy_pval, note = sprintf(\"outcome on exposure %.4g (SE %.4g), %d variants\", rv$reverse_bxy, rv$reverse_bxy_se, length(rv$reverse_index))))",
+  "}")
+.gsmr_check <- function(input, params) {
+  d <- .usable(input$data); ld <- input$ld
+  if (is.null(ld) || !is.matrix(ld)) return(verdict("block", "FEAS_NEEDS_LD", "GSMR needs the LD correlation between the instruments. Install the 1000 Genomes LD reference panel for this ancestry (Settings > Data and access)."))
+  miss <- setdiff(d$variant_id, rownames(ld))
+  if (length(miss)) return(verdict("block", "FEAS_LD_MISSING_VARIANTS", sprintf("%d instrument(s) are not in the LD reference panel (%s); leave them out or use another panel.", length(miss), paste(utils::head(miss, 5), collapse = ", "))))
+  if (identical(params$gsmr_std, "yes") && !(all(c("eaf_x", "n_x") %in% names(d)) && all(is.finite(d$eaf_x) & d$eaf_x > 0 & d$eaf_x < 1 & is.finite(d$n_x))))
+    return(verdict("block", "FEAS_NEEDS_EAF_N", "Standardising the exposure effects needs the effect allele frequency (eaf_x) and the sample size (n_x) of every variant. Choose 'As given' or use a dataset that reports them."))
+  if (identical(params$gsmr_std, "yes") && identical(input$exposure_scale %||% "beta", "log_or")) return(verdict("block", "FEAS_STD_BINARY", "std_effect standardises continuous exposures only; this exposure is binary (log odds ratios). Choose 'As given'."))
+  if (nrow(d) < params$gsmr_nsnps) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("GSMR needs at least %d variants (setting: minimum number of variants); %d available.", params$gsmr_nsnps, nrow(d))))
+  w <- .common_warnings(d); verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+}
+ADAPTER_GSMR_V11 <- NULL
+ADAPTER_GSMR_V11 <- mrgui_adapter(
+  id = "gsmr", adapter_version = "1.1.0", label = "GSMR (with HEIDI-outlier)", input_kind = "pair_iv_ld", estimands = "causal_effect",
+  requires = list(min_ivs = 3, needs_ld = "ld_matrix", needs_eaf = FALSE, needs_n = FALSE, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(gsmr2 = PIN_GSMR2), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .gsmr_params, .minf_param_v11),
+  check = .gsmr_check,
+  run = function(input, params, ctx) {
+    e <- new.env(parent = globalenv()); for (k in names(params)) assign(k, params[[k]], envir = e)
+    d <- .usable(input$data); d <- d[(d$beta_x / d$se_x)^2 >= params$min_f, , drop = FALSE]
+    e$dat <- d; e$ld <- input$ld; e$EXPOSURE_ID <- input$exposure_id; e$OUTCOME_ID <- input$outcome_id; e$SCALE <- input$outcome_scale
+    eval(parse(text = c(.mr_body_common, .gsmr_body)), envir = e)
+    list(estimates = e$estimates, diagnostics = e$diagnostics)
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_GSMR_V11, spec, params, seed, "gsmr2", c(
+    sprintf("EXPOSURE_ID <- %s; OUTCOME_ID <- %s; SCALE <- %s", .q(spec$exposure_id), .q(spec$outcome_id), .q(spec$outcome_scale)),
+    sprintf("ld <- as.matrix(utils::read.csv(file.path(\"01_data\", %s), row.names = 1, check.names = FALSE))   # LD matrix (1000 Genomes, PLINK), signed to the effect alleles", .q(spec$ld_file %||% "ld_matrix.csv")),
+    "# ---- 5. Analysis: GSMR (gsmr2, original HEIDI-outlier method) ----", .mr_body_common, .gsmr_body),
+    "fixed seed (this method is deterministic; kept for the record)"),
+  column_requirements = c(.colreq_basic[1:4], list(
+    list(column = "eaf_x", level = "recommended", why = "Needed only to standardise the exposure effects (per SD).", if_missing = list(action = "warn", code = "FEAS_NEEDS_EAF_N")),
+    list(column = "n_x", level = "recommended", why = "Needed only to standardise the exposure effects (per SD).", if_missing = list(action = "warn", code = "FEAS_NEEDS_EAF_N")))))
+
+# Figure, laid out as the GSMR example figure (vignette): exposure effect against outcome effect for the variants GSMR used, with
+# +/- 1 SE bars in both directions and a dashed line through the origin with slope bxy. `used` = rsIDs in gsmr_n_used.
+
+# ---- Round 109: grapple (item 18), from the methods helper (validated by simulation with known truth) ----
+# ---- Item 18: GRAPPLE, robust profile-likelihood MR, univariable and multivariable --------------------------------------
+# (Wang, Zhao, Bowden, Hemani, Davey Smith, Small, Zhang 2021, PLoS Genet 17:e1009575, PMID 34157017, doi 10.1371/journal.pgen.1009575).
+# Robustified adjusted profile likelihood with over-dispersion tau2 (pervasive balanced pleiotropy), robust to weak instruments;
+# with K exposures it is multivariable MR; cor.mat is the correlation of the GWAS estimation errors (shared participants:
+# sample overlap), order exposures 1..K then the outcome. With one exposure, no overlap and the same loss it is MR-RAPS.
+# GRAPPLE (GitHub jingshuw/GRAPPLE, commit 317e837, GPL (>= 2)). Only grappleRobustEst() is used; getInput() (needs full GWAS
+# files and PLINK clumping) and the marker annotation (haploR, a web query) are not. Requires reference_adapters_v11.R sourced first.
+PIN_GRAPPLE <- "317e837340a29129c52c9d9b22f5f8bae72e27d0"
+.grapple_loss_p <- .enum_p("gr_loss", "tukey", c("tukey", "huber", "l2"), c(tukey = "Tukey's biweight (robust, package default)", huber = "Huber (robust)", l2 = "Squared error (not robust)"),
+  "Loss function", "Robust losses limit the influence of outlying (pleiotropic) variants.", "loss.function", "GRAPPLE::grappleRobustEst default (loss.function = \"tukey\", k = 4.685).")
+.grapple_rxy_p <- .num_p("gr_rho_xy", "double", 0, -0.99, 0.99, "Error correlation, exposure(s) and outcome", "Correlation of the estimation errors of the exposure and outcome GWAS when they share participants (sample overlap); 0 for separate samples. GRAPPLE estimates it from null variants of the full GWAS files; enter that value here.", "cor.mat", "Wang et al. 2021 (PMID 34157017); 0 for non-overlapping samples.", advanced = FALSE)
+# One body for both kinds. It sees bx, sx (matrices, one column per exposure), by, sy, ids, Rx (K x K exposure error correlations),
+# gr_rho_xy, gr_loss, ci_level, est_rows() (direct or causal) and drow().
+.grapple_body <- c(
+  "K <- ncol(bx); g <- data.frame(SNP = ids, stringsAsFactors = FALSE)",
+  "for (k in seq_len(K)) { g[[paste0(\"gamma_exp\", k)]] <- bx[, k]; g[[paste0(\"se_exp\", k)]] <- sx[, k] }",
+  "g$gamma_out1 <- by; g$se_out1 <- sy",
+  "C <- diag(K + 1); C[seq_len(K), seq_len(K)] <- Rx; C[K + 1, seq_len(K)] <- C[seq_len(K), K + 1] <- gr_rho_xy   # GWAS error correlations",
+  "fit <- GRAPPLE::grappleRobustEst(g, cor.mat = C, loss.function = gr_loss, diagnosis = TRUE, plot.it = FALSE)",
+  "se <- sqrt(diag(as.matrix(fit$beta.var))); z <- stats::qnorm(1 - (1 - ci_level) / 2)",
+  "estimates <- est_rows(fit$beta.hat, se, fit$beta.hat - z * se, fit$beta.hat + z * se, fit$beta.p.value, length(ids))",
+  "out <- if (is.data.frame(fit$outliers) && nrow(fit$outliers)) ids[vapply(fit$outliers$sample, function(v) which.min(abs(fit$std.resid - v)), 1L)] else character(0)   # QQ-plot outlier points back to their variants",
+  "diagnostics <- rbind(drow(\"grapple_tau2\", fit$tau2.hat, note = sprintf(\"over-dispersion (pleiotropy variance), SE %.4g\", fit$tau2.se)),",
+  "  drow(\"grapple_normality_p\", NA, p = if (length(fit$std.resid) %in% 3:5000) stats::shapiro.test(fit$std.resid)$p.value else NA_real_, note = \"test of the standardised residuals (Shapiro-Wilk, as GRAPPLE prints); a small P suggests outliers or several pleiotropic pathways\"),",
+  "  drow(\"grapple_outliers\", length(out), note = if (length(out)) paste(out, collapse = \";\") else NA_character_))")
+.grapple_uv_prep <- c(
+  "bx <- matrix(dat$beta_x); sx <- matrix(dat$se_x); by <- dat$beta_y; sy <- dat$se_y; ids <- dat$variant_id; Rx <- diag(1)",
+  "est_rows <- function(b, se, lo, hi, p, n) est1(b, se, lo, hi, p, n)")
+.grapple_mv_prep <- c(
+  "K <- sum(grepl(\"^beta_x_[0-9]+$\", names(dat))); bxn <- sprintf(\"beta_x_%d\", seq_len(K)); sxn <- sprintf(\"se_x_%d\", seq_len(K))",
+  "use <- dat$mr_keep & is.finite(dat$beta_y) & is.finite(dat$se_y) & dat$se_y > 0 & stats::complete.cases(dat[, c(bxn, sxn)]); dat <- dat[use, , drop = FALSE]",
+  "EXPOSURE_IDS <- strsplit(EXPOSURE_ID, \"|\", fixed = TRUE)[[1]]",
+  "bx <- as.matrix(dat[, bxn]); sx <- as.matrix(dat[, sxn]); by <- dat$beta_y; sy <- dat$se_y; ids <- dat$variant_id",
+  "Rx <- diag(K); if (K > 1) for (i in seq_len(K - 1)) for (j in (i + 1):K) Rx[i, j] <- Rx[j, i] <- get(sprintf(\"mv_r_%d_%d\", i, j))   # exposure error correlations",
+  "est_rows <- function(b, se, lo, hi, p, n) data.frame(estimand = \"direct_effect\", exposure_id = EXPOSURE_IDS, outcome_id = OUTCOME_ID, scale = SCALE,",
+  "  estimate = as.numeric(b), se = as.numeric(se), ci_lower = as.numeric(lo), ci_upper = as.numeric(hi), ci_level = ci_level, ci_method = \"wald\",",
+  "  p = as.numeric(p), n_ivs_used = as.integer(n), stringsAsFactors = FALSE)",
+  .mr_body_common[5:6])   # drow() only: the univariable mr_input line does not apply
+.grapple_run <- function(prep, mv) function(input, params, ctx) {
+  e <- new.env(parent = globalenv()); for (k in names(params)) assign(k, params[[k]], envir = e)
+  d <- if (mv) input$data else { d <- .usable(input$data); d[(d$beta_x / d$se_x)^2 >= params$min_f, , drop = FALSE] }
+  e$dat <- d; e$EXPOSURE_ID <- input$exposure_id; e$OUTCOME_ID <- input$outcome_id; e$SCALE <- input$outcome_scale
+  eval(parse(text = c(if (!mv) .mr_body_common, prep, .grapple_body)), envir = e)
+  list(estimates = e$estimates, diagnostics = e$diagnostics)
+}
+ADAPTER_GRAPPLE_V11 <- NULL
+ADAPTER_GRAPPLE_V11 <- mrgui_adapter(
+  id = "grapple", adapter_version = "1.1.0", label = "GRAPPLE", input_kind = "pair_iv", estimands = "causal_effect",
+  requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(GRAPPLE = PIN_GRAPPLE), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .grapple_loss_p, .grapple_rxy_p, .minf_param_v11),
+  check = .mr_pkg_check("GRAPPLE", 3L),
+  run = .grapple_run(.grapple_uv_prep, FALSE),
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_GRAPPLE_V11, spec, params, seed, "GRAPPLE", c(
+    sprintf("EXPOSURE_ID <- %s; OUTCOME_ID <- %s; SCALE <- %s", .q(spec$exposure_id), .q(spec$outcome_id), .q(spec$outcome_scale)),
+    "# ---- 5. Analysis: GRAPPLE (grappleRobustEst) ----", .mr_body_common, .grapple_uv_prep, .grapple_body),
+    "fixed seed (this method is deterministic; kept for the record)"),
+  column_requirements = .colreq_basic)
+# Multivariable: the same body on K exposures (multi_iv input, columns beta_x_k / se_x_k as the other MVMR adapters).
+ADAPTER_MVGRAPPLE_V11 <- NULL
+ADAPTER_MVGRAPPLE_V11 <- mrgui_adapter(
+  id = "mvgrapple", adapter_version = "1.1.0", label = "MVMR GRAPPLE", input_kind = "multi_iv", estimands = "direct_effect",
+  requires = list(min_ivs = 3, needs_ld = "none", needs_eaf = FALSE, needs_n = FALSE, needs_full_sumstats = FALSE, min_exposures = 2, max_exposures = 6),
+  packages = list(GRAPPLE = PIN_GRAPPLE), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .grapple_loss_p, .grapple_rxy_p, .mv_cor_params),
+  check = function(input, params) {
+    K <- sum(grepl("^beta_x_[0-9]+$", names(input$data))); n <- nrow(.mv_usable(input$data))
+    if (K < 2) return(verdict("block", "FEAS_TOO_FEW_EXPOSURES", sprintf("MVMR GRAPPLE needs at least 2 exposures; %d given.", K)))
+    if (n < K + 2) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("MVMR GRAPPLE needs at least %d variants with all %d exposures; %d available.", K + 2, K, n)))
+    R <- diag(K + 1); for (i in seq_len(K - 1)) for (j in (i + 1):K) R[i, j] <- R[j, i] <- as.numeric(params[[sprintf("mv_r_%d_%d", i, j)]] %||% 0)
+    R[K + 1, 1:K] <- R[1:K, K + 1] <- params$gr_rho_xy
+    if (min(eigen(R, symmetric = TRUE, only.values = TRUE)$values) <= 0) return(verdict("block", "FEAS_INVALID_CORRELATION", "The error correlations do not form a valid correlation matrix (it must be positive definite). Check the values."))
+    verdict("ok", character(), character())
+  },
+  run = .grapple_run(.grapple_mv_prep, TRUE),
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_MVGRAPPLE_V11, spec, params, seed, "GRAPPLE", c(
+    sprintf("EXPOSURE_ID <- %s; OUTCOME_ID <- %s; SCALE <- %s", .q(spec$exposure_id), .q(spec$outcome_id), .q(spec$outcome_scale)),
+    "# ---- 5. Analysis: multivariable GRAPPLE (grappleRobustEst) ----", .grapple_mv_prep, .grapple_body),
+    "fixed seed (this method is deterministic; kept for the record)"),
+  column_requirements = .mv_colreq)
+# Note for integration: .detector_emit writes the univariable data lines and F filter; for the multivariable adapter the main
+# session should use the .mv_adapter script head instead (as MVMR-IVW does), with .grapple_mv_prep in place of .mv_core.
+
+# ---- Round 109: ppmr (item 19), from the methods helper (validated by simulation with known truth) ----
+# ---- Item 19: PPMR, probabilistic MR with correlated instruments and horizontal pleiotropy ------------------------------
+# (PMR-Egger: Yuan et al. 2020, Nat Commun 11:3861, PMID 32737316, doi 10.1038/s41467-020-17668-6; summary-data version).
+# Likelihood model with the LD between the instruments (Sigma1 = Sigma2 = the 1000 Genomes LD matrix, PLINK, see
+# ../gsmr2/ld_matrix_here.R), polygenic variant-exposure effects, a causal effect alpha and a horizontal pleiotropic effect gamma
+# shared by the variants (an Egger-type direct effect). PPMR 1.0.1 (CRAN, GPL-3) exposes only the fit (PMR_summary); the two
+# P values are likelihood ratio tests, as in the paper: refit with alpha = 0 and with gamma = 0, 2 x (loglik difference) on 1 df.
+# PMR_summary works on the standardised scale (betax = X'y / (n - 1) for standardised genotypes and phenotypes), so the
+# associations are entered as z / sqrt(n): N of both GWAS is required, and alpha is per SD of the exposure on SD of the outcome.
+# The package gives no standard error, so the estimate has no confidence interval (as the paper, which reports P values).
+# Requires reference_adapters_v11.R sourced first.
+PIN_PPMR <- "1.0.1"
+.ppmr_params <- c(
+  .num_p("ppmr_max_iter", "integer", 1000L, 50L, 100000L, "Maximum iterations", "Maximum number of EM iterations of each fit.", "max_iterin", "PPMR paper and the original PPMR package (max_iterin = 1000)."),
+  .num_p("ppmr_eps", "double", 1e-5, 1e-10, 1e-2, "Convergence tolerance", "The EM stops when the log-likelihood changes by less than this.", "epsin", "Original PPMR package default (epsin = 1e-5)."))
+.ppmr_body <- c(
+  "ids <- as.character(dat$variant_id); R <- ld[ids, ids, drop = FALSE]   # LD between the instruments, in the order of dat",
+  "nx <- round(stats::median(dat$n_x)); ny <- round(stats::median(dat$n_y))   # sample sizes of the two GWAS",
+  "bx <- dat$beta_x / dat$se_x / sqrt(dat$n_x); by <- dat$beta_y / dat$se_y / sqrt(dat$n_y)   # standardised scale, z / sqrt(n)",
+  "pmr <- function(g0, a0) PPMR::PMR_summary(bx, by, R, R, nx, ny, g0, a0, ppmr_max_iter, ppmr_eps)",
+  "f <- pmr(0, 0); fa <- pmr(0, 1); fg <- pmr(1, 0)   # full model, alpha = 0, gamma = 0",
+  "lrt <- function(l1, l0) stats::pchisq(max(0, 2 * (l1 - l0)), 1, lower.tail = FALSE)",
+  "p_alpha <- lrt(f$loglik, fa$loglik); p_gamma <- lrt(f$loglik, fg$loglik)",
+  "estimates <- est1(f$alpha, NA, NA, NA, p_alpha, nrow(dat), \"profile\")",
+  "diagnostics <- rbind(drow(\"ppmr_gamma\", f$gamma, df = 1, p = p_gamma, note = \"horizontal pleiotropic effect (likelihood ratio test of gamma = 0)\"),",
+  "  drow(\"ppmr_iterations\", f$iteration, note = sprintf(\"EM iterations of the full model (maximum %d)\", ppmr_max_iter)),",
+  "  drow(\"ppmr_loglik\", f$loglik, note = sprintf(\"log-likelihood; alpha = 0: %.6g; gamma = 0: %.6g\", fa$loglik, fg$loglik)),",
+  "  drow(\"ppmr_scale\", NA, note = sprintf(\"per SD of the exposure on SD of the outcome (z / sqrt(n)); N exposure %g, outcome %g\", nx, ny)))")
+.ppmr_check <- function(input, params) {
+  d <- .usable(input$data); ld <- input$ld
+  if (is.null(ld) || !is.matrix(ld)) return(verdict("block", "FEAS_NEEDS_LD", "PPMR needs the LD correlation between the instruments. Install the 1000 Genomes LD reference panel for this ancestry (Settings > Data and access)."))
+  miss <- setdiff(d$variant_id, rownames(ld))
+  if (length(miss)) return(verdict("block", "FEAS_LD_MISSING_VARIANTS", sprintf("%d instrument(s) are not in the LD reference panel (%s).", length(miss), paste(utils::head(miss, 5), collapse = ", "))))
+  if (!all(c("n_x", "n_y") %in% names(d)) || !all(is.finite(d$n_x) & is.finite(d$n_y))) return(verdict("block", "FEAS_NEEDS_N", "PPMR needs the sample sizes of the exposure and outcome GWAS (n_x, n_y) to put the associations on the standardised scale."))
+  if (nrow(d) < 3) return(verdict("block", "FEAS_TOO_FEW_IVS", sprintf("PPMR needs at least 3 variants; %d available.", nrow(d))))
+  w <- .common_warnings(d); verdict(if (length(w$codes)) "warn" else "ok", w$codes, w$messages)
+}
+ADAPTER_PPMR_V11 <- NULL
+ADAPTER_PPMR_V11 <- mrgui_adapter(
+  id = "ppmr", adapter_version = "1.1.0", label = "PPMR (correlated instruments, pleiotropy)", input_kind = "pair_iv_ld", estimands = "causal_effect",
+  requires = list(min_ivs = 3, needs_ld = "ld_matrix", needs_eaf = FALSE, needs_n = TRUE, needs_full_sumstats = FALSE, min_exposures = 1, max_exposures = 1),
+  packages = list(PPMR = PIN_PPMR), stochastic = FALSE, supports_checkpoint = FALSE, runtime_class = "fast",
+  params = c(.ci_param_v11, .ppmr_params, .minf_param_v11),
+  check = .ppmr_check,
+  run = function(input, params, ctx) {
+    e <- new.env(parent = globalenv()); for (k in names(params)) assign(k, params[[k]], envir = e)
+    d <- .usable(input$data); d <- d[(d$beta_x / d$se_x)^2 >= params$min_f, , drop = FALSE]
+    e$dat <- d; e$ld <- input$ld; e$EXPOSURE_ID <- input$exposure_id; e$OUTCOME_ID <- input$outcome_id; e$SCALE <- input$outcome_scale
+    eval(parse(text = c(.mr_body_common, .ppmr_body)), envir = e)
+    list(estimates = e$estimates, diagnostics = e$diagnostics)
+  },
+  emit_script = function(spec, params, seed) .detector_emit(ADAPTER_PPMR_V11, spec, params, seed, "PPMR", c(
+    sprintf("EXPOSURE_ID <- %s; OUTCOME_ID <- %s; SCALE <- %s", .q(spec$exposure_id), .q(spec$outcome_id), .q(spec$outcome_scale)),
+    sprintf("ld <- as.matrix(utils::read.csv(file.path(\"01_data\", %s), row.names = 1, check.names = FALSE))   # LD matrix (1000 Genomes, PLINK), signed to the effect alleles", .q(spec$ld_file %||% "ld_matrix.csv")),
+    "# ---- 5. Analysis: PPMR (PMR_summary, likelihood ratio tests) ----", .mr_body_common, .ppmr_body),
+    "fixed seed (this method is deterministic; kept for the record)"),
+  column_requirements = c(.colreq_basic[1:4], list(
+    list(column = "n_x", level = "required", why = "Sample size of the exposure GWAS (standardised scale).", if_missing = list(action = "block", code = "FEAS_NEEDS_N")),
+    list(column = "n_y", level = "required", why = "Sample size of the outcome GWAS (standardised scale).", if_missing = list(action = "block", code = "FEAS_NEEDS_N")))))

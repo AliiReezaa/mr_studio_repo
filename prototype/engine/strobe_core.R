@@ -64,7 +64,8 @@ strobe_rows <- function(ctxs, txt, plan = list(), items = character()) {
     sel <- if (!is.null(L$clump)) sprintf("P < %s, clumped on the analyst's computer with PLINK (r2 < %s within %s kb, 1000 Genomes %s)", format(L$threshold), L$clump$r2, format(L$clump$kb, big.mark = ","), L$clump$pop)
            else if (!is.null(cx$src_x$og)) sprintf("P < %s, %s (r2 < %s within %s kb, %s panel)", format(cx$src_x$og$params$pval), if (identical(cx$src_x$og$params$where, "server_live")) "clumped live on the OpenGWAS server" else if (ogw_stored_clumps(cx$src_x$og$params)) "from the stored, pre-computed clumps of OpenGWAS" else "clumped on the OpenGWAS server", cx$src_x$og$params$r2, format(cx$src_x$og$params$kb, big.mark = ","), cx$src_x$og$params$pop)
            else if (!is.null(L)) sprintf("P < %s from a file declared independent by the analyst", format(L$threshold)) else "simulated instruments"
-    sprintf("%s; %d instruments used, mean F %.1f (minimum %.1f, %d below 10)", sel, nrow(cx$kept), cx$mean_f, cx$min_f, cx$n_weak) }
+    paste0(    sprintf("%s; %d instruments used, mean F %.1f (minimum %.1f, %d below 10)", sel, nrow(cx$kept), cx$mean_f, cx$min_f, cx$n_weak), { fx <- tryCatch(f_stats_text(L$fstats %||% cx$fstats), error = function(e) ""); if (nzchar(fx)) paste0(". ", sub("[.]$", "", fx)) else "" },
+      if (!is.null(L$maf)) paste0(". ", sub("[.]$", "", maf_text(L$maf))) else "") }   # Round 109
   r <- function(item, status, provides, where = "") list(item = item, status = status, provides = provides, where = where)
   M <- "Draft text, Methods"; R <- "Draft text, Results"; Lm <- "Draft text, Limitations"
   ests <- c(ivw_mre = "IVW", divw = "debiased IVW", raps = "MR-RAPS", conmix = "contamination mixture", lasso = "MR-Lasso", egger_simex = "MR-Egger with SIMEX correction", egger = "MR-Egger", wm = "weighted median", smed = "simple median", mode = "weighted mode", smode = "simple mode", presso = "MR-PRESSO", radial = "radial IVW", radegger = "radial MR-Egger")
@@ -120,6 +121,7 @@ strobe_rows <- function(ctxs, txt, plan = list(), items = character()) {
   out <- out[match(STROBE_ITEMS$item, out$item), c("section", "item", "asks", "status", "provides", "where")]
   out$page <- ""
   attr(out, "simulated") <- sim
+  out$provides <- sci_thr_text(out$provides)   # Round 109
   rownames(out) <- NULL; attr(out, "simulated") <- sim; out
 }
 

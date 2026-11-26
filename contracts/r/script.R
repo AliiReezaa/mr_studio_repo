@@ -263,6 +263,9 @@ RERUN_README_TEXT <- paste(c(
   "   and compares every number with 04_tables. Your original results are never changed.",
   "",
   "You do not need to set a working folder or copy anything.",
+  "",
+  "Figures: when the publication package is made, 05_figures/make_figures.R is added. Run it (Rscript make_figures.R",
+  "in that folder) to redraw every figure of this pair exactly as shipped, from the saved data.",
   ""), collapse = "\n")
 
 #' Write the verification files at the top of a pair folder when they are missing. Existing files are never rewritten
@@ -290,6 +293,7 @@ materialise_pair <- function(pair_dir, methods, seed) {
                  estimates_file = sprintf("%s_estimates.csv", a$id),
                  diagnostics_file = sprintf("%s_diagnostics.csv", a$id))
     write_analysis_csv(m$input$data, file.path(pair_dir, "01_data", spec$data_file))
+    if (!is.null(m$input$ld)) { spec$ld_file <- sprintf("ld_matrix_%s.csv", a$id); utils::write.csv(m$input$ld, file.path(pair_dir, "01_data", spec$ld_file)) }   # Round 109: GSMR's LD matrix
     params <- resolve_params(a, m$params)
     b <- a$emit_script(spec, params, seed)
     fname <- sprintf("%02d_%s.R", i, a$id)

@@ -168,7 +168,7 @@ demo_catalogue <- function() {
 }
 library_catalogue <- function(root = studies_root()) {
   recs <- tryCatch(library_list(root), error = function(e) list())
-  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, gwas = r$source$id %||% "", src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else if (identical(r$source$type, "opengwas_vcf")) "OpenGWAS, complete GWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = .gwas_pop(r) %||% r$facts$ancestry %||% "?", ready = .lib_ready(r, role)$txt, ready_lvl = .lib_ready(r, role)$lvl)   # Round 89: what the dataset is ready for
+  mk <- function(r, role) list(id = paste0("lib:", r$trait), name = r$trait, gwas = r$source$id %||% "", src = if (identical(r$source$type, "opengwas")) "OpenGWAS" else if (identical(r$source$type, "opengwas_vcf")) "OpenGWAS, complete GWAS" else "Imported", n = if (!is.null(r$facts$n) && nzchar(as.character(r$facts$n))) format(as.numeric(r$facts$n), big.mark = ",") else "unknown", anc = .gwas_pop(r) %||% r$facts$ancestry %||% "?", ready = .lib_ready(r, role)$txt, ready_lvl = .lib_ready(r, role)$lvl, pub = sub("^\\((.*)\\)$", "\\1", gwas_cite_rec(r)))   # Round 89: what the dataset is ready for
   list(exposures = lapply(Filter(function(r) isTRUE(r$usable_as_exposure), recs), mk, role = "exposure"),
        outcomes = lapply(Filter(function(r) isTRUE(r$usable_as_outcome), recs), mk, role = "outcome"))
 }
@@ -227,7 +227,7 @@ demo_input <- function(exp_id, out_id) {
 #' variants are aligned by allele frequency or dropped; action 1, keeping them, when both files are declared forward strand). Every instrument that is lost on the way is counted in the `ledger`.
 #' Round 28: `ties` = "strongest" builds the tie sensitivity analysis instead: in every region where equal P values decided the lead
 #' variant, the variant with the larger |beta/SE| is used. The ledger's `ties` entry says how many regions that changes.
-library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(), ties = c("server", "strongest")) {
+library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(), ties = c("server", "strongest"), maf_min = MAF_MIN, action = NULL) {   # Round 109: action, the harmonisation action 1, 2 or 3 chosen by the analyst (NULL: 1 for forward-strand files, else 2)
   ties <- match.arg(ties)
   ex <- library_dataset(sub("^lib:", "", exp_id), root); ou <- library_dataset(sub("^lib:", "", out_id), root)
   if (!isTRUE(ex$recipe$usable_as_exposure)) stop("\"", ex$recipe$trait, "\" is neither marked as a set of independent instruments nor set to be clumped on this computer, so it cannot be an exposure. Import it again and answer the question about independent variants. Import a file that holds only clumped, genome-wide significant variants and answer \"Yes\" to the question about independent variants.")
@@ -304,7 +304,8 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   }
   # Round 26: palindromic variants are kept (action 1) only when the analyst declared, for both files, that alleles are on the forward strand.
   fwd <- identical(ex$recipe$facts$strand, "forward") && identical(ou$recipe$facts$strand, "forward")
-  H <- suppressWarnings(suppressMessages(TwoSampleMR::harmonise_data(fmt(X, "exposure"), fmt(Y, "outcome"), action = if (fwd) 1 else 2)))
+  act_used <- if (!is.null(action)) as.integer(action) else if (fwd) 1L else 2L; if (!act_used %in% 1:3) stop("The harmonisation action must be 1, 2 or 3.")
+  H <- suppressWarnings(suppressMessages(TwoSampleMR::harmonise_data(fmt(X, "exposure"), fmt(Y, "outcome"), action = act_used)))
   if (!nrow(H)) stop("No instrument could be matched to the outcome.")
   oy <- stats::setNames(Y$ea, Y$key)
   flipped <- toupper(H$effect_allele.exposure) != toupper(oy[H$SNP])
@@ -316,8 +317,12 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   d <- d[order(d$p_x), , drop = FALSE]; rownames(d) <- NULL
   led$flipped <- sum(d$harmonise_action == "flipped"); led$dropped_palindromic <- sum(d$harmonise_action == "dropped_palindromic")
   led$dropped_mismatch <- sum(d$harmonise_action == "dropped_allele_mismatch"); led$kept <- sum(d$mr_keep); led$threshold <- pthr; led$id_kind <- kx$kind
-  led$strand <- if (fwd) "forward" else "unknown"; led$harmonise_action <- if (fwd) 1L else 2L
+  led$strand <- if (fwd) "forward" else "unknown"; led$harmonise_action <- act_used; led$action_chosen <- !is.null(action)
   led$kept_palindromic <- sum(H$palindromic[match(d$variant_id, H$SNP)] %in% TRUE & d$mr_keep)
+  # Round 109: minimum minor allele frequency (MAF = min(EAF, 1 - EAF)), from the exposure EAF, else the outcome EAF; a variant with neither is kept
+  # and counted as not checked. Rare variants give unstable associations and are poorly tagged by the reference panel.
+  mf <- maf_filter(d, maf_min); d <- mf$d; led$maf <- mf$led; led$kept <- sum(d$mr_keep)
+  led$fstats <- instrument_f_stats(d[d$mr_keep, , drop = FALSE])   # Round 109: three F statistics of the kept instruments
   if (led$kept < 2L) stop("Fewer than 2 instruments remain after harmonisation.")
   # Round 33: allele-frequency check of both datasets against the panel of their ancestry (reported, nothing removed)
   ec <- list(x = tryCatch(eaf_panel_check(d, d$eaf_x, ex$dir, .gwas_pop(ex$recipe) %||% ex$recipe$facts$ancestry, ex$recipe$trait), error = function(e) list(run = FALSE, why = conditionMessage(e), trait = ex$recipe$trait)),
@@ -380,10 +385,11 @@ steiger_readiness <- function(p) {
 }
 
 #' One pair as the methods need it, from the simulated catalogue or from imported datasets (never a mixture).
-pair_input <- function(exp_id, out_id, pthr = 5e-8, ties = "server") {
+pair_input <- function(exp_id, out_id, pthr = 5e-8, ties = "server", action = NULL) {
   le <- startsWith(exp_id, "lib:"); lo <- startsWith(out_id, "lib:")
   if (le != lo) stop("A simulated trait cannot be paired with an imported one. Choose two simulated traits or two imported datasets.")
-  if (le) return(library_pair_input(exp_id, out_id, pthr, ties = ties))
+  if (le) return(library_pair_input(exp_id, out_id, pthr, ties = ties, action = action))
+  if (!is.null(action)) stop("Simulated traits are already aligned, so the harmonisation action does not apply.")
   if (!identical(ties, "server")) stop("Simulated traits have no tied P values, so there is no tie sensitivity analysis to run.")
   p <- demo_input(exp_id, out_id); p$simulated <- TRUE; p$anc_x <- "EUR"; p$anc_y <- "EUR"; p$ledger <- NULL; p
 }
@@ -398,13 +404,14 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8, p = NULL) {   # p: an input 
        has_n = nrow(kept) > 0 && all(c("n_x", "n_y") %in% names(kept)) && all(is.finite(kept$n_x) & is.finite(kept$n_y) & kept$n_x > 2 & kept$n_y > 2),
        simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, gpop_x = p$gpop_x, gpop_y = p$gpop_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y),
        scale_x = p$input$exposure_scale %||% "beta", steiger = steiger_readiness(p),
-       i2gx = if (exists("feas_i2gx")) feas_i2gx(kept$beta_x, kept$se_x) else NA_real_, full_gwas = full_gwas_status(exp_id, out_id))
+       i2gx = if (exists("feas_i2gx")) feas_i2gx(kept$beta_x, kept$se_x) else NA_real_, full_gwas = full_gwas_status(exp_id, out_id),
+       f_text = f_stats_text(p$ledger$fstats %||% instrument_f_stats(kept)), maf_text = maf_text(p$ledger$maf))   # Round 109: the three F statistics and the MAF filter
 }
 #' Round 72e: whether both traits of a pair are complete summary statistics (genome-wide, in the Data library), as LD score regression,
 #' MRlap, MR-APSS, CAUSE and LHC-MR need. OpenGWAS downloads hold only instruments and their lookups.
 #' Round 75d: live narration of the background work for the Check screen. `msg` says what is happening now; `why` explains it in one
 #' sentence. The app sets the option to send each line to the screen at once; elsewhere (tests, scripts) it does nothing.
-.say <- function(msg, why = "") { f <- getOption("mrstudio.say"); if (is.function(f)) tryCatch(f(msg, why), error = function(e) NULL); invisible(NULL) }
+.say <- function(msg, why = "") { msg <- sci_thr_text(msg); f <- getOption("mrstudio.say"); if (is.function(f)) tryCatch(f(msg, why), error = function(e) NULL); invisible(NULL) }
 full_gwas_status <- function(exp_id, out_id, root = studies_root()) {
   ids <- c(exp_id, out_id); if (!all(startsWith(ids, "lib:"))) return(list(ok = FALSE, why = "simulated"))
   use <- if (exists("full_gwas_ids")) full_gwas_ids(ids, root) else ids   # Round 75: the complete GWAS of an OpenGWAS download, when downloaded
@@ -424,7 +431,7 @@ full_gwas_status <- function(exp_id, out_id, root = studies_root()) {
 
 METHOD_CHOICES <- c("Inverse-variance weighted, multiplicative random effects" = "ivw_mre", "Debiased IVW (dIVW)" = "divw", "MR-RAPS (robust adjusted profile score)" = "raps", "Contamination mixture" = "conmix", "MR-Lasso" = "lasso", "MR-Egger with SIMEX correction" = "egger_simex", "MR-Egger regression" = "egger", "Weighted median" = "wm", "Simple median" = "smed", "Weighted mode" = "mode", "Simple mode" = "smode", "MR-PRESSO" = "presso", "Radial IVW" = "radial", "Radial MR-Egger" = "radegger", "MR Steiger directionality" = "steiger")
 
-param_adapters <- function() list(ivw_steiger = ADAPTER_IVW_STEIGER_V11, mvivw = ADAPTER_MVIVW_V11, mvegger = ADAPTER_MVEGGER_V11, mvmedian = ADAPTER_MVMEDIAN_V11, mvlasso = ADAPTER_MVLASSO_V11, mvqhet = ADAPTER_MVQHET_V11, mvcml = ADAPTER_MVCML_V11, mrmix = ADAPTER_MRMIX_V11, grip = ADAPTER_GRIP_V11, bwmr = ADAPTER_BWMR_V11, egger_boot = ADAPTER_EGGER_BOOT_V11, pwm = ADAPTER_PWM_V11, smode_nome = ADAPTER_SMODE_NOME_V11, wmode_nome = ADAPTER_WMODE_NOME_V11, rucker = ADAPTER_RUCKER_V11, sign = ADAPTER_SIGN_V11, maxlik = ADAPTER_MAXLIK_V11, mbe = ADAPTER_MBE_V11, cml = ADAPTER_CML_V11, robust_ivw = ADAPTER_ROBUST_V11, pivw = ADAPTER_PIVW_V11, ivw_mre = ADAPTER_IVW_MRE_V11, divw = ADAPTER_DIVW_V11, raps = ADAPTER_RAPS_V11, conmix = ADAPTER_CONMIX_V11, lasso = ADAPTER_LASSO_V11, egger_simex = ADAPTER_EGGER_SIMEX_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11, steiger = ADAPTER_STEIGER_V11, loo = ADAPTER_LOO_V11)
+param_adapters <- function() list(grapple = ADAPTER_GRAPPLE_V11, mvgrapple = ADAPTER_MVGRAPPLE_V11, ppmr = ADAPTER_PPMR_V11, gsmr = ADAPTER_GSMR_V11, mrclust = ADAPTER_MRCLUST_V11, cook = ADAPTER_COOK_V11, studres = ADAPTER_STUDRES_V11, egger_rob = ADAPTER_EGGER_ROB_V11, hetpen = ADAPTER_HETPEN_V11, clr = ADAPTER_CLR_V11, mvivwme = ADAPTER_MVIVWME_V11, mvgmm = ADAPTER_MVGMM_V11, ivw_steiger = ADAPTER_IVW_STEIGER_V11, mvivw = ADAPTER_MVIVW_V11, mvegger = ADAPTER_MVEGGER_V11, mvmedian = ADAPTER_MVMEDIAN_V11, mvlasso = ADAPTER_MVLASSO_V11, mvqhet = ADAPTER_MVQHET_V11, mvcml = ADAPTER_MVCML_V11, mrmix = ADAPTER_MRMIX_V11, grip = ADAPTER_GRIP_V11, bwmr = ADAPTER_BWMR_V11, egger_boot = ADAPTER_EGGER_BOOT_V11, pwm = ADAPTER_PWM_V11, smode_nome = ADAPTER_SMODE_NOME_V11, wmode_nome = ADAPTER_WMODE_NOME_V11, rucker = ADAPTER_RUCKER_V11, sign = ADAPTER_SIGN_V11, maxlik = ADAPTER_MAXLIK_V11, mbe = ADAPTER_MBE_V11, cml = ADAPTER_CML_V11, robust_ivw = ADAPTER_ROBUST_V11, pivw = ADAPTER_PIVW_V11, ivw_mre = ADAPTER_IVW_MRE_V11, divw = ADAPTER_DIVW_V11, raps = ADAPTER_RAPS_V11, conmix = ADAPTER_CONMIX_V11, lasso = ADAPTER_LASSO_V11, egger_simex = ADAPTER_EGGER_SIMEX_V11, egger = ADAPTER_EGGER_V11, wm = ADAPTER_WM_V11, smed = ADAPTER_SMED_V11, mode = ADAPTER_MODE_V11, smode = ADAPTER_SMODE_V11, presso = ADAPTER_PRESSO_V11, radial = ADAPTER_RADIAL_V11, radegger = ADAPTER_RADEGGER_V11, steiger = ADAPTER_STEIGER_V11, loo = ADAPTER_LOO_V11)
 
 #' Packages (by name) that are not installed in this runtime.
 .pkg_missing <- function(pk) pk[!nzchar(vapply(pk, function(p) system.file(package = p), ""))]
@@ -450,8 +457,10 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
   if ("ivw_steiger" %in% methods) { v <- ad$ivw_steiger$check(steiger_in, params[intersect(names(params), names(ad$ivw_steiger$params))])   # Round 72c
     if (identical(v$status, "block")) { methods <- setdiff(methods, "ivw_steiger"); rm_$left_out[["ivw_steiger"]] <- paste("left out,", paste(v$messages, collapse = " "))
       if (!length(methods)) stop("None of the chosen methods can run on this pair: ivw_steiger (", paste(v$messages, collapse = " "), ").") } }
+  gsmr_in <- NULL; if (any(c("gsmr", "ppmr") %in% methods)) { gsmr_in <- tryCatch({ k <- input$data[input$data$mr_keep %in% TRUE, ]; x <- input; x$ld <- ld_matrix_here(k$variant_id, k$ea, k$oa, gsmr_pop(input)); x }, error = function(e) e)   # Round 109: GSMR needs the LD matrix
+    if (inherits(gsmr_in, "error")) { for (lm_ in intersect(c("gsmr", "ppmr"), methods)) rm_$left_out[[lm_]] <- paste("left out,", conditionMessage(gsmr_in)); methods <- setdiff(methods, c("gsmr", "ppmr")); if (!length(methods)) stop("GSMR cannot run: ", conditionMessage(gsmr_in)) } }
   if ("steiger" %in% methods) { v <- ad$steiger$check(steiger_in, list()); if (identical(v$status, "block")) stop(paste(v$messages, collapse = " ")) }   # the script would stop on missing sample sizes but could not tell a binary outcome
-  spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = if (m %in% c("steiger", "ivw_steiger")) steiger_in else input,
+  spec <- lapply(methods, function(m) list(adapter = ad[[m]], input = if (m %in% c("steiger", "ivw_steiger")) steiger_in else if (m %in% c("gsmr", "ppmr")) gsmr_in else input,
                                            params = params[intersect(names(params), names(ad[[m]]$params))]))
   if (is.null(idx)) idx <- studio_pair_index(h$dir, exposure_label, outcome_label)
   r <- run_script_task(h$con, h$dir, idx, exposure_label, outcome_label, spec)
@@ -459,17 +468,17 @@ studio_run <- function(h, exposure_label, outcome_label, input, methods = c("ivw
   r
 }
 
-METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", ivw_steiger = "IVW after Steiger filtering", mvivw = "MVMR-IVW", mvegger = "MVMR-Egger", mvmedian = "MVMR median", mvlasso = "MVMR-Lasso", mvqhet = "MVMR Q-minimisation", mvcml = "MVMR-cML", mrmix = "MRMix", grip = "MR-GRIP", bwmr = "BWMR", egger_boot = "MR-Egger (bootstrap)", pwm = "Penalised weighted median", smode_nome = "Simple mode (NOME)", wmode_nome = "Weighted mode (NOME)", rucker = "Rucker model selection", sign = "Sign concordance test", maxlik = "Maximum likelihood", mbe = "Mode-based estimate (MBE)", cml = "MR-cML", robust_ivw = "MR-Robust", pivw = "Penalised IVW", divw = "Debiased IVW", raps = "MR-RAPS", conmix = "Contamination mixture", lasso = "MR-Lasso", egger_simex = "MR-Egger (SIMEX)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger", steiger = "MR Steiger directionality", loo = "Leave-one-out and single-variant analyses")
+METHOD_NAMES <- c(ivw_mre = "IVW (multiplicative random effects)", grapple = "GRAPPLE", mvgrapple = "MVMR GRAPPLE", ppmr = "PPMR (correlated instruments, pleiotropy)", gsmr = "GSMR (with HEIDI-outlier)", mrclust = "MR-Clust", cook = "Cook's distance (IVW)", studres = "Studentized residuals (IVW)", egger_rob = "MR-Egger (robust / penalised)", hetpen = "Heterogeneity-penalised model averaging", clr = "Conditional likelihood ratio", mvivwme = "MVMR-IVW (measurement error)", mvgmm = "MVMR GMM", ivw_steiger = "IVW after Steiger filtering", mvivw = "MVMR-IVW", mvegger = "MVMR-Egger", mvmedian = "MVMR median", mvlasso = "MVMR-Lasso", mvqhet = "MVMR Q-minimisation", mvcml = "MVMR-cML", mrmix = "MRMix", grip = "MR-GRIP", bwmr = "BWMR", egger_boot = "MR-Egger (bootstrap)", pwm = "Penalised weighted median", smode_nome = "Simple mode (NOME)", wmode_nome = "Weighted mode (NOME)", rucker = "Rucker model selection", sign = "Sign concordance test", maxlik = "Maximum likelihood", mbe = "Mode-based estimate (MBE)", cml = "MR-cML", robust_ivw = "MR-Robust", pivw = "Penalised IVW", divw = "Debiased IVW", raps = "MR-RAPS", conmix = "Contamination mixture", lasso = "MR-Lasso", egger_simex = "MR-Egger (SIMEX)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger", steiger = "MR Steiger directionality", loo = "Leave-one-out and single-variant analyses")
 IVW_MODEL_NAMES <- c(mre_floor = "IVW (multiplicative random effects)", mre = "IVW (multiplicative random effects, no fixed-effect floor)", fixed = "IVW (fixed effect)")
 
 #' The settings a pair was run with, read back from the settings lines of its scripts (the scripts are the record).
 pair_settings <- function(study, pair_folder) {
-  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, alpha_correction = "bonferroni", lso_fraction = 0.3, lso_repeats = 200, mv_model = "default", mv_orient = 1, mv_iter = 10000, mv_qhet_ci = "jackknife", mv_qhet_iter = 1000, mv_cml_dp = "dp", mv_cml_pert = 200, ml_model = "default", ml_psi = 0, mbe_weighting = "weighted", mbe_stderror = "delta", mbe_phi = 1, mbe_iter = 10000, cml_dp = "dp", cml_pert = 200, rob_variant = "both", piv_lambda = 1, piv_disp = "balanced", piv_ci = "fieller", eb_nboot = 1000, pwm_nboot = 1000, pwm_penk = 20, smn_nboot = 1000, smn_phi = 1, wmn_nboot = 1000, wmn_phi = 1, grip_variant = "standard", rk_variant = "point", rk_stat = "median", rk_nboot = 1000, mv_r_1_2 = 0, mv_r_1_3 = 0, mv_r_1_4 = 0, mv_r_1_5 = 0, mv_r_1_6 = 0, mv_r_2_3 = 0, mv_r_2_4 = 0, mv_r_2_5 = 0, mv_r_2_6 = 0, mv_r_3_4 = 0, mv_r_3_5 = 0, mv_r_3_6 = 0, mv_r_4_5 = 0, mv_r_4_6 = 0, mv_r_5_6 = 0, weights = "1", tol = 1e-4, r_xxo = 1, r_yyo = 1, dispersion = "balanced", raps_dispersion = "balanced", loss = "huber", psi = 0, ci_step = 0.01, lasso_dist = "normal", simex_b = 100)
+  out <- list(ci_level = 0.95, min_f = 0, ivw_model = "mre", nboot = 1000, phi = 1, nbdist = 1000, signif = 0.05, alpha = 0.05, alpha_correction = "bonferroni", lso_fraction = 0.3, lso_repeats = 200, mv_model = "default", mv_orient = 1, mv_iter = 10000, mv_qhet_ci = "jackknife", mv_qhet_iter = 1000, mv_cml_dp = "dp", mv_cml_pert = 200, ml_model = "default", ml_psi = 0, mbe_weighting = "weighted", mbe_stderror = "delta", mbe_phi = 1, mbe_iter = 10000, cml_dp = "dp", cml_pert = 200, rob_variant = "both", egr_variant = "both", gr_loss = "tukey", gr_rho_xy = 0, ppmr_max_iter = 1000, ppmr_eps = 1e-5, gsmr_std = "no", gsmr_dir = "forward", gsmr_heidi = "on", gsmr_nsnps = 10, gsmr_n_ref = 503, mc_prob = 0.8, mc_min = 4, cook_mult = 4, stud_cut = "2", hp_prior = 0.5, hp_grid = 2000, clr_grid = 2000, mv_gmm_robust = "robust", piv_lambda = 1, piv_disp = "balanced", piv_ci = "fieller", eb_nboot = 1000, pwm_nboot = 1000, pwm_penk = 20, smn_nboot = 1000, smn_phi = 1, wmn_nboot = 1000, wmn_phi = 1, grip_variant = "standard", rk_variant = "point", rk_stat = "median", rk_nboot = 1000, mv_r_1_2 = 0, mv_r_1_3 = 0, mv_r_1_4 = 0, mv_r_1_5 = 0, mv_r_1_6 = 0, mv_r_2_3 = 0, mv_r_2_4 = 0, mv_r_2_5 = 0, mv_r_2_6 = 0, mv_r_3_4 = 0, mv_r_3_5 = 0, mv_r_3_6 = 0, mv_r_4_5 = 0, mv_r_4_6 = 0, mv_r_5_6 = 0, weights = "1", tol = 1e-4, r_xxo = 1, r_yyo = 1, dispersion = "balanced", raps_dispersion = "balanced", loss = "huber", psi = 0, ci_step = 0.01, lasso_dist = "normal", simex_b = 100)
   for (f in Sys.glob(file.path(study, "03_pairs", pair_folder, "02_scripts", "[0-9]*_*.R"))) {
     lns <- readLines(f, warn = FALSE)   # Round 84: once per script (it was read again for every setting, about 775 reads for 31 methods)
     for (k in names(out)) {
       ln <- grep(paste0("^", k, " <- "), lns, value = TRUE)
-      if (length(ln)) { v <- sub(paste0("^", k, " <- "), "", ln[1]); out[[k]] <- if (k %in% c("ivw_model", "mv_model", "mv_qhet_ci", "mv_cml_dp", "ml_model", "mbe_weighting", "mbe_stderror", "cml_dp", "rob_variant", "piv_disp", "piv_ci", "rk_variant", "rk_stat", "grip_variant", "alpha_correction", "weights", "dispersion", "raps_dispersion", "loss", "lasso_dist")) gsub("\"", "", v) else as.numeric(v) }
+      if (length(ln)) { v <- sub(paste0("^", k, " <- "), "", ln[1]); out[[k]] <- if (k %in% c("ivw_model", "mv_model", "mv_qhet_ci", "mv_cml_dp", "ml_model", "mbe_weighting", "mbe_stderror", "cml_dp", "rob_variant", "egr_variant", "mv_gmm_robust", "stud_cut", "gr_loss", "gsmr_std", "gsmr_dir", "gsmr_heidi", "piv_disp", "piv_ci", "rk_variant", "rk_stat", "grip_variant", "alpha_correction", "weights", "dispersion", "raps_dispersion", "loss", "lasso_dist")) gsub("\"", "", v) else as.numeric(v) }
     }
   }
   out
@@ -848,4 +857,175 @@ compare_defaults <- function(study, pair_folder, exp_id, out_id, methods, pthr =
     }
   }
   list(rows = rows, rerun = as.list(rerun))
+}
+
+# ---- Round 109: P cut points in scientific form ----
+#' A P cut point as people write it: 5e-8, 5e-6, 1e-5 (never 0.000005 or 5e-06); 0.05 and 0.001 stay as they are.
+fmt_thr <- function(x) { x <- suppressWarnings(as.numeric(x)); vapply(x, function(v) { if (!is.finite(v)) return("")
+  if (v > 0 && v < 1e-3) { e <- floor(log10(v) + 1e-9); m <- signif(v / 10^e, 3); if (m >= 10) { m <- m / 10; e <- e + 1 }; paste0(format(m), "e", e) } else format(v) }, "") }
+#' Rewrite the cut points in a text ("P < 0.000005", "P below 5e-06", "P 1e-05") the same way. Only numbers after "P <", "P below" and
+#' "P " followed by a digit change, and only below 0.001, so results such as "P = 0.003" or "P < 0.001" are untouched.
+sci_thr_text <- function(s) {
+  if (is.list(s)) return(lapply(s, sci_thr_text)); if (!is.character(s)) return(s)
+  rx <- "(?<=P < |P &lt; |P below |P under |P )[0-9]*\\.?[0-9]+(?:[eE]-?[0-9]+)?"
+  m <- gregexpr(rx, s, perl = TRUE)
+  regmatches(s, m) <- lapply(regmatches(s, m), function(v) vapply(v, function(t) { x <- as.numeric(t); if (is.finite(x) && x > 0 && x < 1e-3) fmt_thr(x) else t }, ""))
+  s
+}
+
+# ---- Round 109: minimum minor allele frequency and the three F statistics of the instruments ----
+MAF_MIN <- 0.01   # instruments with MAF below 1% are removed at Check
+#' Remove kept instruments whose MAF is below maf_min. MAF comes from the exposure EAF, else the outcome EAF.
+maf_filter <- function(d, maf_min = MAF_MIN) {
+  e <- if ("eaf_x" %in% names(d)) suppressWarnings(as.numeric(d$eaf_x)) else rep(NA_real_, nrow(d))
+  ey <- if ("eaf_y" %in% names(d)) suppressWarnings(as.numeric(d$eaf_y)) else rep(NA_real_, nrow(d))
+  src <- ifelse(is.finite(e), "exposure", ifelse(is.finite(ey), "outcome", NA_character_)); e[!is.finite(e)] <- ey[!is.finite(e)]
+  e[is.finite(e) & (e < 0 | e > 1)] <- NA_real_
+  d$maf <- ifelse(is.finite(e), pmin(e, 1 - e), NA_real_)
+  low <- d$mr_keep & is.finite(d$maf) & d$maf < maf_min
+  d$harmonise_action[low] <- "dropped_low_maf"; d$mr_keep[low] <- FALSE
+  led <- list(min = maf_min, removed = sum(low), removed_ids = d$variant_id[low], not_checked = sum(d$mr_keep & !is.finite(d$maf)),
+              from_outcome = sum(d$mr_keep & src %in% "outcome"), checked = sum(d$mr_keep & is.finite(d$maf)))
+  list(d = d, led = led)
+}
+#' Three F statistics of the instruments (each with its formula):
+#'   1. per variant (beta / SE)^2, mean and minimum;
+#'   2. per variant from the variance explained, R2 = 2 beta^2 EAF (1 - EAF) (needs EAF; otherwise R2 = beta^2 / (beta^2 + N SE^2), needs N),
+#'      F = R2 (N - 2) / (1 - R2), mean and minimum;
+#'   3. overall F of all k instruments, F = R2 (N - k - 1) / (k (1 - R2)), R2 the sum over instruments.
+#' N is the exposure sample size of each variant (n_x). What cannot be computed says why.
+instrument_f_stats <- function(d) {
+  k <- nrow(d); out <- list(k = k)
+  if (!k) return(out)
+  f1 <- (d$beta_x / d$se_x)^2; out$f_z <- list(mean = mean(f1), min = min(f1), formula = "F = (beta / SE)^2")
+  N <- if ("n_x" %in% names(d)) suppressWarnings(as.numeric(d$n_x)) else rep(NA_real_, k)
+  e <- if ("eaf_x" %in% names(d)) suppressWarnings(as.numeric(d$eaf_x)) else rep(NA_real_, k)
+  r2_eaf <- ifelse(is.finite(e) & e > 0 & e < 1, 2 * d$beta_x^2 * e * (1 - e), NA_real_)
+  r2_n <- ifelse(is.finite(N) & N > 0, d$beta_x^2 / (d$beta_x^2 + N * d$se_x^2), NA_real_)
+  r2 <- ifelse(is.finite(r2_eaf), r2_eaf, r2_n); src <- if (all(is.finite(r2_eaf))) "EAF" else if (any(is.finite(r2_eaf))) "EAF, else beta, SE and N" else "beta, SE and N"
+  if (!all(is.finite(N) & N > 2)) out$f_r2 <- list(why = "the exposure sample size (N) of every instrument is needed", formula = "F = R2 (N - 2) / (1 - R2)")
+  else if (!all(is.finite(r2))) out$f_r2 <- list(why = "the exposure EAF, or the sample size, of every instrument is needed", formula = "F = R2 (N - 2) / (1 - R2)")
+  else { f2 <- r2 * (N - 2) / (1 - r2); out$f_r2 <- list(mean = mean(f2), min = min(f2), r2_from = src, formula = "R2 = 2 beta^2 EAF (1 - EAF); F = R2 (N - 2) / (1 - R2)") }
+  if (is.null(out$f_r2$why)) { R2 <- sum(r2); Nm <- stats::median(N)
+    out$f_all <- if (Nm - k - 1 > 0 && R2 < 1) list(value = R2 * (Nm - k - 1) / (k * (1 - R2)), r2 = R2, n = Nm, formula = "F = R2 (N - k - 1) / (k (1 - R2)), R2 summed over the k instruments, N the median exposure sample size")
+                   else list(why = "the sample size is too small for the number of instruments", formula = "F = R2 (N - k - 1) / (k (1 - R2))") }
+  else out$f_all <- list(why = out$f_r2$why, formula = "F = R2 (N - k - 1) / (k (1 - R2))")
+  out
+}
+#' One sentence for Check, the report and STROBE-MR item 10 (instrument strength).
+f_stats_text <- function(fs) {
+  if (is.null(fs) || !isTRUE(fs$k > 0)) return("")
+  r <- function(x) formatC(x, digits = 1, format = "f", big.mark = ",")
+  a <- sprintf("Per variant, F = (beta / SE)^2: mean %s, minimum %s.", r(fs$f_z$mean), r(fs$f_z$min))
+  b <- if (!is.null(fs$f_r2$why)) sprintf("F from the variance explained could not be computed: %s.", fs$f_r2$why) else sprintf("Per variant from the variance explained (R2 = 2 beta^2 EAF (1 - EAF)%s; F = R2 (N - 2) / (1 - R2)): mean %s, minimum %s.", if (identical(fs$f_r2$r2_from, "EAF")) "" else ", or from beta, SE and N where EAF is missing", r(fs$f_r2$mean), r(fs$f_r2$min))
+  c <- if (!is.null(fs$f_all$why)) sprintf("The overall F of all instruments could not be computed: %s.", fs$f_all$why) else sprintf("Overall F of the %d instruments together (F = R2 (N - k - 1) / (k (1 - R2)), R2 = %s summed over them, N = %s): %s.", fs$k, formatC(fs$f_all$r2, digits = 3, format = "g"), format(round(fs$f_all$n), big.mark = ","), r(fs$f_all$value))
+  paste(a, b, c)
+}
+#' One sentence on the MAF filter for Check, the report and STROBE-MR.
+maf_text <- function(m) {
+  if (is.null(m)) return("")
+  s <- sprintf("Instruments with a minor allele frequency below %s (MAF = min(EAF, 1 - EAF)) were removed: %d.", format(m$min), as.integer(m$removed))
+  if (isTRUE(m$not_checked > 0)) s <- paste(s, sprintf("%d %s no allele frequency in either dataset, so %s MAF could not be checked (kept).", as.integer(m$not_checked), if (m$not_checked == 1) "instrument has" else "instruments have", if (m$not_checked == 1) "its" else "their"))
+  if (isTRUE(m$from_outcome > 0)) s <- paste(s, sprintf("For %d, the outcome EAF was used because the exposure has none.", as.integer(m$from_outcome)))
+  s
+}
+
+# ---- Round 109: SIMEX added by itself when I2GX is below 0.9 ----
+SIMEX_I2GX <- 0.9   # Bowden et al. 2016: below 0.9, MR-Egger is diluted by uncertainty in the variant-exposure associations (NOME violation)
+#' When MR-Egger or radial MR-Egger is chosen for a pair whose I2GX is below 0.9, add MR-Egger with SIMEX correction for that pair.
+#' Returns the methods and the reason (NULL when nothing was added). Multivariable pairs are left as they are.
+simex_auto <- function(methods, d) {
+  if (any(grepl("^beta_x_[0-9]+$", names(d))) || !any(c("egger", "radegger") %in% methods) || "egger_simex" %in% methods) return(list(methods = methods, added = NULL))
+  k <- d[d$mr_keep %in% TRUE, , drop = FALSE]; i2 <- tryCatch(feas_i2gx(k$beta_x, k$se_x), error = function(e) NA_real_)
+  if (!is.finite(i2) || i2 >= SIMEX_I2GX) return(list(methods = methods, added = NULL, i2gx = i2))
+  list(methods = c(methods, "egger_simex"), added = "egger_simex", i2gx = i2)
+}
+#' Round 109: author, year and PMID of a library dataset, "(Willer, 2013; PMID 24097068)" (empty when none is known).
+gwas_cite_rec <- function(r) if (exists("gwas_cite")) gwas_cite(list(author = r$source$author %||% r$facts$author, year = r$source$year %||% r$facts$year, pmid = r$source$pmid %||% r$facts$pmid)) else ""
+
+# ---- Round 109: power and sample size for MR (Brion, Shakhbazov and Visscher 2013, Int J Epidemiol; the three mRnd calculators) ----
+# MR Studio's own code from the published formulas. Every sample size is rounded up. Each function returns power, NCP, the F statistic
+# (where the calculator gives one) and, when power_target is given, the sample size that reaches it.
+.mr_pw_check <- function(alpha, R2xz, N = NULL, power_target = NULL) {
+  if (!is.finite(alpha) || alpha <= 0 || alpha >= 1) stop("alpha must be between 0 and 1, for example 0.05.", call. = FALSE)
+  if (!is.finite(R2xz) || R2xz <= 0 || R2xz >= 1) stop("R2xz (variance of the exposure explained by the instruments) must be between 0 and 1.", call. = FALSE)
+  if (!is.null(N) && (!is.finite(N) || N < 3)) stop("The sample size must be at least 3.", call. = FALSE)
+  if (!is.null(power_target) && (!is.finite(power_target) || power_target <= 0 || power_target >= 1)) stop("The target power must be between 0 and 1, for example 0.8.", call. = FALSE)
+}
+#' Continuous outcome, two-stage least squares (mRnd calculator 1).
+mr_power_2sls <- function(N = NULL, alpha = 0.05, byx, bOLS, R2xz, varx = 1, vary = 1, power_target = NULL) {
+  .mr_pw_check(alpha, R2xz, N, power_target)
+  if (!is.finite(varx) || varx <= 0 || !is.finite(vary) || vary <= 0) stop("The variances of the exposure and the outcome must be positive.", call. = FALSE)
+  con <- (bOLS - byx) * varx; vey <- vary - byx * varx * (2 * bOLS - byx)
+  if (vey < 0) stop("These values imply a negative residual variance of the outcome: check beta_OLS, the causal effect and the variances.", call. = FALSE)
+  out <- list(calculator = "continuous, two-stage least squares")
+  if (!is.null(N)) { b <- byx + con / (N * R2xz); v <- vey / (N * R2xz * varx); ncp <- b^2 / v
+    out <- c(out, list(N = N, ncp = ncp, power = 1 - stats::pchisq(stats::qchisq(1 - alpha, 1), 1, ncp), f = 1 + N * R2xz / (1 - R2xz))) }
+  if (!is.null(power_target)) { Z <- (stats::qnorm(1 - alpha / 2) + stats::qnorm(power_target))^2
+    a <- (byx * R2xz)^2; bq <- R2xz * (2 * byx * con - Z * vey / varx); cq <- con^2
+    out$n_needed <- if (a > 0 && bq^2 - 4 * a * cq >= 0) ceiling((-bq + sqrt(bq^2 - 4 * a * cq)) / (2 * a)) else NA_real_ }
+  out
+}
+#' Continuous outcome, from the variance of the outcome explained by the instruments (mRnd calculator 2).
+mr_power_yz <- function(N = NULL, alpha = 0.05, byx, R2xz, varx = 1, vary = 1, power_target = NULL) {
+  .mr_pw_check(alpha, R2xz, N, power_target)
+  r2yz <- byx^2 * (varx / vary) * R2xz; if (!is.finite(r2yz) || r2yz <= 0 || r2yz >= 1) stop("These values imply that the instruments explain none or all of the outcome.", call. = FALSE)
+  out <- list(calculator = "continuous, variance of the outcome explained", r2yz = r2yz)
+  if (!is.null(N)) { ncp <- N * r2yz / (1 - r2yz); out <- c(out, list(N = N, ncp = ncp, power = 1 - stats::pchisq(stats::qchisq(1 - alpha, 1), 1, ncp))) }
+  if (!is.null(power_target)) out$n_needed <- ceiling((stats::qnorm(1 - alpha / 2) + stats::qnorm(power_target))^2 * (1 - r2yz) / r2yz)
+  out
+}
+#' Binary outcome (mRnd calculator 3). K is the share of cases in the study sample (not the population prevalence); OR is per SD of the exposure.
+mr_power_binary <- function(N = NULL, alpha = 0.05, K, OR, R2xz, power_target = NULL) {
+  .mr_pw_check(alpha, R2xz, N, power_target)
+  if (!is.finite(K) || K <= 0 || K >= 1) stop("K, the share of cases in the study (cases / all participants), must be between 0 and 1.", call. = FALSE)
+  if (!is.finite(OR) || OR <= 0 || OR == 1) stop("The odds ratio must be positive and not 1.", call. = FALSE)
+  b <- K * (OR / (1 + K * (OR - 1)) - 1); f0 <- K * (1 - K) - b^2
+  out <- list(calculator = "binary outcome")
+  if (!is.null(N)) { ncp <- b^2 / (f0 / (N * R2xz)); out <- c(out, list(N = N, ncp = ncp, power = 1 - stats::pchisq(stats::qchisq(1 - alpha, 1), 1, ncp), f = 1 + N * R2xz / (1 - R2xz))) }
+  if (!is.null(power_target)) out$n_needed <- ceiling((stats::qnorm(1 - alpha / 2) + stats::qnorm(power_target))^2 * f0 / (b^2 * R2xz))
+  out
+}
+#' R2xz of a pair's instruments: the sum over the kept instruments of R2 = 2 beta^2 EAF (1 - EAF), else beta^2 / (beta^2 + N SE^2).
+pair_r2xz <- function(d) { fs <- instrument_f_stats(d); if (!is.null(fs$f_all$r2)) fs$f_all$r2 else NA_real_ }
+#' The Methods sentence and STROBE-MR item for a power calculation (pw from one of the three functions).
+power_text <- function(pw, alpha, effect_txt) sprintf("Statistical power was calculated as by Brion et al. (mRnd; %s) for %s at alpha %s: with N = %s and the variance of the exposure explained by the instruments R2 = %s, power was %.0f%% (non-centrality parameter %s)%s.",
+  pw$calculator, effect_txt, format(alpha), format(pw$N, big.mark = ","), formatC(pw$r2xz %||% NA_real_, digits = 3, format = "g"), 100 * pw$power, formatC(pw$ncp, digits = 3, format = "g"),
+  if (!is.null(pw$n_needed)) sprintf("; %s participants would give the target power", format(pw$n_needed, big.mark = ",")) else "")
+#' Power of one pair, with N, R2xz and K filled from the pair; only the hypothesised effect (and for 2SLS beta_OLS) is asked.
+#' effect: beta per SD of the exposure (continuous outcome) or the odds ratio per SD (binary outcome).
+pair_power <- function(exp_id, out_id, effect, alpha = 0.05, power_target = 0.8, bOLS = NA_real_, pthr = 5e-8, p = NULL) {
+  if (is.null(p)) p <- pair_input(exp_id, out_id, pthr)
+  d <- p$input$data; d <- d[d$mr_keep %in% TRUE, , drop = FALSE]; r2 <- pair_r2xz(d); effect <- suppressWarnings(as.numeric(effect))
+  if (!is.finite(r2)) stop("The variance of the exposure explained by the instruments cannot be computed: the exposure needs EAF or sample sizes.", call. = FALSE)
+  if (!is.finite(effect)) stop("Enter the effect you want to detect.", call. = FALSE)
+  if (identical(p$input$outcome_scale, "log_or")) {
+    cc <- p$binary$y %||% list(); nc <- cc$ncase; nn <- cc$ncontrol
+    if (!is.finite(nc %||% NA) || !is.finite(nn %||% NA)) stop("The numbers of cases and controls of the outcome GWAS are needed for a binary outcome.", call. = FALSE)
+    N <- nc + nn; K <- nc / N; pw <- mr_power_binary(N, alpha, K, effect, r2, power_target); pw$K <- K
+    eff <- sprintf("an odds ratio of %s per SD of the exposure (K, the share of cases in the outcome GWAS, %s; not the population prevalence)", format(effect), formatC(K, digits = 3, format = "g"))
+  } else {
+    N <- stats::median(d$n_y); if (!is.finite(N)) stop("The sample size of the outcome GWAS is needed.", call. = FALSE)
+    bO <- suppressWarnings(as.numeric(bOLS))
+    pw <- if (is.finite(bO)) mr_power_2sls(N, alpha, effect, bO, r2, 1, 1, power_target) else mr_power_yz(N, alpha, effect, r2, 1, 1, power_target)
+    eff <- sprintf("a causal effect of %s SD of the outcome per SD of the exposure%s (variances of both traits 1, as for standardised traits)", format(effect), if (is.finite(bO)) sprintf(", observational estimate %s", format(bO)) else "")
+  }
+  pw$r2xz <- r2; pw$alpha <- alpha; pw$power_target <- power_target; pw$effect <- effect; pw$text <- power_text(pw, alpha, eff)
+  pw$exposure <- p$exposure_label; pw$outcome <- p$outcome_label
+  pw
+}
+#' Round 109: the 1000 Genomes population for GSMR's LD matrix: the population the pair carries (gsmr_pop), else European.
+gsmr_pop <- function(input) { p <- input$ld_pop %||% "EUR"; if (is.na(ld_pop_for(p))) "EUR" else ld_pop_for(p) }
+
+# ---- Round 109: harmonisation action as a sensitivity setting (TwoSampleMR::harmonise_data action 1, 2 or 3) ----
+HARM_ACTIONS <- c("1" = "all alleles assumed on the forward strand", "2" = "palindromic variants aligned by allele frequency (those too close to 0.5 dropped)", "3" = "every palindromic variant dropped")
+#' The same pair with another harmonisation action, run as its own labelled pair (the primary stays as it is).
+studio_run_harm <- function(h, exp_id, out_id, action, methods = c("ivw_mre", "egger"), ci_level = 0.95, idx, params = NULL, pthr = 5e-8) {
+  action <- as.integer(action); inp <- pair_input(exp_id, out_id, pthr, action = action)
+  methods <- setdiff(methods, c("steiger", "loo")); kept <- sum(inp$input$data$mr_keep)
+  if (kept < 3L) methods <- setdiff(methods, c("egger", "wm", "smed", "mode", "smode", "raps", "conmix", "lasso", "egger_simex"))
+  if (!length(methods)) methods <- "ivw_mre"
+  lab <- sprintf("%s [harmonisation: action %d]", inp$exposure_label, action)
+  r <- studio_run(h, lab, inp$outcome_label, inp$input, methods, ci_level, idx = idx, params = params)
+  L <- inp$ledger; r$kept <- kept; r$label <- lab; r$counts <- list(flipped = L$flipped, dropped_palindromic = L$dropped_palindromic, dropped_mismatch = L$dropped_mismatch, kept = L$kept); r
 }

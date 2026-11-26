@@ -176,6 +176,22 @@ jobs:
             curl -fsSL -o "$SX" https://cran.r-project.org/src/contrib/Archive/simex/simex_1.8.tar.gz
           if [[ "$RUNNER_OS" == "Windows" ]]; then SX="$(cygpath -m "$SX")"; fi
           export PK_SIMEX="$SX"
+          # Round 109: MR-Clust (mrclust 0.1.0, GPL-3, pure R), the source archive of commit 039ed855, checked by SHA-256 in R below
+          MC="$RUNNER_TEMP/mrclust_039ed855.tar.gz"
+          curl -fsSL -o "$MC" https://codeload.github.com/cnfoley/mrclust/tar.gz/039ed855bda28b76195222a8ddd2b7b5041b775b
+          if [[ "$RUNNER_OS" == "Windows" ]]; then MC="$(cygpath -m "$MC")"; fi
+          export PK_MRCLUST="$MC"
+          GS="$RUNNER_TEMP/gsmr2_e7953cc.tar.gz"   # Round 109: GSMR (gsmr2 1.1.1, GPL >= 2, pure R), checked by SHA-256 in R below
+          curl -fsSL -o "$GS" https://codeload.github.com/JianYang-Lab/gsmr2/tar.gz/e7953cc136ad1cfae14674facde21e90caddea5f
+          if [[ "$RUNNER_OS" == "Windows" ]]; then GS="$(cygpath -m "$GS")"; fi
+          export PK_GSMR2="$GS"
+          # Round 109: GRAPPLE (with haploR from the CRAN archive and its CRAN imports) and PPMR (CRAN, C++): optional, checked by SHA-256 in R below
+          OPT="$RUNNER_TEMP/opt109"; mkdir -p "$OPT"
+          curl -fsSL -o "$OPT/GRAPPLE.tar.gz" https://codeload.github.com/jingshuw/GRAPPLE/tar.gz/317e837340a29129c52c9d9b22f5f8bae72e27d0 || true
+          curl -fsSL -o "$OPT/haploR.tar.gz" https://cran.r-project.org/src/contrib/Archive/haploR/haploR_4.0.7.tar.gz || true
+          for f in RJSONIO_2.0.5 bitops_1.1-0 RUnit_0.4.33.1 DT_0.34.0 PPMR_1.0.1; do n=${f%%_*}; curl -fsSL -o "$OPT/$n.tar.gz" "https://cran.r-project.org/src/contrib/$f.tar.gz" || curl -fsSL -o "$OPT/$n.tar.gz" "https://cran.r-project.org/src/contrib/Archive/$n/$f.tar.gz" || true; done
+          if [[ "$RUNNER_OS" == "Windows" ]]; then OPT="$(cygpath -m "$OPT")"; fi
+          export PK_OPT109="$OPT"
           SS="$RUNNER_TEMP/simsalapar_1.0-13.tar.gz"   # Round 64: import of GenomicSEM, not on conda-forge
           curl -fsSL -o "$SS" https://cran.r-project.org/src/contrib/simsalapar_1.0-13.tar.gz || \
             curl -fsSL -o "$SS" https://cran.r-project.org/src/contrib/Archive/simsalapar/simsalapar_1.0-13.tar.gz
@@ -219,6 +235,23 @@ jobs:
             if (!file.exists(sx) || !identical(digest::digest(file = sx, algo = "sha256"), "80c7841196b9377a9367eb6960ad80ca0bf8de511b8b18a0031bfbe7bde289a0"))
               stop("simex 1.8 source could not be downloaded or its checksum differs")
             install.packages(sx, repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
+            mc <- Sys.getenv("PK_MRCLUST")   # Round 109: MR-Clust
+            if (!file.exists(mc) || !identical(digest::digest(file = mc, algo = "sha256"), "1ce683237fcb9a6cdd708d38045ab3cb30c0550c77d37f3dcf4881755e77412d"))
+              stop("mrclust source could not be downloaded or its checksum differs")
+            install.packages(mc, repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
+            if (!requireNamespace("mrclust", quietly = TRUE)) stop("package did not install: mrclust")
+            gs <- Sys.getenv("PK_GSMR2")   # Round 109: GSMR
+            if (!file.exists(gs) || !identical(digest::digest(file = gs, algo = "sha256"), "3e3e2a8a1be2e056f1b1dc38d4cf56f0218b0a2ab84b5063ed9f01543e4421e3"))
+              stop("gsmr2 source could not be downloaded or its checksum differs")
+            install.packages(gs, repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
+            if (!requireNamespace("gsmr2", quietly = TRUE)) stop("package did not install: gsmr2")
+            o9 <- Sys.getenv("PK_OPT109"); sha <- c(RJSONIO = "ca924047c88c0b48334a562e8ec319dab7b114435fdf36764eab41db9eeb259f", bitops = "73f063f15c6334d769202a178f7dd5499bdd10044a4ffbef571be57cbcc68b22",
+              RUnit = "8528fa3ba8d04a6e71783f01ba3e1163b5900c6b3c2bc81bad2349e220197f05", DT = "8862025ef26af65b53f072adb1d133c25c5f96a812e7ae0aa822baa71249f1f2", haploR = "3ba11c23af387531bd21bf96eb40cf98b8003a7b8f13ea9f39b0f4d44c290ee9",
+              GRAPPLE = "01c919045020623c58192f2789c64e98fde02e409361796dacf0d80999267638", PPMR = "822826522e52e486a195b9b818e414669cbeec528b9c6b38007e3f7e936d429b")
+            for (n in names(sha)) { f <- file.path(o9, paste0(n, ".tar.gz"))   # Round 109: optional; where one cannot be built the app reports it as not installed
+              if (!file.exists(f) || !identical(digest::digest(file = f, algo = "sha256"), sha[[n]])) { message("optional: ", n, " missing or checksum differs"); next }
+              if (!requireNamespace(n, quietly = TRUE)) tryCatch(install.packages(f, repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch")), error = function(e) message("optional: ", conditionMessage(e))) }
+            for (n in c("haploR", "GRAPPLE", "PPMR")) cat(sprintf("%-12s %s\n", n, if (requireNamespace(n, quietly = TRUE)) as.character(utils::packageVersion(n)) else "NOT INSTALLED (optional)"))
             p <- Sys.getenv(c("PK_MRMIX", "PK_MRPRESSO", "PK_RADIALMR", "PK_MRRAPS", "PK_TWOSAMPLEMR"))   # dependency order
             install.packages(unname(p), repos = NULL, type = "source",
                              INSTALL_opts = c("--no-docs", "--no-multiarch", "--no-test-load"))
@@ -423,6 +456,10 @@ jobs:
 
       - name: Screen logic and server tests (study, pair, run, results)
         run: |
+          # Round 109: the GSMR example genotypes (gsmr_example.xmat.gz, in the gsmr2 source) for the real-result test of GSMR
+          tar -xzf "$RUNNER_TEMP/gsmr2_e7953cc.tar.gz" -C "$RUNNER_TEMP" 2>/dev/null || true
+          XM="$(ls "$RUNNER_TEMP"/gsmr2-*/gsmr_example.xmat.gz 2>/dev/null | head -n 1)"; if [[ -n "$XM" && "$RUNNER_OS" == "Windows" ]]; then XM="$(cygpath -m "$XM")"; fi
+          export MRGUI_GSMR_XMAT="$XM"; export OMP_NUM_THREADS=1
           "$RBIN" --no-echo --no-restore --vanilla --file=prototype/engine/test_studio.R
 
       - name: Collect installer sizes

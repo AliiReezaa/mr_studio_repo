@@ -14,6 +14,14 @@ dependencies:
   - r-digest
   - r-dbi
   - r-rsqlite
+  # Round 109: GSMR (gsmr2) needs survey (pchisqsum; with minqa and mitools) and markdown (Depends; with litedown and a newer xfun)
+  - r-survey
+  - r-minqa
+  - r-mitools
+  - r-markdown
+  # Round 109: GRAPPLE needs haploR (archived on CRAN), whose imports XML and RCurl come from conda-forge
+  - r-xml
+  - r-rcurl
   # Data library tables are Parquet files (Round 35): small, dependency-free reader and writer.
   - r-nanoparquet
   # Excel import (Round 77): .xlsx and .xls GWAS tables, for example supplementary tables of papers (MIT).

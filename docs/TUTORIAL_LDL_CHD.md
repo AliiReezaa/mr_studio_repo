@@ -57,7 +57,7 @@ Then continue to the methods.
 ## 6. Choose the methods
 
 Choose **Use the standard publication set**. It selects IVW (with the Steiger direction test and leave-one-out), MR-Egger, weighted
-median, weighted mode and MR-PRESSO. Leave the settings at their defaults. CHD is a yes/no trait, so the Steiger direction test asks
+median, weighted mode and simple mode. Also tick MR-PRESSO and radial IVW for step 4 below. Leave the settings at their defaults. CHD is a yes/no trait, so the Steiger direction test asks
 for its population prevalence (it puts the variance explained on the liability scale); enter a value from the literature and note
 it in your methods. Run the analysis.
 

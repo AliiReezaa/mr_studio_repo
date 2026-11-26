@@ -417,3 +417,80 @@ eaf_panel_check <- function(d, eaf, ds_dir, ancestry, trait, dir = ld_panel_dir(
                near_half = sum(kept & is.finite(e) & !pal & is.finite(pan) & maf >= EAF_FLIP_MAF_LIMIT),
                max_difference = if (any(judged)) max(abs(e - pan)[judged]) else NA_real_), list(rows = rows))
 }
+
+# ---- Round 109: why an instrument missing in the outcome had no proxy ----
+#' For each instrument OpenGWAS could not find in the outcome (directly or by proxy), the reason, from the 1000 Genomes panel of the
+#' outcome's ancestry: not in the panel; no other variant with r2 >= rsq within 500 kb (with the best r2 found); every proxy at that r2
+#' is palindromic with MAF above the limit (its strand cannot be inferred); or the proxies at that r2 are not in the outcome either.
+#' Returns a data frame (variant_id, why) or NULL when the panel or PLINK is missing (the caller then says the reason is unknown).
+proxy_reasons <- function(missing, rsq = 0.8, maf = 0.3, pop = "EUR", dir = ld_panel_dir(), bin = plink_bin(), kb = 500) {
+  missing <- unique(missing[!is.na(missing) & grepl("^rs[0-9]+$", missing)]); pop <- ld_pop_for(pop)
+  if (!length(missing) || is.na(pop) || is.na(bin)) return(NULL)
+  bfile <- file.path(dir, pop); if (!all(file.exists(paste0(bfile, c(".bed", ".bim", ".fam"))))) return(NULL)
+  bim <- utils::read.table(paste0(bfile, ".bim"), colClasses = c("NULL", "character", "NULL", "NULL", "character", "character"), col.names = c("x", "snp", "y", "z", "a1", "a2"))
+  inp <- missing[missing %in% bim$snp]
+  tmp <- tempfile("proxy-"); dir.create(tmp); on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+  ld <- data.frame(SNP_A = character(), SNP_B = character(), R2 = numeric(), stringsAsFactors = FALSE)
+  if (length(inp)) {
+    writeLines(inp, file.path(tmp, "m.txt"))
+    suppressWarnings(system2(bin, c("--bfile", shQuote(bfile), "--r2", "--ld-snp-list", shQuote(file.path(tmp, "m.txt")), "--ld-window-kb", kb, "--ld-window", "999999", "--ld-window-r2", "0.2",
+                                    "--threads", "1", "--memory", "1500", "--out", shQuote(file.path(tmp, "ld"))), stdout = TRUE, stderr = TRUE))
+    f <- file.path(tmp, "ld.ld"); if (file.exists(f)) { x <- utils::read.table(f, header = TRUE, stringsAsFactors = FALSE); ld <- x[x$SNP_A != x$SNP_B, c("SNP_A", "SNP_B", "R2"), drop = FALSE] } }
+  cand <- unique(ld$SNP_B[ld$R2 >= rsq])
+  fr <- if (length(cand)) { writeLines(cand, file.path(tmp, "c.txt"))
+    suppressWarnings(system2(bin, c("--bfile", shQuote(bfile), "--extract", shQuote(file.path(tmp, "c.txt")), "--freq", "--threads", "1", "--out", shQuote(file.path(tmp, "fq"))), stdout = TRUE, stderr = TRUE))
+    if (file.exists(file.path(tmp, "fq.frq"))) utils::read.table(file.path(tmp, "fq.frq"), header = TRUE, stringsAsFactors = FALSE) else NULL } else NULL
+  pal <- function(s) { b <- bim[match(s, bim$snp), ]; paste0(b$a1, b$a2) %in% c("AT", "TA", "CG", "GC") }
+  why <- vapply(missing, function(s) {
+    if (!s %in% bim$snp) return(sprintf("not in the 1000 Genomes %s panel, so no proxy could be searched", pop))
+    l <- ld[ld$SNP_A == s, , drop = FALSE]; best <- if (nrow(l)) max(l$R2) else NA_real_; ok <- l[l$R2 >= rsq, , drop = FALSE]
+    if (!nrow(ok)) return(sprintf("no other variant has r2 of at least %s with it within %s kb in the 1000 Genomes %s panel (best r2 %s)", format(rsq), kb, pop, if (is.finite(best)) formatC(best, digits = 2, format = "f") else "below 0.2"))
+    m <- if (is.null(fr)) rep(NA_real_, nrow(ok)) else fr$MAF[match(ok$SNP_B, fr$SNP)]; bad <- pal(ok$SNP_B) & (!is.finite(m) | m > maf)
+    if (all(bad)) return(sprintf("its %s %s (r2 %s) %s palindromic with MAF above %s, so the strand cannot be inferred", if (nrow(ok) == 1) "only proxy" else paste(nrow(ok), "proxies"), paste(ok$SNP_B, collapse = ", "), paste(formatC(ok$R2, digits = 2, format = "f"), collapse = ", "), if (nrow(ok) == 1) "is" else "are", format(maf)))
+    u <- ok[!bad, , drop = FALSE]
+    sprintf("%s usable %s (%s, r2 %s) %s not in this outcome either", nrow(u), if (nrow(u) == 1) "proxy" else "proxies", paste(utils::head(u$SNP_B, 4), collapse = ", "), paste(formatC(utils::head(u$R2, 4), digits = 2, format = "f"), collapse = ", "), if (nrow(u) == 1) "is" else "are")
+  }, "")
+  data.frame(variant_id = missing, why = unname(why), stringsAsFactors = FALSE)
+}
+
+# ---- Round 109: LD matrix of the instruments for GSMR ----
+# Proposed addition to prototype/engine/ld_core.R (NOT applied; the main session integrates).
+# LD correlation matrix between the instruments from the local 1000 Genomes panel, for GSMR (item 6) and PPMR (item 19).
+# Same PLINK call as ieugwasr::ld_matrix_local():
+#   plink --bfile <panel/POP> --extract snps.txt --r square --keep-allele-order --write-snplist --threads 1 --out ld
+# With --keep-allele-order the sign of r refers to the A1 allele of the .bim file. The matrix is returned signed to the
+# harmonised effect alleles `ea` (exposure side): r[i, j] is multiplied by s_i * s_j, s = +1 when ea equals the panel A1,
+# -1 when ea equals the panel A2. Variants absent from the panel, or whose alleles match neither way (strand problems
+# after harmonisation), are reported and dropped, as ieugwasr does; GSMR and PPMR then run on the variants that remain.
+# Uses plink_bin(), ld_panel_dir(), ld_pop_for(), LD_POP_NAMES, LD_PANEL, PLINK_PIN and ld_panel_matches_pin() from ld_core.R.
+ld_matrix_here <- function(snp, ea, oa, pop = "EUR", dir = ld_panel_dir(), bin = plink_bin()) {
+  if (is.na(bin)) stop("PLINK is not available in this installation, so the LD matrix cannot be computed on this computer.", call. = FALSE)
+  pop <- ld_pop_for(pop)
+  if (is.na(pop)) stop("The LD matrix needs one of the 1000 Genomes ancestries (European, East Asian, African, Admixed American, South Asian).", call. = FALSE)
+  bfile <- file.path(dir, pop)
+  if (!all(file.exists(paste0(bfile, c(".bed", ".bim", ".fam")))))
+    stop(sprintf("The %s (%s) LD reference panel is not installed. Download it in Settings > Data and access.", LD_POP_NAMES[[pop]], pop), call. = FALSE)
+  ok <- !is.na(snp) & grepl("^rs[0-9]+$", snp)
+  if (anyDuplicated(snp[ok])) stop("The variants contain duplicated rsIDs. Each variant may appear only once.", call. = FALSE)
+  tmp <- tempfile("ldm-"); dir.create(tmp); on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
+  writeLines(snp[ok], file.path(tmp, "snps.txt")); out <- file.path(tmp, "ld")
+  log <- suppressWarnings(system2(bin, c("--bfile", shQuote(bfile), "--extract", shQuote(file.path(tmp, "snps.txt")), "--r", "square",
+                                         "--keep-allele-order", "--write-snplist", "--threads", "1", "--out", shQuote(out)), stdout = TRUE, stderr = TRUE))
+  if (!file.exists(paste0(out, ".ld"))) stop("PLINK could not compute the LD matrix. End of its log: ", paste(utils::tail(log, 5), collapse = " "), call. = FALSE)
+  ids <- readLines(paste0(out, ".snplist"))
+  r <- as.matrix(utils::read.table(paste0(out, ".ld"), header = FALSE)); dimnames(r) <- list(ids, ids)
+  bim <- utils::read.table(paste0(bfile, ".bim"), header = FALSE, stringsAsFactors = FALSE, colClasses = c("character", "character", "numeric", "numeric", "character", "character"))
+  bim <- bim[match(ids, bim$V2), ]
+  k <- match(ids, snp); e <- toupper(ea[k]); o <- toupper(oa[k])
+  s <- ifelse(e == toupper(bim$V5) & o == toupper(bim$V6), 1, ifelse(e == toupper(bim$V6) & o == toupper(bim$V5), -1, NA))
+  keep <- is.finite(s) & is.finite(diag(r))
+  r <- r[keep, keep, drop = FALSE] * outer(s[keep], s[keep])
+  status <- data.frame(variant_id = snp, status = ifelse(!ok, "no_rsid", ifelse(snp %in% ids[keep], "in_matrix", ifelse(snp %in% ids, "allele_mismatch", "not_in_panel"))), stringsAsFactors = FALSE)
+  attr(r, "status") <- status
+  attr(r, "settings") <- list(pop = pop, panel = LD_PANEL$name, panel_matches_pin = ld_panel_matches_pin(pop, dir), plink = plink_version(bin),
+                              command = paste("plink --bfile", pop, "--extract snps.txt --r square --keep-allele-order --write-snplist"))
+  r
+}
+# Cache: as ld_clump_cached(), key = digest(list(snp, ea, oa, pop, LD_PANEL$sha256, PLINK_PIN$build)), stored as CSV with the
+# rsIDs as header. The matrix is written next to the pair's data as 01_data/ld_matrix.csv so the generated script reruns
+# without the panel. GSMR uses the panel size as n_ref (n_ref = number of people in the panel population, LD_PEOPLE[[pop]]).

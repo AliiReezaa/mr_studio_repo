@@ -265,7 +265,7 @@ ogw_meta <- function(id, jwt, backend = ogw_backend()) {
 #' 10,000 kb) a plain server request ("server") returns OpenGWAS's stored, pre-computed clumps instead (tophits sets preclumped = 1);
 #' on BMI (ieu-b-40) those kept a weaker lead variant in 183 regions, while live and local clumping gave the same 510 instruments.
 ogw_stored_clumps <- function(params) is.null(params$where) && isTRUE(params$clump == 1) && isTRUE(params$pval == 5e-8) && isTRUE(params$r2 == 0.001) && isTRUE(params$kb == 10000)
-ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NULL, name = NULL, offline = FALSE, root = studies_root(), backend = ogw_backend(), where = "server") {
+ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NULL, name = NULL, offline = FALSE, root = studies_root(), backend = ogw_backend(), where = "server", replace = "") {
   where <- if (identical(where, "local")) "local" else if (identical(where, "server_live")) "server_live" else "server"
   .ogw_need(jwt, offline)
   if (!is.finite(p) || p < 1e-30 || p > 1e-3) stop("The instrument P-value threshold must be between 1e-30 and 0.001.", call. = FALSE)
@@ -284,6 +284,8 @@ ogw_get_exposure <- function(id, jwt, p = 5e-8, r2 = 0.001, kb = 10000, pop = NU
   if (dir.exists(dest)) {
     old <- tryCatch(jsonlite::fromJSON(file.path(dest, "recipe.json"), simplifyVector = FALSE), error = function(e) NULL)
     if (!is.null(old) && identical(old$source$id, id) && identical(old$source$role, "exposure") && .ogw_same(old$source$params, params)) { old$reused <- TRUE; return(old) }
+    # Round 109: the same window searched again with another cut point replaces the download it just made (same dataset, same name)
+    if (!is.null(old) && identical(old$source$id, id) && identical(old$source$role, "exposure") && identical(replace, nm)) unlink(dest, recursive = TRUE) else
     stop("A dataset named \"", nm, "\" is already in the Data library, with other settings or another source. Choose another name.", call. = FALSE)
   }
   .say(sprintf("Asking OpenGWAS for the variants of %s (%s) with P < %s%s", meta$trait %||% id, id, format(p), if (where == "local") ", unclumped, to clump on this computer" else if (where == "server_live") sprintf(", clumped live on the server (r\u00b2 < %s within %s kb, %s)", r2, format(kb, big.mark = ","), pop) else ", using the stored clumps"), "These become the instruments: genome-wide significant variants, one per region, so that they are independent.")
@@ -370,6 +372,9 @@ ogw_get_outcome <- function(id, exposure_name, jwt, proxies = TRUE, rsq = 0.8, m
   found <- sum(std$snp %in% snps); n_prox <- sum(std$proxy_snp != "" & std$snp %in% snps); missing <- setdiff(snps, std$snp)
   if (found < 2L) stop("Only ", found, " of ", length(snps), " instruments were found in this outcome. At least 2 are needed.", call. = FALSE)
   if (length(missing)) w <- c(w, sprintf("%d of %d instruments are not in this outcome%s and are lost: %s.", length(missing), length(snps), if (isTRUE(proxies)) " and had no proxy" else " (proxies were off)", paste(utils::head(missing, 8), collapse = ", ")))
+  # Round 109: why each lost instrument had no proxy, from the 1000 Genomes panel of the outcome's ancestry when it is installed
+  why <- if (length(missing) && isTRUE(proxies)) tryCatch(proxy_reasons(missing, rsq, maf, ld_pop_for(OGW_POP_LABELS[[meta$population %||% ""]] %||% "EUR")), error = function(e) NULL) else NULL
+  if (length(missing)) w <- c(w, if (!isTRUE(proxies)) "Proxies were off, so no proxy was searched." else if (is.null(why)) "Why no proxy was found cannot be told without the 1000 Genomes reference panel of this ancestry (Settings > Data and access)." else paste0("Why no proxy: ", paste(sprintf("%s: %s", why$variant_id, why$why), collapse = "; "), "."))
   if (n_prox) w <- c(w, sprintf("%d instruments were replaced by a proxy variant (r² at least %s). The proxy's own ID is in the column proxy_snp.", n_prox, format(rsq)))
   if (!is.finite(meta$sample_size)) w <- c(w, "The catalogue does not give a sample size for this dataset.")
   rec <- list(trait = nm, role = "outcome",
@@ -378,7 +383,7 @@ ogw_get_outcome <- function(id, exposure_name, jwt, proxies = TRUE, rsq = 0.8, m
               mapping = list(snp = "rsid", chr = "chr", pos = "position", ea = "ea", oa = "nea", eaf = "eaf", beta = "beta", se = "se", p = "p", n = "n"),
               original = list(file = paste0("OpenGWAS:", id)), rows_in_file = nrow(o), rows_kept = nrow(std), warnings = as.list(w), saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
               usable_as_exposure = FALSE, usable_as_outcome = TRUE, usable_in_runs = TRUE,
-              lookup = list(requested = length(snps), found = found, direct = found - n_prox, by_proxy = n_prox, missing = length(missing), tie_alternatives = length(extra), tie_alternatives_found = sum(extra %in% std$snp)),
+              lookup = list(requested = length(snps), found = found, direct = found - n_prox, by_proxy = n_prox, missing = length(missing), missing_why = if (!is.null(why)) stats::setNames(as.list(why$why), why$variant_id) else NULL, tie_alternatives = length(extra), tie_alternatives_found = sum(extra %in% std$snp)),
               source = list(type = "opengwas", role = "outcome", id = id, trait = meta$trait, population = meta$population, sample_size = meta$sample_size, ncase = meta$ncase, ncontrol = meta$ncontrol,
                             consortium = meta$consortium, author = meta$author, year = meta$year, pmid = meta$pmid, unit = meta$unit, params = params, for_exposure = exposure_name, downloaded_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
                             packages = .ogw_versions(), note = "Only the instruments of the exposure named in for_exposure were looked up (TwoSampleMR::extract_outcome_data, with proxies when proxies is true)."))

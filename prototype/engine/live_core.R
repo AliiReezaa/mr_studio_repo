@@ -31,6 +31,16 @@ METHOD_WHY <- c(
   rucker = "Rucker model selection: chooses between IVW and MR-Egger (fixed or random effects) by their heterogeneity.",
   sign = "Sign concordance test: whether more variants than expected by chance have the same direction of effect on exposure and outcome.",
   pivw = "Penalised IVW: IVW with variants that contribute most to heterogeneity down-weighted.",
+  grapple = "GRAPPLE: profile likelihood robust to weak instruments, balanced pleiotropy and sample overlap (set the exposure-outcome correlation).",
+  mvgrapple = "MVMR GRAPPLE: multivariable profile likelihood, robust to weak instruments and sample overlap.",
+  ppmr = "PPMR: likelihood with correlated instruments (LD from the 1000 Genomes panel) and a pleiotropy term; estimate and P values, no interval; needs sample sizes.",
+  gsmr = "GSMR: generalised least squares with every instrument and their LD (1000 Genomes panel), HEIDI-outlier filtering of pleiotropic variants; needs the panel and at least 10 instruments.",
+  mrclust = "MR-Clust: groups the variants by their ratio estimates into clusters (plus null and junk clusters); each cluster suggests its own mechanism.",
+  cook = "Cook's distance: how much each variant moves the IVW fit; variants above 4 / k are flagged for the outlier analysis.",
+  studres = "Studentized residuals: each variant's distance from the IVW line in standard errors; above 2 (or 3) is flagged for the outlier analysis.",
+  egger_rob = "MR-Egger (robust / penalised): MR-Egger with robust regression and/or penalised weights, less affected by outlying variants.",
+  hetpen = "Heterogeneity-penalised model averaging: weighs every subset of variants by its homogeneity; at most 16 variants, and its interval can be several ranges.",
+  clr = "Conditional likelihood ratio: weak-instrument robust test with intervals (Anderson-Rubin, Kleibergen, CLR), no point estimate; needs the sample sizes.",
   maxlik = "Maximum likelihood: models the uncertainty in both the exposure and the outcome effects, unlike IVW.",
   mbe = "Mode-based estimate: the mode of the ratio estimates, with bootstrap intervals.",
   cml = "MR-cML: constrained maximum likelihood that selects invalid instruments; it fits many models, so it takes longer.",
@@ -40,7 +50,9 @@ METHOD_WHY <- c(
   mvmedian = "MVMR median: the multivariable weighted median, valid if instruments carrying half of the weight are valid.",
   mvlasso = "MVMR-Lasso: multivariable MR that drops variants with pleiotropy not explained by the exposures.",
   mvqhet = "MVMR Q-minimisation: estimates robust to weak instruments by minimising the heterogeneity statistic Q.",
-  mvcml = "MVMR-cML: multivariable constrained maximum likelihood; it fits many models, so it takes longer.")
+  mvcml = "MVMR-cML: multivariable constrained maximum likelihood; it fits many models, so it takes longer.",
+  mvivwme = "MVMR-IVW (measurement error): multivariable IVW that allows for uncertainty in the variant-exposure associations.",
+  mvgmm = "MVMR GMM: multivariable generalised method of moments, robust to weak instruments and to overlapping samples; needs the sample sizes.")
 METHOD_SLOW <- c("presso", "cml", "mvcml", "egger_boot", "egger_simex", "mbe", "conmix", "mrmix", "bwmr", "mvqhet")
 
 .live <- new.env()

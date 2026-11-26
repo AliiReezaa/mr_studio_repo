@@ -119,7 +119,7 @@ REFS <- list(
   hartwig2017 = list(pmid = "29040600", key = "Hartwig2017", authors = "Hartwig FP, Davey Smith G, Bowden J.", title = "Robust inference in summary data Mendelian randomization via the zero modal pleiotropy assumption", journal = "Int J Epidemiol", year = "2017", vol = "46", pages = "1985-1998", doi = "10.1093/ije/dyx102"),
   burgess2023 = list(pmid = "32760811", key = "Burgess2023", authors = "Burgess S, Davey Smith G, Davies NM, et al.", title = "Guidelines for performing Mendelian randomization investigations: update for summer 2023", journal = "Wellcome Open Res", year = "2023", vol = "4", pages = "186", doi = "10.12688/wellcomeopenres.15555.3"),
   skrivankova2021 = list(pmid = "34698778", key = "Skrivankova2021", authors = "Skrivankova VW, Richmond RC, Woolf BAR, et al.", title = "Strengthening the reporting of observational studies in epidemiology using Mendelian randomisation (STROBE-MR): explanation and elaboration", journal = "JAMA", year = "2021", vol = "326", pages = "1614-1621", doi = "10.1001/jama.2021.18236"))
-METHOD_REFS <- list(ivw_steiger = "hemani2017", bwmr = "zhao2020", grip = "dudbridge2025", mrmix = "qi2019", egger_boot = "bowden2015", pwm = "burgess2017sens", smode_nome = "hartwig2017", wmode_nome = "hartwig2017", rucker = "bowden2018het", sign = "hemani2018", maxlik = "burgess2013", mbe = "hartwig2017", cml = "xue2021", robust_ivw = "rees2019robust", pivw = "xu2023", mvcml = "lin2023", mvivw = c("sanderson2019", "sanderson2021"), mvegger = "rees2017", mvmedian = "grant2021", mvlasso = "grant2021", mvqhet = "sanderson2021", ivw_mre = "burgess2013", divw = "ye2021", raps = "zhao2020", conmix = "burgess2020", lasso = "rees2019", egger_simex = "bowden2016i2", egger = "bowden2015", wm = "bowden2016", smed = "bowden2016", mode = "hartwig2017", smode = "hartwig2017", presso = "verbanck2018", radial = "bowden2018", radegger = "bowden2018", steiger = "hemani2017")
+METHOD_REFS <- list(ivw_steiger = "hemani2017", bwmr = "zhao2020", grip = "dudbridge2025", mrmix = "qi2019", egger_boot = "bowden2015", pwm = "burgess2017sens", smode_nome = "hartwig2017", wmode_nome = "hartwig2017", rucker = "bowden2018het", sign = "hemani2018", maxlik = "burgess2013", mbe = "hartwig2017", cml = "xue2021", robust_ivw = "rees2019robust", pivw = "xu2023", cook = "cook1977", studres = "cook1977", mrclust = "foley2021", gsmr = "zhu2018", grapple = "wang2021grapple", mvgrapple = "wang2021grapple", ppmr = "yuan2020", egger_rob = "rees2019robust", hetpen = "burgess2018hetpen", clr = "wang2022clr", mvivwme = "patel2023", mvgmm = "patel2023", mvcml = "lin2023", mvivw = c("sanderson2019", "sanderson2021"), mvegger = "rees2017", mvmedian = "grant2021", mvlasso = "grant2021", mvqhet = "sanderson2021", ivw_mre = "burgess2013", divw = "ye2021", raps = "zhao2020", conmix = "burgess2020", lasso = "rees2019", egger_simex = "bowden2016i2", egger = "bowden2015", wm = "bowden2016", smed = "bowden2016", mode = "hartwig2017", smode = "hartwig2017", presso = "verbanck2018", radial = "bowden2018", radegger = "bowden2018", steiger = "hemani2017")
 REFS$bowden2016i2 <- list(pmid = "27616674", key = "Bowden2016I2", authors = "Bowden J, Del Greco M F, Minelli C, Davey Smith G, Sheehan NA, Thompson JR.", title = "Assessing the suitability of summary data for two-sample Mendelian randomization analyses using MR-Egger regression: the role of the I2 statistic", journal = "Int J Epidemiol", year = "2016", vol = "45", pages = "1961-1974", doi = "10.1093/ije/dyw220")
 REFS$burgess2020 <- list(pmid = "31953392", key = "Burgess2020", authors = "Burgess S, Foley CN, Allara E, Staley JR, Howson JMM.", title = "A robust and efficient method for Mendelian randomization with hundreds of genetic variants", journal = "Nat Commun", year = "2020", vol = "11", pages = "376", doi = "10.1038/s41467-019-14156-4")
 # Round 50: multivariable MR (PMIDs checked in PubMed on 2026-11-18).
@@ -143,6 +143,14 @@ REFS$bowden2018het <- list(pmid = "30188969", key = "Bowden2018", authors = "Bow
 REFS$xue2021 <- list(pmid = "34214446", key = "Xue2021", authors = "Xue H, Shen X, Pan W.", title = "Constrained maximum likelihood-based Mendelian randomization robust to both correlated and uncorrelated pleiotropic effects", journal = "Am J Hum Genet", year = "2021", vol = "108", pages = "1251-1269", doi = "10.1016/j.ajhg.2021.05.014")
 REFS$rees2019robust <- list(pmid = "31545794", key = "Rees2019b", authors = "Rees JMB, Wood AM, Dudbridge F, Burgess S.", title = "Robust methods in Mendelian randomization via penalization of heterogeneous causal estimates", journal = "PLoS One", year = "2019", vol = "14", pages = "e0222362", doi = "10.1371/journal.pone.0222362")
 REFS$xu2023 <- list(pmid = "35942938", key = "Xu2023", authors = "Xu S, Wang P, Fung WK, Liu Z.", title = "A novel penalized inverse-variance weighted estimator for Mendelian randomization with applications to COVID-19 outcomes", journal = "Biometrics", year = "2023", vol = "79", pages = "2184-2195", doi = "10.1111/biom.13732")
+REFS$burgess2018hetpen <- list(pmid = "29846613", key = "Burgess2018", authors = "Burgess S, Zuber V, Gkatzionis A, Foley CN.", title = "Modal-based estimation via heterogeneity-penalized weighting: model averaging for consistent and efficient estimation in Mendelian randomization when a plurality of candidate instruments are valid", journal = "Int J Epidemiol", year = "2018", vol = "47", pages = "1242-1254", doi = "10.1093/ije/dyy080")   # Round 109
+REFS$wang2022clr <- list(pmid = "34213007", key = "Wang2022", authors = "Wang S, Kang H.", title = "Weak-instrument robust tests in two-sample summary-data Mendelian randomization", journal = "Biometrics", year = "2022", vol = "78", pages = "1699-1713", doi = "10.1111/biom.13524")   # Round 109
+REFS$cook1977 <- list(pmid = "", key = "Cook1977", authors = "Cook RD.", title = "Detection of influential observation in linear regression", journal = "Technometrics", year = "1977", vol = "19", pages = "15-18", doi = "10.1080/00401706.1977.10489493")   # Round 109 (not in PubMed)
+REFS$foley2021 <- list(pmid = "32915962", key = "Foley2021", authors = "Foley CN, Mason AM, Kirk PDW, Burgess S.", title = "MR-Clust: clustering of genetic variants in Mendelian randomization with similar causal estimates", journal = "Bioinformatics", year = "2021", vol = "37", pages = "531-541", doi = "10.1093/bioinformatics/btaa778")   # Round 109
+REFS$zhu2018 <- list(pmid = "29335400", key = "Zhu2018", authors = "Zhu Z, Zheng Z, Zhang F, et al.", title = "Causal associations between risk factors and common diseases inferred from GWAS summary data", journal = "Nat Commun", year = "2018", vol = "9", pages = "224", doi = "10.1038/s41467-017-02317-2")   # Round 109
+REFS$wang2021grapple <- list(pmid = "34157017", key = "Wang2021", authors = "Wang J, Zhao Q, Bowden J, et al.", title = "Causal inference for heritable phenotypic risk factors using heterogeneous genetic instruments", journal = "PLoS Genet", year = "2021", vol = "17", pages = "e1009575", doi = "10.1371/journal.pgen.1009575")   # Round 109
+REFS$yuan2020 <- list(pmid = "32737316", key = "Yuan2020", authors = "Yuan Z, Zhu H, Zeng P, et al.", title = "Testing and controlling for horizontal pleiotropy with probabilistic Mendelian randomization in transcriptome-wide association studies", journal = "Nat Commun", year = "2020", vol = "11", pages = "3861", doi = "10.1038/s41467-020-17668-6")   # Round 109
+REFS$patel2023 <- list(pmid = "37915953", key = "Patel2023", authors = "Patel A, Ye T, Xue H, et al.", title = "MendelianRandomization v0.9.0: updates to an R package for performing Mendelian randomization analyses using summarized data", journal = "Wellcome Open Res", year = "2023", vol = "8", pages = "449", doi = "10.12688/wellcomeopenres.19995.2")   # Round 109
 REFS$lin2023 <- list(pmid = "36948188", key = "Lin2023", authors = "Lin Z, Xue H, Pan W.", title = "Robust multivariable Mendelian randomization based on constrained maximum likelihood", journal = "Am J Hum Genet", year = "2023", vol = "110", pages = "592-605", doi = "10.1016/j.ajhg.2023.02.014")
 REFS$rees2017 <- list(pmid = "28960498", key = "Rees2017", authors = "Rees JMB, Wood AM, Burgess S.", title = "Extending the MR-Egger method for multivariable Mendelian randomization to correct for both measured and unmeasured pleiotropy", journal = "Stat Med", year = "2017", vol = "36", pages = "4705-4718", doi = "10.1002/sim.7492")
 REFS$grant2021 <- list(pmid = "34342032", key = "Grant2021", authors = "Grant AJ, Burgess S.", title = "Pleiotropy robust methods for multivariable Mendelian randomization", journal = "Stat Med", year = "2021", vol = "40", pages = "5813-5830", doi = "10.1002/sim.9156")
@@ -167,8 +175,9 @@ refs_ris <- function(ids) paste(vapply(ids, function(i) { r <- REFS[[i]]; paste(
   op <- graphics::par(mar = c(3.4, 8.6, 1.4, 1.2), mgp = c(1.9, 0.6, 0), cex = 0.78, las = 1); on.exit(graphics::par(op))
   mi <- graphics::par("mai"); lw <- max(graphics::strwidth(est$label, units = "inches")) + 0.15   # Round 98: room for the longest label (up to half the width)
   if (lw > mi[2]) { mi[2] <- min(lw, graphics::par("din")[1] * 0.5); graphics::par(mai = mi) }
-  k <- nrow(est); xl <- range(c(est$ci_lower, est$ci_upper, 0), na.rm = TRUE); pad <- diff(xl) * 0.06
-  graphics::plot(NA, xlim = xl + c(-pad, pad), ylim = c(k + 0.6, 0.4), yaxt = "n", xlab = est$unit[1], ylab = "", bty = "n")
+  k <- nrow(est); rt <- isTRUE(est$ratio[1]); xl <- range(c(est$ci_lower, est$ci_upper, if (rt) 1 else 0), na.rm = TRUE); pad <- diff(xl) * 0.06   # Round 109: an OR axis is logarithmic, with no effect at 1
+  if (rt) { xl <- xl * c(0.97, 1.03); pad <- 0 }
+  graphics::plot(NA, xlim = xl + c(-pad, pad), ylim = c(k + 0.6, 0.4), yaxt = "n", xlab = est$unit[1], ylab = "", bty = "n", log = if (rt) "x" else "")
   graphics::abline(v = if (isTRUE(est$ratio[1])) 1 else 0, lty = 2, col = "grey55"); graphics::axis(2, at = seq_len(k), labels = est$label, tick = FALSE)
   graphics::segments(est$ci_lower, seq_len(k), est$ci_upper, seq_len(k), lwd = 1.6, col = est$col); graphics::points(est$estimate, seq_len(k), pch = 16, cex = 1.1, col = est$col)
   if (!is.null(title)) graphics::mtext(title, 3, 0.2, adj = 0, font = 2, cex = 0.8)
@@ -224,9 +233,11 @@ subset_facts <- function(pay) {
        lso_lo = v("lso_q025"), lso_med = v("lso_median"), lso_hi = v("lso_q975"), lso_min = v("lso_min"), lso_max = v("lso_max"))
 }
 
-.MCOL <- c(ivw_steiger = "#6b7f3a", bwmr = "#5a4a8a", grip = "#9a4f2a", mrmix = "#3a7a6b", egger_boot = "#c2703a", pwm = "#5f86c4", smode_nome = "#d98fb0", wmode_nome = "#b85c8a", rucker = "#6f7d3a", ivw_mre = "#2b3fc7", divw = "#5b6b8c", maxlik = "#3f6fb5", mbe = "#a0527a", cml = "#2f8a7a", robust_ivw = "#6b5b2e", pivw = "#4a5aa0", raps = "#7a5c2e", conmix = "#4f7a3a", lasso = "#7a3a6b", egger_simex = "#d4874f", egger = "#b5541c", wm = "#2f7fd6", smed = "#8c4fd6", mode = "#d6407a", smode = "#2a9d8f", presso = "#b8860b", radial = "#3d9a38", radegger = "#a04a3d")
+.MCOL <- c(ivw_steiger = "#6b7f3a", bwmr = "#5a4a8a", grip = "#9a4f2a", mrmix = "#3a7a6b", egger_boot = "#c2703a", pwm = "#5f86c4", smode_nome = "#d98fb0", wmode_nome = "#b85c8a", rucker = "#6f7d3a", ivw_mre = "#2b3fc7", divw = "#5b6b8c", maxlik = "#3f6fb5", mbe = "#a0527a", cml = "#2f8a7a", robust_ivw = "#6b5b2e", pivw = "#4a5aa0", gsmr = "#2f7d6d", grapple = "#6a5a2f", ppmr = "#2f5a6a", egger_rob = "#b8743a", hetpen = "#7a5a9a", clr = "#4f7f8f", mvivwme = "#3b6fa0", mvgmm = "#8a6a3a", raps = "#7a5c2e", conmix = "#4f7a3a", lasso = "#7a3a6b", egger_simex = "#d4874f", egger = "#b5541c", wm = "#2f7fd6", smed = "#8c4fd6", mode = "#d6407a", smode = "#2a9d8f", presso = "#b8860b", radial = "#3d9a38", radegger = "#a04a3d")
 .fig_cairo <- function() isTRUE(unname(capabilities("cairo")))
 .fig_write <- function(base, w_mm, h_mm, draw) {
+  if (exists(".fig_record")) .fig_record(base, w_mm, h_mm, draw)   # Round 109: recorded for the figures script
+  lc <- Sys.getlocale("LC_CTYPE"); if (!isTRUE(l10n_info()[["UTF-8"]])) { for (l in c("C.UTF-8", "en_US.UTF-8", "English_United States.utf8")) if (nzchar(suppressWarnings(Sys.setlocale("LC_CTYPE", l)))) break; on.exit(suppressWarnings(Sys.setlocale("LC_CTYPE", lc)), add = TRUE) }   # Round 109: symbols (phi, beta hat) drawn the same in every session
   w <- w_mm / 25.4; h <- h_mm / 25.4; out <- character()
   ok <- function(f, expr) { r <- tryCatch({ expr; TRUE }, error = function(e) FALSE); if (!r) { try(grDevices::dev.off(), silent = TRUE); if (file.exists(f)) unlink(f) }; if (r) out <<- c(out, f) }
   f <- paste0(base, ".pdf"); ok(f, { if (.fig_cairo()) grDevices::cairo_pdf(f, width = w, height = h, family = "sans") else grDevices::pdf(f, width = w, height = h, useDingbats = FALSE); draw(); grDevices::dev.off() })   # Round 91: Cairo embeds the fonts, as journals ask
@@ -243,20 +254,22 @@ subset_facts <- function(pay) {
   d <- do.call(rbind, lapply(pay$estimates, function(e) data.frame(method = e$method, name = e$method_name, estimand = e$estimand, estimate = e$estimate, se = e$se, ci_lower = e$ci_lower, ci_upper = e$ci_upper, ci_level = e$ci_level, p = e$p, p_resolution = as.numeric(e$p_resolution %||% NA_real_), n_ivs = e$n_ivs_used, scale = e$scale %||% "beta", exposure_id = as.character(e$exposure_id %||% NA_character_), stringsAsFactors = FALSE)))
   d
 }
-.short <- c(loo = "Leave-one-out", steiger = "Steiger", ivw_steiger = "IVW (Steiger-filtered)", bwmr = "BWMR", grip = "MR-GRIP", mrmix = "MRMix", egger_boot = "MR-Egger (bootstrap)", pwm = "Pen. weighted median", smode_nome = "Simple mode (NOME)", wmode_nome = "Weighted mode (NOME)", rucker = "Rucker", sign = "Sign test", ivw_mre = "IVW", divw = "dIVW", maxlik = "Max. likelihood", mbe = "MBE", cml = "MR-cML", robust_ivw = "MR-Robust", pivw = "pIVW", raps = "MR-RAPS", conmix = "ConMix", lasso = "MR-Lasso", egger_simex = "MR-Egger (SIMEX)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial Egger")
+.short <- c(loo = "Leave-one-out", steiger = "Steiger", ivw_steiger = "IVW (Steiger-filtered)", bwmr = "BWMR", grip = "MR-GRIP", mrmix = "MRMix", egger_boot = "MR-Egger (bootstrap)", pwm = "Pen. weighted median", smode_nome = "Simple mode (NOME)", wmode_nome = "Weighted mode (NOME)", rucker = "Rucker", sign = "Sign test", ivw_mre = "IVW", divw = "dIVW", maxlik = "Max. likelihood", mbe = "MBE", cml = "MR-cML", robust_ivw = "MR-Robust", pivw = "pIVW", cook = "Cook's D", mrclust = "MR-Clust", gsmr = "GSMR", grapple = "GRAPPLE", ppmr = "PPMR", mvgrapple = "MVMR GRAPPLE", studres = "Stud. residuals", egger_rob = "MR-Egger (robust)", hetpen = "HetPen", clr = "CLR", mvivwme = "MVMR-IVW (ME)", mvgmm = "MVMR GMM", raps = "MR-RAPS", conmix = "ConMix", lasso = "MR-Lasso", egger_simex = "MR-Egger (SIMEX)", egger = "MR-Egger", wm = "Weighted median", smed = "Simple median", mode = "Weighted mode", smode = "Simple mode", presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial Egger")
 pair_context <- function(h, p) {
   pay <- pair_payload(h$dir, p$folder); est <- .est_df(pay); ce <- est[est$estimand == "causal_effect", , drop = FALSE]
   v <- do.call(rbind, lapply(pay$variants, function(x) data.frame(id = x$id, bx = x$bx, by = x$by, sx = x$sx, sy = x$sy, keep = x$keep, stringsAsFactors = FALSE)))
   kept <- v[v$keep, , drop = FALSE]; Fs <- (kept$bx / kept$sx)^2
+  fstats <- tryCatch({ f <- Sys.glob(file.path(h$dir, "03_pairs", p$folder, "01_data", "analysis_data_*.csv"))[1]; dd <- utils::read.csv(f, stringsAsFactors = FALSE)   # Round 109: from the analysis data (EAF, N)
+    if (!"beta_x" %in% names(dd)) NULL else instrument_f_stats(dd[as.logical(dd$mr_keep), , drop = FALSE]) }, error = function(e) NULL)
   st <- pay$settings %||% list(); dt <- Sys.glob(file.path(h$dir, "03_pairs", p$folder, "01_data", "analysis_data_*.csv"))
   dd <- if (length(dt)) utils::read.csv(dt[1], stringsAsFactors = FALSE) else NULL
   nx <- if (!is.null(dd$n_x)) stats::median(dd$n_x, na.rm = TRUE) else NA_real_; ny <- if (!is.null(dd$n_y)) stats::median(dd$n_y, na.rm = TRUE) else NA_real_
   rc <- file.path(h$dir, "03_pairs", p$folder, "02_scripts", "00_run_all.R"); sc <- Sys.glob(file.path(h$dir, "03_pairs", p$folder, "02_scripts", "[0-9]*_*.R"))
-  srcname <- function(id, role) if (startsWith(id, "lib:")) tryCatch({ r <- library_recipe(sub("^lib:", "", id)); list(file = r$original$file, ancestry = .gwas_pop(r) %||% r$facts$ancestry %||% "unknown",   # Round 80: the GWAS population OpenGWAS gives, not the clumping panel
+  srcname <- function(id, role) if (startsWith(id, "lib:")) tryCatch({ r <- library_recipe(sub("^lib:", "", id)); list(file = r$original$file, pmid = r$facts$pmid %||% r$source$pmid %||% "", author = r$source$author %||% r$facts$author %||% "", year = r$source$year %||% r$facts$year %||% "", ancestry = .gwas_pop(r) %||% r$facts$ancestry %||% "unknown",   # Round 80: the GWAS population OpenGWAS gives, not the clumping panel
        n = r$facts$n %||% "", ncase = r$facts$ncase %||% "", ncontrol = r$facts$ncontrol %||% "", build = r$facts$build %||% "", og = if (identical(r$source$type, "opengwas")) r$source else NULL, vcf = if (identical(r$source$type, "opengwas_vcf")) r$source else NULL,   # Round 100: complete GWAS downloaded from OpenGWAS
       
        mv = if (identical(r$source$type, "opengwas_mv")) r$source else NULL) }, error = function(e) list(file = "(file no longer in the library)", ancestry = "unknown", n = "")) else list(file = NA_character_, ancestry = "EUR", n = "")
-  list(p = p, pay = pay, est = est, ce = ce, vars = v, kept = kept, mean_f = mean(Fs), min_f = min(Fs), n_weak = sum(Fs < 10), settings = st, nx = nx, ny = ny,
+  list(p = p, pay = pay, est = est, ce = ce, vars = v, kept = kept, mean_f = mean(Fs), min_f = min(Fs), n_weak = sum(Fs < 10), fstats = fstats, settings = st, nx = nx, ny = ny,
        simulated = isTRUE(p$simulated) || !startsWith(p$ex %||% "", "lib:"), ledger = p$ledger, pthr = p$pthr %||% 5e-8, src_x = srcname(p$ex, "exposure"), src_y = srcname(if (identical(p$med$role, "xm") && !is.null(p$med$m_out)) p$med$m_out else p$out, "outcome"), methods = unlist(p$methods), scripts = sc,
        overlap = tryCatch(overlap_get(h)[[overlap_key(p$ex %||% "", p$out %||% "")]], error = function(e) NULL),
        ties_sens = tryCatch({ ts <- Filter(function(x) identical(x$kind, "ties") && identical(x$parent, p$folder), ui_state_get(h$con, "sens") %||% list())
@@ -267,7 +280,9 @@ pair_context <- function(h, p) {
            if (length(sn) && dir.exists(file.path(h$dir, "03_pairs", sn[[1]]$folder))) { o$chosen_pay <- pair_payload(h$dir, sn[[1]]$folder); e <- .est_df(o$chosen_pay); o$chosen_ivw <- e[e$estimand == "causal_effect" & e$method == "ivw_mre", , drop = FALSE] }
            o } else NULL }, error = function(e) NULL),
        eaf_sens = tryCatch({ es <- Filter(function(x) identical(x$kind, "eaf") && identical(x$parent, p$folder), ui_state_get(h$con, "sens") %||% list())   # Round 34
-         if (length(es) && dir.exists(file.path(h$dir, "03_pairs", es[[length(es)]]$folder))) list(pay = pair_payload(h$dir, es[[length(es)]]$folder), remove = unlist(es[[length(es)]]$remove)) else NULL }, error = function(e) NULL))
+         if (length(es) && dir.exists(file.path(h$dir, "03_pairs", es[[length(es)]]$folder))) list(pay = pair_payload(h$dir, es[[length(es)]]$folder), remove = unlist(es[[length(es)]]$remove)) else NULL }, error = function(e) NULL),
+       harm_sens = tryCatch({ hs <- Filter(function(x) grepl("^harm[123]$", x$kind %||% "") && identical(x$parent, p$folder) && dir.exists(file.path(h$dir, "03_pairs", x$folder)), ui_state_get(h$con, "sens") %||% list())   # Round 109
+         lapply(hs, function(x) list(action = x$action, counts = x$counts, pay = pair_payload(h$dir, x$folder))) }, error = function(e) NULL))
 }
 
 #' Round 28: how equal P values were handled in local clumping, for the Methods sentence (inside its parenthesis).
@@ -282,8 +297,8 @@ pair_context <- function(h, p) {
 }
 
 # ---------- text ----------
-.ci_phrase <- function(r, scale) { ratio <- scale %in% c("log_or"); f <- function(x) if (ratio) exp(x) else x
-  sprintf("%s = %s (%s CI %s to %s; P = %s)", if (ratio) "OR" else "beta", .fnum(f(r$estimate)), .pct(r$ci_level), .fnum(f(r$ci_lower)), .fnum(f(r$ci_upper)), .fp_res(r$p, r$p_resolution)) }
+.ci_phrase <- function(r, scale) { ratio <- scale %in% c("log_or"); f <- function(x) if (ratio) exp(x) else x   # Round 109: an OR keeps its log OR alongside
+  sprintf("%s = %s (%s CI %s to %s%s; P = %s)", if (ratio) "OR" else "beta", .fnum(f(r$estimate)), .pct(r$ci_level), .fnum(f(r$ci_lower)), .fnum(f(r$ci_upper)), if (ratio) sprintf("; log OR %s", .fnum(r$estimate)) else "", .fp_res(r$p, r$p_resolution)) }
 #' Round 103: the packages behind the methods that were run, from each method's adapter (a version number or a pinned commit),
 #' and the methods MR Studio implements itself. Before, the text named TwoSampleMR for every estimate.
 # Round 104: methods whose estimator MR Studio computes itself although their script loads a package (Q-minimisation uses
@@ -399,7 +414,7 @@ steiger_limitations <- function(ctxs) {
     if (any(!ran)) sprintf("The test was not run for %s.", paste(vapply(ctxs[!ran], function(cx) sprintf("%s -> %s", cx$p$exName, cx$p$outName), ""), collapse = "; ")))
 }
 AVAIL_SIM <- "No external data were used: the traits are simulated by MR Studio."
-AVAIL_SCRIPTS <- "The analysis scripts, the harmonised data tables used in every calculation, all result tables and the replay check are provided in the reproducibility package of this study."
+AVAIL_SCRIPTS <- "The analysis scripts, the harmonised data tables used in every calculation, all result tables and the replay check are provided in the reproducibility package of this study; every figure can be redrawn from the figures script of its pair (05_figures/make_figures.R)."
 #' Round 99: the Data availability sentence; OpenGWAS dataset IDs and imported files are named separately when a study has both.
 .ogw_both <- function(sx, sy) (!is.null(sx$og) || !is.null(sx$vcf)) && (!is.null(sy$og) || !is.null(sy$vcf))   # Round 100
 .avail_sentence <- function(src) { og <- grepl("^OpenGWAS:", src)
@@ -411,12 +426,18 @@ report_text <- function(ctxs, study_name) {
   txt <- if (length(uni)) .report_text_uni(uni, study_name) else list(methods = sub("run in MR Studio,", sprintf("run in MR Studio %s,", .mrs_ver()), MV_INTRO_TEXT, fixed = TRUE), results = character(), limitations = "The three core MR assumptions (relevance, independence from confounders, and no effect of the variants on the outcome except through the exposures) cannot be proven from summary data.",
     availability = character(), legends = character(), supp = list(), supp_out = list())
   if (length(mvx)) txt <- mv_add_text(txt, mvx)
-  txt
+  for (cx in uni) for (hs in cx$harm_sens %||% list()) { iv <- Filter(function(e) identical(e$method, "ivw_mre") && identical(e$estimand, "causal_effect"), hs$pay$estimates %||% list())   # Round 109: harmonisation action as a sensitivity analysis
+    txt$methods <- c(txt$methods, sprintf("As a sensitivity analysis, %s -> %s was harmonised again with TwoSampleMR action %d (%s; primary analysis action %s): %s flipped, %s palindromic dropped, %s instruments kept%s.", cx$p$exName, cx$p$outName, as.integer(hs$action), HARM_ACTIONS[[as.character(hs$action)]], cx$ledger$harmonise_action %||% "2", hs$counts$flipped %||% "?", hs$counts$dropped_palindromic %||% "?", hs$counts$kept %||% "?",
+      if (length(iv)) paste0("; IVW ", .ci_phrase(as.data.frame(iv[[1]][c("estimate", "ci_lower", "ci_upper", "ci_level", "p")]), iv[[1]]$scale)) else "")) }
+  sa <- Filter(function(cx) "egger_simex" %in% (cx$methods %||% character()) && isTRUE(simex_i2gx(cx) < SIMEX_I2GX), uni)   # Round 109: SIMEX added by itself
+  if (length(sa)) txt$methods <- c(txt$methods, sprintf("MR-Egger with SIMEX correction was added because I2GX was below 0.9 (%s), which means the uncertainty in the variant-exposure associations dilutes the MR-Egger estimate toward the null (violation of the NOME assumption) [Bowden 2016, Int J Epidemiol].",
+    paste(vapply(sa, function(cx) sprintf("%s -> %s: %.2f", cx$p$exName, cx$p$outName, simex_i2gx(cx)), ""), collapse = "; ")))
+  sci_thr_text(txt)   # Round 109: P cut points in scientific form (5e-6, not 0.000005 or 5e-06)
 }
 .report_text_uni <- function(ctxs, study_name) {
   txt <- list(methods = character(), results = character(), limitations = character(), availability = character(), legends = character())
   used <- unique(unlist(lapply(ctxs, function(x) x$methods))); anysim <- any(vapply(ctxs, `[[`, TRUE, "simulated")); anyimp <- any(!vapply(ctxs, `[[`, TRUE, "simulated"))
-  mname <- c(ivw_steiger = "IVW after Steiger filtering", bwmr = "Bayesian weighted MR (BWMR)", grip = "MR-GRIP", mrmix = "MRMix", egger_boot = "MR-Egger with bootstrap standard errors", pwm = "penalised weighted median", smode_nome = "simple mode (NOME)", wmode_nome = "weighted mode (NOME)", rucker = "Rucker model selection", sign = "sign concordance test", ivw_mre = "inverse-variance weighted (IVW)", divw = "debiased inverse-variance weighted (dIVW)", maxlik = "two-sample maximum likelihood", mbe = "mode-based estimate (MBE)", cml = "constrained maximum likelihood (MR-cML)", robust_ivw = "robust IVW with penalised weights (MR-Robust)", pivw = "penalised inverse-variance weighted (pIVW)", raps = "MR-RAPS", conmix = "contamination mixture", lasso = "MR-Lasso", egger_simex = "MR-Egger with SIMEX correction", egger = "MR-Egger regression", wm = "weighted median", smed = "simple median", mode = "weighted mode", smode = "simple mode", presso = "MR-PRESSO", radial = "radial IVW", radegger = "radial MR-Egger")
+  mname <- c(ivw_steiger = "IVW after Steiger filtering", bwmr = "Bayesian weighted MR (BWMR)", grip = "MR-GRIP", mrmix = "MRMix", egger_boot = "MR-Egger with bootstrap standard errors", pwm = "penalised weighted median", smode_nome = "simple mode (NOME)", wmode_nome = "weighted mode (NOME)", rucker = "Rucker model selection", sign = "sign concordance test", ivw_mre = "inverse-variance weighted (IVW)", divw = "debiased inverse-variance weighted (dIVW)", maxlik = "two-sample maximum likelihood", mbe = "mode-based estimate (MBE)", cml = "constrained maximum likelihood (MR-cML)", robust_ivw = "robust IVW with penalised weights (MR-Robust)", pivw = "penalised inverse-variance weighted (pIVW)", mrclust = "MR-Clust clustering of the variants", gsmr = "generalised summary-data-based MR (GSMR)", grapple = "GRAPPLE", ppmr = "probabilistic MR (PPMR)", cook = "Cook's distance from the IVW regression", studres = "studentized residuals from the IVW regression", egger_rob = "MR-Egger with robust regression and penalised weights", hetpen = "heterogeneity-penalised model averaging", clr = "conditional likelihood ratio method", mvivwme = "MVMR-IVW allowing for measurement error in the exposure associations", mvgmm = "multivariable generalised method of moments (GMM)", raps = "MR-RAPS", conmix = "contamination mixture", lasso = "MR-Lasso", egger_simex = "MR-Egger with SIMEX correction", egger = "MR-Egger regression", wm = "weighted median", smed = "simple median", mode = "weighted mode", smode = "simple mode", presso = "MR-PRESSO", radial = "radial IVW", radegger = "radial MR-Egger")
   txt$methods <- c(
     paste0("We performed a two-sample Mendelian randomization (MR) analysis using summary-level genetic associations, run in MR Studio ", .mrs_ver(), ", an application that writes every analysis step and setting into R scripts that can be re-run. The analysis plan follows the structure recommended in current MR guidelines [Burgess 2023]; reporting against the STROBE-MR checklist [Skrivankova 2021] has not been checked automatically and must be completed by the authors."))
   for (cx in ctxs) {
@@ -459,6 +480,9 @@ report_text <- function(ctxs, study_name) {
     }
     fl <- if (isTRUE(st$min_f > 0)) sprintf(" Variants with a single-variant F statistic below %s were left out.", st$min_f) else ""
     txt$methods <- c(txt$methods, sprintf("The strength of the instruments was summarised by the single-variant F statistic, (beta_x / se_x)^2: mean %.1f, minimum %.1f, with %d of %d variants below 10.%s", cx$mean_f, cx$min_f, cx$n_weak, nrow(cx$kept), fl))
+    fx <- tryCatch(f_stats_text(cx$ledger$fstats %||% cx$fstats), error = function(e) "")   # Round 109: the three F statistics, and the MAF filter
+    if (nzchar(fx)) txt$methods <- c(txt$methods, paste("Instrument strength, three F statistics:", fx))
+    if (!is.null(cx$ledger$maf)) txt$methods <- c(txt$methods, maf_text(cx$ledger$maf))
   }
   ivw_model <- c(mre_floor = "multiplicative random effects, with the residual standard error not allowed below 1 so that the standard error is never smaller than that of a fixed-effect model (TwoSampleMR mr_ivw), the model the guidelines recommend as the default",
                  mre = "multiplicative random effects without a lower limit on the residual standard error (TwoSampleMR mr_ivw_mre)", fixed = "a fixed-effect model")
@@ -482,6 +506,15 @@ report_text <- function(ctxs, study_name) {
     cml = sprintf("Constrained maximum likelihood with model averaging by BIC%s (MR-cML), robust to correlated and uncorrelated pleiotropy, was computed with the smaller of the exposure and outcome GWAS sample sizes [Xue 2021].", if (identical(st1$cml_dp, "ma")) "" else " and data perturbation"),
     robust_ivw = sprintf("MR-Robust, the inverse-variance weighted estimate %s, was used as a sensitivity analysis robust to outlying variants [Rees 2019b].", switch(st1$rob_variant %||% "both", both = "with robust regression (MM-estimation) and penalised weights", robust = "with robust regression (MM-estimation)", penalized = "with penalised weights")),
     pivw = sprintf("The penalised inverse-variance weighted (pIVW) estimator, robust to many weak instruments, was computed with penalty %s and %s [Xu 2023].", format(st1$piv_lambda %||% 1), if (identical(st1$piv_ci, "wald")) "normal intervals" else "bootstrap Fieller intervals"),
+    grapple = sprintf("GRAPPLE, a profile-likelihood estimator robust to weak instruments, balanced horizontal pleiotropy and sample overlap, was computed with %s loss%s [Wang 2021].", st1$gr_loss %||% "tukey", if (isTRUE((st1$gr_rho_xy %||% 0) != 0)) sprintf(" and an exposure-outcome error correlation of %s", format(st1$gr_rho_xy)) else ""),
+    ppmr = "Probabilistic MR (PPMR), a likelihood method that uses correlated instruments with their LD from the 1000 Genomes reference panel and tests and controls for horizontal pleiotropy, was computed; it gives likelihood-ratio P values but no confidence interval [Yuan 2020].",
+    gsmr = sprintf("Generalised summary-data-based MR (GSMR; gsmr2 %s), which uses every instrument together with their LD correlation from the 1000 Genomes reference panel (PLINK) and removes pleiotropic variants with the HEIDI-outlier test%s, was computed [Zhu 2018].", substr(PIN_GSMR2, 1, 7), if (identical(st1$gsmr_heidi, "off")) " switched off" else ""),
+    mrclust = sprintf("Variants were clustered by their ratio estimates with MR-Clust (mixture model with null and junk clusters, number of clusters chosen by BIC; a variant was assigned when its allocation probability was at least %s and clusters with fewer than %s variants were not reported), to detect groups of variants with different causal estimates [Foley 2021].", format(st1$mc_prob %||% 0.8), format(st1$mc_min %||% 4)),
+    cook = sprintf("Influential variants were identified with Cook's distance from the IVW regression (flagged above %s / k, k the number of variants) [Cook 1977].", format(st1$cook_mult %||% 4)),
+    studres = sprintf("Outlying variants were identified with the externally studentized residuals of the IVW regression (flagged when |r| > %s).", st1$stud_cut %||% "2"),
+    egger_rob = sprintf("MR-Egger %s was used as a sensitivity analysis less affected by outlying variants [Rees 2019b].", switch(st1$egr_variant %||% "both", both = "with robust regression (MM-estimation) and penalised weights", robust = "with robust regression (MM-estimation)", penalized = "with penalised weights")),
+    hetpen = sprintf("Heterogeneity-penalised model averaging, which is consistent when a plurality of the variants are valid instruments, was computed with a prior probability of validity of %s; its confidence interval was found on a grid and can consist of several ranges [Burgess 2018].", format(st1$hp_prior %||% 0.5)),
+    clr = "Weak-instrument robust tests were computed with the conditional likelihood ratio method, giving Anderson-Rubin, Kleibergen and conditional likelihood ratio confidence intervals (no point estimate), using the median sample sizes of the exposure and outcome GWAS [Wang 2022].",
     divw = sprintf("The debiased inverse-variance weighted (dIVW) estimator, which removes the bias of IVW toward the null from weak instruments, was computed with %s [Ye 2021].", if (identical(st1$dispersion, "none")) "a standard error that assumes no pleiotropy" else "a standard error that allows for balanced pleiotropy"),
     raps = sprintf("The robust adjusted profile score (MR-RAPS) estimator, which accounts for weak instruments and limits the influence of outlying variants, was computed with %s loss and %s [Zhao 2020].", c(huber = "Huber", tukey = "Tukey biweight", l2 = "squared-error")[[st1$loss %||% "huber"]], if (identical(st1$raps_dispersion, "none")) "no allowance for pleiotropy" else "a variance component for balanced pleiotropy"),
     egger_simex = sprintf("As a sensitivity analysis for regression dilution of MR-Egger (NOME violation, measured by I2GX), the weighted MR-Egger regression was corrected by simulation extrapolation (SIMEX; simex package, quadratic extrapolation, %s simulations per step, jackknife standard errors, t interval with k - 2 degrees of freedom) [Bowden 2016, Int J Epidemiol].", format(st1$simex_b %||% 100)),
@@ -502,7 +535,7 @@ report_text <- function(ctxs, study_name) {
     .pct(ctxs[[1]]$ce$ci_level[1] %||% 0.95), software_sentence(used), R.version.string, paste(unique(vapply(ctxs, function(x) x$pay$replay$status %||% "not run", "")), collapse = " / ")))
   for (cx in ctxs) {
     ce <- cx$ce; if (!nrow(ce)) next; sc <- ce$scale[1]; ratio <- sc == "log_or"
-    unit <- if (ratio) sprintf("odds of %s per unit of %s", cx$p$outName, cx$p$exName) else sprintf("units of %s per unit of %s", cx$p$outName, cx$p$exName)
+    unit <- if (ratio) sprintf("odds of %s per unit of %s", cx$p$outName, cx$p$exName) else sprintf("units of %s per unit of %s (beta; often per SD, as in the GWAS)", cx$p$outName, cx$p$exName)
     lines <- vapply(seq_len(nrow(ce)), function(i) sprintf("%s: %s", .short[[ce$method[i]]], .ci_phrase(ce[i, ], sc)), "")
     ic <- utils::head(cx$est[cx$est$estimand == "pleiotropy_intercept" & cx$est$method %in% "egger", , drop = FALSE], 1)   # Round 86: MR-Egger's own (radial MR-Egger, SIMEX and others have one too; with several the text stopped)
     dg <- Filter(function(d) d$method == "ivw_mre" && d$name == "cochran_q", cx$pay$diagnostics)
@@ -562,7 +595,7 @@ report_text <- function(ctxs, study_name) {
            if (any(c("presso", "radial", "radegger") %in% used)) "Variants flagged by MR-PRESSO or radial MR were reported but not removed from the primary analysis. Detectors flag variants by a statistical rule and cannot tell horizontal pleiotropy from valid heterogeneity; any analysis without flagged variants is a post-hoc sensitivity analysis and must be reported as one [Burgess 2023]." else "Outlier detection (MR-PRESSO, radial MR) was not run in this study. Pleiotropy-robust estimators were compared with the IVW estimate; agreement in direction does not prove the assumptions hold.",
            if (length(ctxs) > 1L) "No correction for multiple testing was applied across pairs." else NULL)   # Round 99: not with a single pair
   txt$limitations <- lim
-  src <- unique(unlist(lapply(ctxs, function(cx) if (!cx$simulated) vapply(list(cx$src_x, cx$src_y), function(s) if (!is.null(s$vcf)) paste0("OpenGWAS:", s$vcf$id, " (complete summary statistics)") else s$file %||% NA_character_, "")))); txt$src <- src   # Round 100: OpenGWAS complete GWAS by ID
+  src <- unique(unlist(lapply(ctxs, function(cx) if (!cx$simulated) vapply(list(cx$src_x, cx$src_y), function(s) if (!is.null(s$vcf)) paste0("OpenGWAS:", s$vcf$id, gwas_cite(s$vcf, " "), " (complete summary statistics)") else if (!is.null(s$og)) paste0(s$file, gwas_cite(s$og, " ")) else paste0(s$file %||% NA_character_, gwas_cite(s, " ")), "")))); txt$src <- src   # Round 100: OpenGWAS complete GWAS by ID
   txt$availability <- c(if (length(src)) .avail_sentence(src) else AVAIL_SIM, AVAIL_SCRIPTS)
   fi <- 0L
   for (cx in ctxs) { ce <- cx$ce; if (!nrow(ce)) next; fi <- fi + 1L
@@ -616,6 +649,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   ctxs <- lapply(pairs, function(p) if (isTRUE(p$mv)) mv_context(h, p) else pair_context(h, p)); pk <- package_dir(h); made <- character(); note <- character()
   add <- function(f) made <<- c(made, substring(f, nchar(h$dir) + 2L))
   txt <- report_text(ctxs, basename(h$dir))
+  pwr <- tryCatch(ui_state_get(h$con, "power"), error = function(e) NULL); if (!is.null(pwr$text)) txt$methods <- c(txt$methods, pwr$text)   # Round 109: the power calculation
   med <- if (any(vapply(pairs, function(p) !is.null(p$med), TRUE))) tryCatch(mediation_run(h, pairs), error = function(e) NULL) else NULL   # Round 57: mediation
   if (!is.null(med)) { txt$methods <- c(txt$methods, MEDIATION_METHODS_TEXT); txt$results <- c(txt$results, mediation_results_text(med, attr(med, "spec"))); txt$limitations <- c(setdiff(txt$limitations, "No correction for multiple testing was applied across pairs."), MEDIATION_LIMITS_TEXT) }   # Round 98: the steps of one mediation analysis are not separate tests
   bcm <- if (exists("bidir_cml_run") && any(vapply(pairs, function(p) isTRUE(p$rev), TRUE)) && requireNamespace("BiDirectCausal", quietly = TRUE)) tryCatch(Filter(is.data.frame, bidir_cml_run(h, pairs, reuse = TRUE)), error = function(e) list()) else list()   # Round 63; Round 95: the saved result is reused
@@ -651,8 +685,11 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   if (any(c("figs", "report", "text") %in% items)) {
     .say("Drawing the figures: forest and scatter plots of every pair, at the column width you chose", "Figures are written as PDF, SVG and PNG, so they can go straight into a manuscript.")
     dir.create(file.path(pk, "figures"), showWarnings = FALSE)
+    for (ns in FIG_NAMESPACES) suppressWarnings(requireNamespace(ns, quietly = TRUE))   # Round 109: the same loaded packages for every figure, whatever ran before
+    fig_warmup()
+    FIG_REC$on <- TRUE; FIG_REC$items <- list()   # Round 109: record the figures for the figures script of each pair
     for (i in seq_along(ctxs)) { cx <- ctxs[[i]]; ce <- cx$ce; if (!nrow(ce)) next; tag <- sprintf("P%d", i)
-      est <- transform(ce, label = .short[method], col = .MCOL[method], unit = if (ce$scale[1] == "log_or") "log odds ratio" else "effect on outcome per unit of exposure", ratio = FALSE)
+      est <- if (ce$scale[1] == "log_or") transform(ce, label = .short[method], col = .MCOL[method], estimate = exp(estimate), ci_lower = exp(ci_lower), ci_upper = exp(ci_upper), unit = "odds ratio (log scale)", ratio = TRUE) else transform(ce, label = .short[method], col = .MCOL[method], unit = "beta: effect on outcome per unit of exposure (often 1 SD)", ratio = FALSE)   # Round 109: OR for a binary outcome
       if (isTRUE(cx$mv)) {   # Round 50: one forest of direct effects, grouped by exposure; no scatter or variant-level plots
         est$label <- paste0(ce$exposure_label, ": ", .short_mv(ce$method)); est$col <- "#2b3fc7"; est <- est[order(match(est$exposure_label, unique(est$exposure_label))), , drop = FALSE]
         fh <- max(40, 22 + 8 * nrow(est)); ff <- .fig_write(file.path(pk, "figures", paste0(tag, "_mvmr_forest")), wmm, fh, function() .draw_forest(est))
@@ -662,6 +699,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
       ln <- lapply(seq_len(nrow(ceS)), function(j) { m <- ceS$method[j]; ic <- cx$est$estimate[cx$est$estimand == "pleiotropy_intercept" & cx$est$method == "egger"]; list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else if (m == "egger") 2 else 3, a = if (m == "egger" && length(ic)) ic[1] else 0, b = ceS$estimate[j]) })
       sf <- .fig_write(file.path(pk, "figures", paste0(tag, "_scatter")), wmm, round(wmm * 0.75), function() .draw_scatter(cx$kept, ln, paste("Effect on", cx$p$exName), paste("Effect on", cx$p$outName)))
       figs[[i]] <- list(forest = ff, scatter = sf, fh = fh, sh = round(wmm * 0.75)); for (f in c(ff, sf)) add(f)
+      xf <- tryCatch(extra_figures(cx, pk, tag, wmm, (ce$ci_level %||% 0.95)[1]), error = function(e) list()); figs[[i]]$xtra <- xf; for (x in xf) for (f in x$files) add(f)   # Round 109
       lf <- loo_facts(cx); iv <- ce[ce$method == "ivw_mre", , drop = FALSE]   # Round 39: supplementary leave-one-out and funnel plots
       if (!is.null(lf) && nrow(iv)) {
         z <- stats::qnorm(1 - (1 - iv$ci_level[1]) / 2); full <- list(b = iv$estimate[1], lo = iv$ci_lower[1], hi = iv$ci_upper[1])
@@ -683,6 +721,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
         ob <- if (!is.null(la)) .fig_write(file.path(pk, "figures", paste0(tag, "_outlier_leave_one_out")), wmm, 55, function() draw_outlier_loo(lb, la, ce$estimate[ce$method == "ivw_mre"][1], ol$chosen_ivw$estimate[1], est$unit[1])) else character()
         figs[[i]]$oc <- oc; figs[[i]]$oa <- oa; figs[[i]]$oh <- oh; figs[[i]]$ah <- ah; figs[[i]]$or <- rr; figs[[i]]$ol <- ob; for (f in c(oc, oa, rr, ob)) add(f)
       } }
+    FIG_REC$on <- FALSE; for (i in seq_along(ctxs)) if (!isTRUE(ctxs[[i]]$mv) && !is.null(figs[[i]])) tryCatch(write_figures_script(h, ctxs[[i]], i, wmm, FIG_REC$items, vapply(figs[[i]]$xtra %||% list(), `[[`, "", "key")), error = function(e) note <<- c(note, paste("The figures script could not be written:", conditionMessage(e))))   # Round 109
     if (!is.null(med)) { md <- mediation_forest_df(med); if (nrow(md)) {   # Round 98: the mediation estimates as a figure
       lg <- txt$legends; length(lg) <- 2L * length(ctxs); lg[is.na(lg)] <- ""; k <- length(ctxs) + 1L; fh <- max(40, 22 + 8 * nrow(md))
       mf <- .fig_write(file.path(pk, "figures", "mediation_forest"), wmm, fh, function() .draw_forest(md)); figs[[k]] <- list(forest = mf, fh = fh); for (f in mf) add(f)
@@ -694,9 +733,13 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
   if ("tables" %in% items) {
     .say("Building the supplement workbook: estimates, settings and the instruments of every pair", "A supplement with every instrument and setting lets reviewers check the analysis.")
     est <- do.call(rbind, lapply(seq_along(ctxs), function(i) { e <- ctxs[[i]]$est; data.frame(pair = i, exposure = ctxs[[i]]$p$exName, outcome = ctxs[[i]]$p$outName, e, check.names = FALSE, stringsAsFactors = FALSE) }))
+    if (nrow(est) && "scale" %in% names(est)) { r <- est$scale %in% "log_or" & est$estimand %in% c("causal_effect", "direct_effect", "indirect_effect", "total_effect", "reverse_effect")   # Round 109: binary outcome as OR (95% CI) beside the log OR
+      est$or <- ifelse(r, exp(est$estimate), NA_real_); est$or_ci_lower <- ifelse(r, exp(est$ci_lower), NA_real_); est$or_ci_upper <- ifelse(r, exp(est$ci_upper), NA_real_) }
     dgs <- do.call(rbind, lapply(seq_along(ctxs), function(i) { d <- Filter(function(x) !identical(x$method, "loo"), ctxs[[i]]$pay$diagnostics %||% list()); if (!length(d)) return(NULL)   # Round 103: every method's diagnostics in one sheet
       f <- function(k, num = TRUE) vapply(d, function(x) { v <- x[[k]]; if (is.null(v) || !length(v)) NA_character_ else as.character(v[[1]]) }, ""); nu <- function(x) suppressWarnings(as.numeric(x))
       data.frame(pair = i, method = vapply(d, function(x) if (x$method %in% names(.short)) .short[[x$method]] else x$method, ""), method_id = f("method"), name = f("name"), value = nu(f("value")), df = nu(f("df")), p = nu(f("p")), note = f("note"), stringsAsFactors = FALSE) }))
+    mtab <- tryCatch(do.call(rbind, lapply(seq_along(ctxs), function(i) { cx <- ctxs[[i]]; if (isTRUE(cx$mv) || !any(c("mode", "smode", "smode_nome", "wmode_nome", "mbe") %in% (cx$ce$method %||% character()))) return(NULL)   # Round 109: item 9
+      m <- mode_table(cx$kept, (cx$ce$ci_level %||% 0.95)[1]); if (is.null(m)) NULL else data.frame(pair = i, exposure = cx$p$exName, outcome = cx$p$outName, m, stringsAsFactors = FALSE) })), error = function(e) NULL)
     sheets <- list(Estimates = est, Settings = do.call(rbind, lapply(seq_along(ctxs), function(i) { s <- ctxs[[i]]$settings; data.frame(pair = i, setting = names(s), value = vapply(s, function(v) paste(v, collapse = ","), ""), stringsAsFactors = FALSE) })))
     if (!is.null(dgs) && nrow(dgs)) sheets <- c(sheets[1], list(Diagnostics = dgs), sheets[-1])
     for (i in seq_along(ctxs)) sheets[[sprintf("Pair %d variants", i)]] <- if (isTRUE(ctxs[[i]]$mv)) { f <- Sys.glob(file.path(h$dir, "03_pairs", ctxs[[i]]$p$folder, "01_data", "analysis_data_*.csv")); if (length(f)) utils::read.csv(f[1], stringsAsFactors = FALSE) else data.frame() } else transform(ctxs[[i]]$vars, ratio = by / bx, F = (bx / sx)^2)
@@ -706,6 +749,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
       fs <- sort(Sys.glob(file.path(h$dir, "04_across_pairs", m, "*_results.csv"))); if (!length(fs)) next
       tb <- tryCatch(do.call(rbind, lapply(fs, function(f) { d <- utils::read.csv(f, stringsAsFactors = FALSE, check.names = FALSE); data.frame(pair = sub("_results\\.csv$", "", basename(f)), d, check.names = FALSE, stringsAsFactors = FALSE) })), error = function(e) NULL)
       if (is.data.frame(tb) && nrow(tb)) sheets[[c(ldsc = "LDSC", mrlap = "MRlap", mrapss = "MR-APSS", cause = "CAUSE", lhcmr = "LHC-MR")[[m]]]] <- tb }
+    if (!is.null(mtab) && nrow(mtab)) sheets$`Mode estimates` <- mtab   # Round 109: mode estimates at phi 0.25, 0.5 and 1, simple, weighted and NOME
     f <- file.path(pk, "supplement_tables.xlsx"); xlsx_write(f, sheets); add(f)
   }
   if ("refs" %in% items) { .say("Collecting the citations of every method and tool named in the text", "Each reference was checked against PubMed when MR Studio was built."); f1 <- file.path(pk, "references.bib"); writeLines(refs_bibtex(used), f1, useBytes = TRUE); f2 <- file.path(pk, "references.ris"); writeLines(refs_ris(used), f2, useBytes = TRUE); add(f1); add(f2) }
@@ -743,6 +787,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
     supph <- paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; if (is.null(f$loo) || is.null(.nth(txt$supp, i))) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure><figure>%s<figcaption>%s</figcaption></figure>", svgs(f$loo), esc(txt$supp[[i]][1]), svgs(f$funnel), esc(txt$supp[[i]][2])) |> paste0(if (length(f$rad) && length(txt$supp[[i]]) >= 3L) sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(f$rad), esc(txt$supp[[i]][3])) else "") }, ""), collapse = "\n")   # Round 39; Round 96: radial
     supph <- paste0(supph, paste(vapply(seq_along(figs), function(i) { f <- figs[[i]]; so <- .nth(txt$supp_out, i); if (is.null(f$oc) || is.null(so)) "" else   # Round 44
       paste(vapply(names(so), function(k) { fl <- switch(k, comparison = f$oc, agreement = f$oa, radial = f$or, loo = f$ol); if (!length(fl)) "" else sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(fl), esc(so[[k]])) }, ""), collapse = "") }, ""), collapse = ""))
+    supph <- paste0(supph, paste(vapply(seq_along(figs), function(i) paste(vapply(figs[[i]]$xtra %||% list(), function(x) sprintf("<figure>%s<figcaption>%s</figcaption></figure>", svgs(x$files), esc(x$caption)), ""), collapse = ""), ""), collapse = ""))   # Round 109
     if (nzchar(supph)) supph <- paste0("<h2>Supplementary figures</h2>", supph)
     tab <- paste0("<table><thead><tr>", paste(sprintf("<th>%s</th>", esc(names(est))), collapse = ""), "</tr></thead><tbody>", paste(vapply(seq_len(nrow(est)), function(i) paste0("<tr>", paste(sprintf("<td>%s</td>", esc(unlist(est[i, ]))), collapse = ""), "</tr>"), ""), collapse = ""), "</tbody></table>")
     sim <- if (any(vapply(ctxs, `[[`, TRUE, "simulated"))) "<div class=\"warn\">SIMULATED DATA: not for publication. At least one pair uses simulated demonstration traits.</div>" else ""
@@ -799,3 +844,382 @@ eaf_check_text <- function(E, anc = list()) {
   gsub(sprintf("%d palindromic variants were dropped", as.integer(L$dropped_palindromic %||% 0L)),
        sprintf("%d palindromic variant%s %s kept", k, if (k == 1L) "" else "s", if (k == 1L) "was" else "were"), m, fixed = TRUE)
 }
+#' Round 109: I2GX of a pair's kept instruments (Bowden 2016), from the report context.
+simex_i2gx <- function(cx) tryCatch(feas_i2gx(cx$kept$bx, cx$kept$sx), error = function(e) NA_real_)
+#' Round 109: the publication of a GWAS for the report: "(Willer, 2013; PMID 24097068)", from the OpenGWAS record or the PMID given at import.
+gwas_cite <- function(s, lead = "") {
+  if (is.null(s)) return(""); g <- function(k) { v <- s[[k]]; if (is.null(v) || !length(v) || is.na(v[[1]])) "" else trimws(as.character(v[[1]])) }
+  a <- sub("[ ,].*$", "", g("author")); y <- sub("\\.0+$", "", g("year")); p <- sub("^PMID:? *", "", g("pmid"), ignore.case = TRUE)
+  parts <- c(paste(c(if (nzchar(a)) a, if (nzchar(y)) y), collapse = ", "), if (nzchar(p) && grepl("^[0-9]+$", p)) paste("PMID", p))
+  parts <- parts[nzchar(parts)]; if (!length(parts)) "" else paste0(lead, "(", paste(parts, collapse = "; "), ")")
+}
+
+# ---- Round 109: further figures of every univariable pair ----
+# MendelianRandomization's own mr_forest, mr_funnel and mr_plot (so the layout is the package's), the mode estimators' density
+# (as mrrobust mrmodalplot), the MR-Egger plot with its confidence band (as mrrobust mreggerplot) and the SIMEX extrapolation (as
+# mrrobust mreggersimex). Each is a list(key, files, caption); a figure that cannot be drawn is left out.
+.MRF_METHODS <- c(ivw_mre = "ivw", smed = "median", wm = "wmedian", egger = "egger", maxlik = "maxlik", mbe = "mbe", mode = "mbe", conmix = "conmix")
+extra_figures <- function(cx, pk, tag, wmm, ci_level = 0.95) {
+  k <- cx$kept; if (is.null(k) || nrow(k) < 3L) return(list())
+  if (!requireNamespace("MendelianRandomization", quietly = TRUE) || !requireNamespace("ggplot2", quietly = TRUE)) return(list())
+  mri <- MendelianRandomization::mr_input(bx = k$bx, bxse = k$sx, by = k$by, byse = k$sy, snps = k$id, exposure = cx$p$exName, outcome = cx$p$outName)
+  al <- 1 - ci_level; out <- list(); ran <- unique(cx$ce$method %||% character())
+  put <- function(key, h, g, cap) { f <- .fig_write(file.path(pk, "figures", paste0(tag, "_", key)), wmm, h, function() print(g)); if (length(f)) out[[length(out) + 1L]] <<- list(key = key, files = f, caption = cap) }
+  pc <- .pct(ci_level); nm <- sprintf("%s on %s", cx$p$exName, cx$p$outName)
+  g <- tryCatch(mrf_restyle(MendelianRandomization::mr_forest(mri, alpha = al, ordered = TRUE), wmm), error = function(e) NULL)
+  if (!is.null(g)) put("mr_forest_variants", max(60, 20 + 3.2 * nrow(k)), g, sprintf("Variant forest plot (MendelianRandomization mr_forest) of %s: the ratio estimate of each variant with its %s confidence interval, ordered by estimate, and the IVW estimate (diamond).", nm, pc))
+  mm <- unique(unname(.MRF_METHODS[intersect(names(.MRF_METHODS), ran)]))
+  g <- if (length(mm)) tryCatch(mrf_methods_plot(mri, al, mm, wmm), error = function(e) NULL) else NULL
+  if (!is.null(g)) put("mr_forest_methods", round(wmm / 1.617), g, sprintf("Methods forest plot (MendelianRandomization mr_forest) of %s: the estimate and %s confidence interval of each method that MendelianRandomization can draw among those run.", nm, pc))
+  g <- tryCatch(mrf_restyle(MendelianRandomization::mr_funnel(mri, CI = TRUE), wmm), error = function(e) NULL)
+  if (!is.null(g)) put("mr_funnel", round(wmm / 1.617), g, sprintf("Funnel plot (MendelianRandomization mr_funnel) of %s: each variant's ratio estimate (x) against its precision, |beta_x| / se_y (y), with 95%% intervals; solid line at zero, dashed line at the IVW estimate. It differs from the funnel plot above, which has the standard error on a reversed axis.", nm))
+  g <- tryCatch(mrf_restyle(MendelianRandomization::mr_plot(mri, interactive = FALSE, labels = FALSE, line = "ivw", orientate = TRUE), wmm), error = function(e) NULL)
+  if (!is.null(g)) put("mr_plot", round(wmm / 1.617), g, sprintf("Scatter plot (MendelianRandomization mr_plot) of %s, variants oriented to a positive effect on the exposure, with error bars on both axes and the IVW line (variant labels are in the supplement tables).", nm))
+  g <- tryCatch(mrf_restyle(MendelianRandomization::mr_plot(MendelianRandomization::mr_allmethods(mri, method = "all", alpha = al), interactive = FALSE), wmm), error = function(e) NULL)
+  if (!is.null(g)) put("mr_allmethods", round(wmm / 1.617), g, sprintf("All-methods plot (MendelianRandomization mr_allmethods, method = \"all\", and mr_plot) of %s: one line per estimator (medians, IVW and MR-Egger with their penalised and robust versions).", nm))
+  if (any(c("mode", "smode", "smode_nome", "wmode_nome", "mbe") %in% ran)) { g <- mode_density_plot(k); if (!is.null(g)) put("mode_density", round(wmm * 0.6), g, sprintf("Density of the single-variant ratio estimates of %s (as mrrobust mrmodalplot), smoothed with bandwidth multipliers phi = 0.25, 0.5 and 1; the mode-based estimates are the peaks [Hartwig 2017].", nm)) }
+  if (any(c("egger", "radegger", "egger_simex", "egger_boot", "egger_rob") %in% ran)) { g <- egger_plot(k, ci_level); if (!is.null(g)) put("mregger", round(wmm * 0.6), g, sprintf("MR-Egger plot of %s (as mrrobust mreggerplot): variants oriented to a positive effect on the exposure with %s confidence intervals, the MR-Egger line with its own intercept and the shaded %s confidence band.", nm, pc, pc)) }
+  kn <- tryCatch(knigge_figures(k, sprintf("%s ~ %s", cx$p$outName, cx$p$exName)), error = function(e) NULL)   # Round 109: item 11
+  if (!is.null(kn)) { qn <- sprintf("Flagged in red: the %d variant(s) whose contribution to Cochran's Q exceeds the chi-squared cut-off at 0.05 / k (MR Studio's Q step).", kn$n_flag)
+    put("knigge_mr_plot", round(wmm * 0.85), kn$fig5, sprintf("MR plot of %s (layout of mr.plot, matthijsknigge/mendelianrandomization, redrawn): variant effects with 95%% error bars on both axes, coloured by the ratio z, with IVW and MR-Egger lines before and after Q filtering, marginal densities and rug marks. %s", nm, qn))
+    put("knigge_forest", max(60, 25 + 3.2 * nrow(k)), kn$fig6, sprintf("Forest plot of %s (layout of mr.forest.plot, redrawn): each variant's ratio estimate with its 95%% CI, IVW and MR-Egger before and after Q filtering at the top, the IVW interval shaded and a dotted line at zero. %s", nm, qn))
+    put("knigge_funnel_ivw", round(wmm * 0.75), kn$fig7, sprintf("Funnel plot for IVW of %s (layout of mr.funnel.plot, redrawn): ratio estimate against its standard error (reversed axis) with funnel limits around the IVW estimate before and after Q filtering. %s", nm, qn))
+    put("knigge_funnel_egger", round(wmm * 0.75), kn$fig8, sprintf("Funnel plot for MR-Egger of %s (layout of mr.funnel.plot, redrawn), as the IVW funnel plot around the MR-Egger estimate. %s", nm, qn)) }
+  if ("egger_simex" %in% ran) { g <- simex_plot(k); if (!is.null(g)) put("mregger_simex", round(wmm * 0.6), g, sprintf("SIMEX for MR-Egger of %s (as mrrobust mreggersimex): the MR-Egger slope (left) and intercept (right) against lambda; open circle the original estimate, dots the simulated estimates, solid line the quadratic fit, dashed line its extrapolation to lambda = -1 and cross the SIMEX estimate.", nm)) }
+  out
+}
+#' Round 109: density of the ratio estimates at three bandwidths (Hartwig 2017 bandwidth h = phi * 0.9 * min(sd, mad) * n^(-1/5)), weighted.
+mode_density_plot <- function(k) {
+  r <- k$by / k$bx; se <- abs(k$sy / k$bx); w <- (1 / se^2) / sum(1 / se^2); s <- min(stats::sd(r), stats::mad(r)); if (!is.finite(s) || s <= 0) return(NULL)
+  xs <- seq(min(r) - 3 * s, max(r) + 3 * s, length.out = 512)
+  d <- do.call(rbind, lapply(c(0.25, 0.5, 1), function(phi) { h <- phi * 0.9 * s * length(r)^(-1 / 5); data.frame(x = xs, y = vapply(xs, function(x) sum(w * stats::dnorm(x, r, h)), 0), phi = format(phi)) }))
+  ggplot2::ggplot(d, ggplot2::aes(x, y, colour = phi)) + ggplot2::geom_line(linewidth = 0.7) + ggplot2::labs(x = "IV estimates", y = "Density", colour = "phi") + ggplot2::theme_bw() + ggplot2::theme(legend.position = "bottom")
+}
+#' Round 109: MR-Egger plot with the confidence band of the fitted line.
+# Round 109: styled as mrrobust mreggerplot (black squares, capped CIs, black line, grey band).
+egger_plot <- function(k, ci_level = 0.95) {
+  s <- sign(k$bx); d <- data.frame(bx = abs(k$bx), by = k$by * s, sx = k$sx, sy = k$sy)
+  f <- stats::lm(by ~ bx, data = d, weights = 1 / sy^2); z <- stats::qnorm(1 - (1 - ci_level) / 2); rse <- max(1, summary(f)$sigma)
+  nx <- data.frame(bx = seq(0, max(d$bx + z * d$sx), length.out = 100)); pr <- stats::predict(f, nx, se.fit = TRUE); sf <- pr$se.fit / summary(f)$sigma * rse
+  b <- data.frame(bx = nx$bx, fit = pr$fit, lo = pr$fit - z * sf, hi = pr$fit + z * sf)
+  ggplot2::ggplot() + ggplot2::geom_ribbon(data = b, ggplot2::aes(bx, ymin = lo, ymax = hi, fill = "MR-Egger 95% CI"), alpha = 0.35) + ggplot2::geom_line(data = b, ggplot2::aes(bx, fit, colour = "MR-Egger"), linewidth = 0.6) +
+    ggplot2::geom_errorbar(data = d, ggplot2::aes(bx, ymin = by - z * sy, ymax = by + z * sy, linetype = "95% CIs"), width = max(d$bx) * 0.012, colour = "black") + ggplot2::geom_point(data = d, ggplot2::aes(bx, by, shape = "Instruments"), size = 1.6) +
+    ggplot2::scale_fill_manual(NULL, values = "grey70") + ggplot2::scale_colour_manual(NULL, values = "black") + ggplot2::scale_linetype_manual(NULL, values = 1) + ggplot2::scale_shape_manual(NULL, values = 15) + ggplot2::guides(shape = ggplot2::guide_legend(order = 1), linetype = ggplot2::guide_legend(order = 2), colour = ggplot2::guide_legend(order = 3), fill = ggplot2::guide_legend(order = 4)) +
+    ggplot2::labs(x = "Instrument-exposure associations", y = "Instrument-outcome associations") + ggplot2::theme_bw() + ggplot2::theme(legend.position = "bottom")
+}
+#' Round 109: SIMEX of the MR-Egger slope and intercept (simex package, quadratic extrapolation, as the egger_simex method).
+simex_plot <- function(k, B = 200L, seed = 1L) {
+  if (!requireNamespace("simex", quietly = TRUE)) return(NULL)
+  s <- sign(k$bx); d <- data.frame(bx = abs(k$bx), by = k$by * s, w = 1 / k$sy^2, sx = k$sx / k$sy)
+  d$byw <- d$by / k$sy; d$bxw <- d$bx / k$sy; d$iw <- 1 / k$sy
+  fit <- stats::lm(byw ~ iw + bxw - 1, data = d, x = TRUE, y = TRUE); set.seed(seed)
+  sx <- tryCatch(simex::simex(fit, B = B, measurement.error = d$sx, SIMEXvariable = "bxw", fitting.method = "quad", asymptotic = FALSE, lambda = c(0.5, 1, 1.5, 2)), error = function(e) NULL)
+  if (is.null(sx)) return(NULL)
+  th <- sx$SIMEX.estimates; lam <- th[, 1]; mk <- function(j, lab) { y <- th[, j]; q <- stats::lm(y ~ lam + I(lam^2)); gx <- seq(-1, 2, length.out = 100)
+    list(pts = data.frame(lambda = lam, est = y, what = lab, orig = lam == 0), fit = data.frame(lambda = gx, est = stats::predict(q, data.frame(lam = gx)), what = lab, extra = gx < 0),
+         sim = data.frame(lambda = -1, est = stats::predict(q, data.frame(lam = -1)), what = lab)) }
+  a <- mk(which(colnames(th) == "bxw"), "MR-Egger slope"); b <- mk(which(colnames(th) == "iw"), "MR-Egger intercept")
+  P <- rbind(a$pts, b$pts); Fq <- rbind(a$fit, b$fit); Sm <- rbind(a$sim, b$sim); P$what <- factor(P$what, c("MR-Egger slope", "MR-Egger intercept")); Fq$what <- factor(Fq$what, levels(P$what)); Sm$what <- factor(Sm$what, levels(P$what))
+  ggplot2::ggplot() + ggplot2::geom_line(data = Fq[!Fq$extra, ], ggplot2::aes(lambda, est, linetype = "Quadratic fit")) + ggplot2::geom_line(data = Fq[Fq$extra, ], ggplot2::aes(lambda, est, linetype = "Extrapolation")) +
+    ggplot2::geom_point(data = P[!P$orig, ], ggplot2::aes(lambda, est, shape = "Simulated estimates")) + ggplot2::geom_point(data = P[P$orig, ], ggplot2::aes(lambda, est, shape = "Original estimate"), size = 2.5) +
+    ggplot2::geom_point(data = Sm, ggplot2::aes(lambda, est, shape = "SIMEX estimate"), size = 3) + ggplot2::facet_wrap(~ what, scales = "free_y", strip.position = "left") + ggplot2::theme(strip.placement = "outside", strip.background = ggplot2::element_blank()) +
+    ggplot2::scale_shape_manual(NULL, values = c("Original estimate" = 1, "Simulated estimates" = 16, "SIMEX estimate" = 4)) + ggplot2::scale_linetype_manual(NULL, values = c("Quadratic fit" = 1, "Extrapolation" = 2), breaks = c("Quadratic fit", "Extrapolation")) + ggplot2::scale_x_continuous(expand = ggplot2::expansion(mult = 0.08)) + ggplot2::guides(shape = ggplot2::guide_legend(nrow = 2), linetype = ggplot2::guide_legend(nrow = 2)) + ggplot2::theme(legend.box = "vertical") +
+    ggplot2::labs(x = expression(lambda), y = NULL) + ggplot2::theme_bw() + ggplot2::theme(legend.position = "bottom", strip.placement = "outside", strip.background = ggplot2::element_blank(), text = ggplot2::element_text(size = 9))   # Round 109: as mrrobust mreggersimex (per-panel y titles, lambda symbol)
+}
+
+# ---- Round 109: Figures 5 to 8 of matthijsknigge/mendelianrandomization (mr.plot, mr.forest.plot, mr.funnel.plot), redrawn ----
+# Redrawn in MR Studio's own code with the same layout (no code reused). The "after Q" lines use MR Studio's Cochran's Q step: a variant is
+# flagged when its contribution to Q, (by - b bx)^2 / se_y^2 with b the IVW estimate, exceeds the chi-squared (1 df) cut-off at 0.05 / k.
+knigge_q_flags <- function(k) { w <- 1 / k$sy^2; b <- sum(w * k$bx * k$by) / sum(w * k$bx^2); q <- (k$by - b * k$bx)^2 / k$sy^2; q > stats::qchisq(1 - 0.05 / nrow(k), 1) }
+.kn_fits <- function(k, keep) { f <- function(d, egger) { w <- 1 / d$sy^2; if (egger) { m <- stats::lm(by ~ bx, data = d, weights = w); c(a = unname(stats::coef(m)[1]), b = unname(stats::coef(m)[2]), se = summary(m)$coefficients[2, 2] / min(1, summary(m)$sigma)) } else { b <- sum(w * d$bx * d$by) / sum(w * d$bx^2); c(a = 0, b = b, se = sqrt(1 / sum(w * d$bx^2))) } }
+  s <- sign(k$bx); d <- data.frame(bx = abs(k$bx), by = k$by * s, sy = k$sy); list(ivw = f(d, FALSE), ivw_q = f(d[keep, ], FALSE), egger = f(d, TRUE), egger_q = f(d[keep, ], TRUE)) }
+knigge_figures <- function(k, title) {
+  if (nrow(k) < 4L) return(NULL); G <- ggplot2::ggplot; A <- ggplot2::aes
+  fl <- knigge_q_flags(k); keep <- !fl; if (sum(keep) < 3L) keep[] <- TRUE; fits <- .kn_fits(k, keep)
+  s <- sign(k$bx); d <- data.frame(id = k$id, bx = abs(k$bx), by = k$by * s, sx = k$sx, sy = k$sy, flag = fl); d$ratio <- d$by / d$bx; d$rse <- d$sy / d$bx; d$z <- d$ratio / d$rse
+  ln <- data.frame(name = c("IVW", "IVW (Q-filtered)", "MR-Egger", "MR-Egger (Q-filtered)"), a = c(fits$ivw[["a"]], fits$ivw_q[["a"]], fits$egger[["a"]], fits$egger_q[["a"]]), b = c(fits$ivw[["b"]], fits$ivw_q[["b"]], fits$egger[["b"]], fits$egger_q[["b"]]),
+                   se = c(fits$ivw[["se"]], fits$ivw_q[["se"]], fits$egger[["se"]], fits$egger_q[["se"]]))
+  th <- ggplot2::theme_bw() + ggplot2::theme(legend.position = "bottom", plot.title = ggplot2::element_text(hjust = 0))
+  f5 <- G(d, A(bx, by)) + ggplot2::geom_errorbar(A(ymin = by - 1.96 * sy, ymax = by + 1.96 * sy), width = 0, colour = "#c9c4e8") + ggplot2::geom_errorbarh(A(xmin = bx - 1.96 * sx, xmax = bx + 1.96 * sx), height = 0, colour = "#c9c4e8") +
+    ggplot2::geom_point(A(colour = z), data = d[!d$flag, ]) + ggplot2::geom_point(data = d[d$flag, ], colour = "red") + ggplot2::scale_colour_gradient(name = "z", low = "#c6dbef", high = "#08306b") +
+    ggplot2::geom_abline(A(intercept = a, slope = b, linetype = name), data = ln, colour = "#3f3fa0") + ggplot2::scale_linetype_manual(NULL, values = c(1, 2, 4, 3)) + ggplot2::guides(linetype = ggplot2::guide_legend(nrow = 2)) + ggplot2::theme(legend.box = "vertical") + ggplot2::geom_rug(sides = "bl", colour = "steelblue", alpha = 0.6) +
+    ggplot2::labs(title = title, x = "SNP-exposure effect", y = "SNP-outcome effect") + th
+  f5 <- tryCatch({ px <- G(d, A(bx)) + ggplot2::geom_density(fill = "steelblue", colour = NA) + ggplot2::theme_void(); py <- G(d, A(by)) + ggplot2::geom_density(fill = "steelblue", colour = NA) + ggplot2::coord_flip() + ggplot2::theme_void()
+    g <- cowplot::insert_xaxis_grob(f5, cowplot::get_panel(px), grid::unit(0.15, "null"), position = "top"); cowplot::ggdraw(cowplot::insert_yaxis_grob(g, cowplot::get_panel(py), grid::unit(0.15, "null"), position = "right")) }, error = function(e) f5)
+  fo <- rbind(data.frame(label = ln$name, est = ln$b, lo = ln$b - 1.96 * ln$se, hi = ln$b + 1.96 * ln$se, kind = "method", flag = FALSE), data.frame(label = d$id, est = d$ratio, lo = d$ratio - 1.96 * d$rse, hi = d$ratio + 1.96 * d$rse, kind = "snp", flag = d$flag))
+  fo$label <- factor(fo$label, rev(fo$label))
+  f6 <- G(fo, A(est, label)) + ggplot2::annotate("rect", xmin = ln$b[1] - 1.96 * ln$se[1], xmax = ln$b[1] + 1.96 * ln$se[1], ymin = -Inf, ymax = Inf, alpha = 0.35, fill = "steelblue") + ggplot2::annotate("rect", xmin = ln$b[3] - 1.96 * ln$se[3], xmax = ln$b[3] + 1.96 * ln$se[3], ymin = -Inf, ymax = Inf, alpha = 0.12, fill = "#7a3fc7") +   # Round 109: IVW (blue) and MR-Egger (purple) bands, as mr.forest.plot
+    ggplot2::geom_vline(xintercept = 0, linetype = 3) +
+    ggplot2::geom_errorbarh(A(xmin = lo, xmax = hi, colour = flag), height = 0) + ggplot2::geom_point(A(colour = flag, shape = kind)) + ggplot2::geom_point(data = fo[fo$kind == "method", ], colour = c("steelblue", "steelblue", "#3f3fa0", "#3f3fa0"), shape = 18, size = 3.5) + ggplot2::guides(shape = "none") + ggplot2::scale_colour_manual(NULL, values = c(`FALSE` = "black", `TRUE` = "red"), labels = c("kept", "flagged by Q")) +
+    ggplot2::scale_shape_manual(NULL, values = c(method = 18, snp = 16)) + ggplot2::labs(title = title, x = "Causal estimate (95% CI)", y = NULL) + th
+  fun <- function(m, lab) { b0 <- ln$b[ln$name == m]; b1 <- ln$b[ln$name == paste0(m, " (Q-filtered)")]; ys <- seq(0, max(d$rse) * 1.05, length.out = 50)
+    fn <- rbind(data.frame(y = ys, lo = b0 - 1.96 * ys, hi = b0 + 1.96 * ys, which = "all variants"), data.frame(y = ys, lo = b1 - 1.96 * ys, hi = b1 + 1.96 * ys, which = "after Q filtering"))
+    G(d, A(ratio, rse)) + ggplot2::geom_ribbon(A(y = y, xmin = -Inf, xmax = lo), data = fn[fn$which == "all variants", ], inherit.aes = FALSE, orientation = "y", fill = "grey88") + ggplot2::geom_ribbon(A(y = y, xmin = hi, xmax = Inf), data = fn[fn$which == "all variants", ], inherit.aes = FALSE, orientation = "y", fill = "grey88") + ggplot2::geom_line(A(lo, y, linetype = which), data = fn) + ggplot2::geom_line(A(hi, y, linetype = which), data = fn) + ggplot2::geom_vline(xintercept = c(b0, b1), linetype = c(1, 2)) +
+      ggplot2::geom_point(A(colour = z), data = d[!d$flag, ]) + ggplot2::geom_point(data = d[d$flag, ], colour = "red") + ggplot2::scale_colour_gradient(name = "z", low = "#c6dbef", high = "#08306b") +
+      ggplot2::scale_y_reverse() + ggplot2::geom_rug(sides = "bl", colour = "steelblue", alpha = 0.6) + ggplot2::scale_linetype_manual(NULL, values = c(1, 2)) + ggplot2::labs(title = paste0("Funnel, ", lab), x = "Causal estimate (beta_IV)", y = "Standard error") + th }
+  list(fig5 = f5, fig6 = f6, fig7 = fun("IVW", "IVW"), fig8 = fun("MR-Egger", "MR-Egger"), n_flag = sum(fl))
+}
+
+#' Round 109 (item 9): the mode-based estimates at bandwidth multipliers phi = 0.25, 0.5 and 1, simple and weighted, each with
+#' second-order (NOME not assumed) and first-order (NOME) ratio standard errors, as mrrobust mrmodal reports them
+#' (MendelianRandomization::mr_mbe; bootstrap SEs with a fixed seed, so SEs differ by software).
+mode_table <- function(k, ci_level = 0.95, iterations = 1000L, seed = 12345L) {
+  if (nrow(k) < 3L || !requireNamespace("MendelianRandomization", quietly = TRUE)) return(NULL)
+  mri <- MendelianRandomization::mr_input(bx = k$bx, bxse = k$sx, by = k$by, byse = k$sy)
+  g <- expand.grid(phi = c(0.25, 0.5, 1), weighting = c("unweighted", "weighted"), stderror = c("delta", "simple"), stringsAsFactors = FALSE)   # mr_mbe calls the simple mode "unweighted"
+  rows <- lapply(seq_len(nrow(g)), function(i) { f <- MendelianRandomization::mr_mbe(mri, weighting = g$weighting[i], stderror = g$stderror[i], phi = g$phi[i], seed = seed, iterations = iterations, alpha = 1 - ci_level)
+    data.frame(estimator = paste(if (g$weighting[i] == "unweighted") "Simple mode" else "Weighted mode", if (g$stderror[i] == "simple") "(NOME)" else ""), phi = g$phi[i],
+               estimate = f@Estimate, se = f@StdError, ci_lower = f@CILower, ci_upper = f@CIUpper, p = f@Pvalue, stringsAsFactors = FALSE) })
+  out <- do.call(rbind, rows); out$estimator <- trimws(out$estimator); out[order(out$estimator, out$phi), ]
+}
+
+# ---- Round 109: a figures script in every pair folder (05_figures/make_figures.R), so the shipped figures can be redrawn in R ----
+# While the package draws its figures, .fig_write records the data of each drawing (FIG_REC). Then every pair gets make_figures.R:
+# the exact plotting functions of this MR Studio (dumped from the running engine, so the app and the script cannot differ), the
+# recorded inputs (figure_inputs.rds) and the pair's instruments and estimates (figure_data.csv, figure_estimates.csv).
+FIG_REC <- new.env()
+FIG_NAMESPACES <- c("ggplot2", "MendelianRandomization", "cowplot", "simex")   # loaded before any figure is drawn (loading them changes how text is drawn)
+#' Draws a Greek letter once off-screen, so the symbol font is loaded before the first figure (its first use could differ).
+fig_warmup <- function() tryCatch({ f <- tempfile(fileext = ".png"); grDevices::png(f, type = "cairo"); grid::grid.text(expression(phi == lambda)); grDevices::dev.off(); unlink(f) }, error = function(e) NULL)
+.fig_record <- function(base, w_mm, h_mm, draw) {
+  if (!isTRUE(FIG_REC$on)) return(invisible())
+  env <- environment(draw); vars <- intersect(codetools::findGlobals(draw, merge = FALSE)$variables, ls(env, all.names = TRUE))
+  FIG_REC$items[[length(FIG_REC$items) + 1L]] <- list(base = basename(base), w_mm = w_mm, h_mm = h_mm, body = body(draw), data = mget(vars, envir = env))
+}
+#' Every function and constant the given functions use, found by following their global names in env (the engine's environment).
+.fig_deps <- function(start, env = environment(extra_figures)) {
+  todo <- start; seen <- character()
+  while (length(todo)) { n <- todo[1]; todo <- todo[-1]; if (n %in% seen || n %in% c(".fig_record", "FIG_REC") || !exists(n, envir = env, inherits = FALSE)) next
+    seen <- c(seen, n); obj <- get(n, envir = env)
+    if (is.function(obj)) { g <- codetools::findGlobals(obj); todo <- c(todo, setdiff(g, seen)) } }
+  seen
+}
+write_figures_script <- function(h, cx, i, wmm, items, xkeys) {
+  pd <- file.path(h$dir, "03_pairs", cx$p$folder); if (!dir.exists(pd)) return(invisible(NULL)); fd <- file.path(pd, "05_figures"); dir.create(fd, showWarnings = FALSE)
+  tag <- sprintf("P%d", i); its <- Filter(function(x) startsWith(x$base, paste0(tag, "_")) && !(sub(paste0("^", tag, "_"), "", x$base) %in% xkeys), items)
+  saveRDS(its, file.path(fd, "figure_inputs.rds"), version = 2)
+  utils::write.csv(cx$kept, file.path(fd, "figure_data.csv"), row.names = FALSE); utils::write.csv(cx$ce, file.path(fd, "figure_estimates.csv"), row.names = FALSE)
+  saveRDS(list(kept = cx$kept, ce = cx$ce), file.path(fd, "figure_pair.rds"), version = 2)   # exact values (the CSV files round to 15 digits)
+  calls <- unique(unlist(lapply(its, function(x) all.names(x$body)))); deps <- .fig_deps(unique(c(".fig_write", "extra_figures", "fig_warmup", calls)))
+  df <- tempfile(fileext = ".R"); dump(deps, file = df, envir = environment(extra_figures)); defs <- readLines(df, warn = FALSE); unlink(df)
+  defs <- vapply(enc2utf8(defs), function(s) { cp <- utf8ToInt(s); if (all(cp < 128L)) return(s); paste(vapply(cp, function(c) if (c < 128L) intToUtf8(c) else sprintf("\\u%04x", c), ""), collapse = "") }, "", USE.NAMES = FALSE)   # ASCII only: other characters as \u escapes, so the script reads the same in any locale
+  pk <- c("ggplot2", "MendelianRandomization", "cowplot", "simex", "codetools"); ver <- vapply(pk, function(p) tryCatch(as.character(utils::packageVersion(p)), error = function(e) "not installed"), "")
+  txt <- c("# make_figures.R: redraws every figure of this pair exactly as in the publication package.",
+    sprintf("# Written by MR Studio %s with %s. Packages: %s.", .mrs_ver_build(), R.version.string, paste(sprintf("%s %s", pk, ver), collapse = ", ")),
+    "# Run from this folder:  Rscript make_figures.R   (the figures are written to ./figures as PDF, SVG and PNG at 300 dpi)",
+    "# The plotting functions below are the ones MR Studio used; figure_inputs.rds holds the data of each figure as drawn,",
+    "# figure_data.csv the instruments (bx, by, sx, sy) and figure_estimates.csv the estimates of the pair.", "",
+    "if (!isTRUE(l10n_info()[[\"UTF-8\"]])) for (l in c(\"C.UTF-8\", \"en_US.UTF-8\", \"English_United States.utf8\")) if (nzchar(suppressWarnings(Sys.setlocale(\"LC_CTYPE\", l)))) break   # Greek letters (phi) need a UTF-8 locale", "",
+    "# ---- plotting functions of MR Studio ----", defs, "",
+    "for (ns in c(\"ggplot2\", \"MendelianRandomization\", \"cowplot\", \"simex\")) suppressWarnings(requireNamespace(ns, quietly = TRUE))   # as MR Studio, before any figure",
+    "fig_warmup()",
+    "# ---- the figures ----",
+    "dir.create(\"figures\", showWarnings = FALSE)",
+    "for (f in readRDS(\"figure_inputs.rds\")) { e <- list2env(f$data, parent = globalenv()); d <- eval(call(\"function\", NULL, f$body), e)",
+    "  .fig_write(file.path(\"figures\", f$base), f$w_mm, f$h_mm, d) }",
+    sprintf("cx <- c(readRDS(\"figure_pair.rds\"), list(p = list(exName = %s, outName = %s)))   # the instruments and estimates, exact (also in the CSV files)", deparse(cx$p$exName), deparse(cx$p$outName)),
+    sprintf("invisible(extra_figures(cx, \".\", %s, %d, %s))", deparse(tag), as.integer(wmm), format((cx$ce$ci_level %||% 0.95)[1])))
+  writeLines(txt, file.path(fd, "make_figures.R"), useBytes = TRUE)
+  invisible(file.path(fd, "make_figures.R"))
+}
+
+# ---- Round 109: figure styling matched to the originals (audited element by element against mrrobust, mendelianrandomization and MendelianRandomization; private_notes/r109_figcheck/AUDIT.md) ----
+# Proposed styling for the Round 109 figures: drop-in replacements for egger_plot, simex_plot, mode_density_plot and knigge_figures in
+# prototype/engine/report_core.R (signatures unchanged), plus wrappers for the MendelianRandomization figures (mrf_restyle, mrf_methods_plot).
+# ASCII only: Greek letters only through plotmath (a Unicode phi prints as <U+03C6> in non-UTF-8 sessions).
+# Reproducibility: every plot with more than one legend sets each guide's order explicitly (ggplot otherwise orders them
+# differently between sessions), and simex_plot fixes RNGkind before set.seed, so a figures script redraws byte-identical output. Source report_core.R first, then this file.
+#
+# Scale: MR Studio writes these figures w_mm = 140 mm wide (vector PDF and SVG plus a 300 dpi PNG, by .fig_write). Every size is matched to
+# the original at equal figure width ("same zoom"):
+#  - mrrobust (Stata SVG, 5400 units across, from mreggerplot.ado / mreggersimex.ado / mrmodalplot.ado as exported on the mrrobust site):
+#      1 unit = 140 / 5400 mm, ggplot linewidth = mm / 0.7528. 9.72 u -> 0.335, 7.29 u -> 0.251, 6.48 u -> 0.223, 4.86 u -> 0.167;
+#      text 112.56 u -> 8.3 pt, 89.94 u -> 6.6 pt, 84.38 u -> 6.2 pt.
+#  - Knigge (matthijsknigge/mendelianrandomization R/mr.plot.R, mr.forest.plot.R, mr.funnel.plot.R; README PNGs drawn at 72 dpi:
+#      Fig 5 916 px, Fig 6 806 px, Figs 7-8 1140 px wide): every size of the package code times f = 140 mm / original width
+#      (0.433, 0.492, 0.348). Text is kept at 6.5 pt or more so the report stays readable.
+#  - MendelianRandomization 0.10.0 (mr_plot, mr_forest, mr_funnel; reference figures drawn at 7.29 x 4.51 in by pkgdown):
+#      mrf_restyle scales the package's own ggplot by s = 140 / 185.2.
+
+.MRR_LW <- c(thick = 0.335, fit = 0.251, axis = 0.223, thin = 0.167)
+.MRR_GRID <- "#F0F0F0"
+# Stata number format: no leading zero (".1", "-.05").
+.stata_lab <- function(x) vapply(x, function(v) if (is.na(v)) NA_character_ else sub("^(-?)0\\.", "\\1.", format(signif(v, 6), trim = TRUE, drop0trailing = TRUE, scientific = FALSE)), "")
+# Theme of mrrobust's Stata graphs: white, black L axes with outside ticks, dashed #F0F0F0 major grid on both axes, legend below.
+.mrr_theme <- function(base = 8.3, legend = 6.6, grid = .MRR_LW[["thick"]]) {
+  ggplot2::theme_classic(base_size = base, base_line_size = .MRR_LW[["axis"]], base_rect_size = .MRR_LW[["axis"]]) +
+    ggplot2::theme(panel.grid.major = ggplot2::element_line(colour = .MRR_GRID, linewidth = grid, linetype = "73"), panel.grid.minor = ggplot2::element_blank(),
+                   axis.line = ggplot2::element_line(colour = "black", linewidth = .MRR_LW[["axis"]]), axis.ticks = ggplot2::element_line(colour = "black", linewidth = .MRR_LW[["axis"]]),
+                   axis.text = ggplot2::element_text(colour = "black", size = base), axis.title = ggplot2::element_text(colour = "black", size = base),
+                   plot.background = ggplot2::element_rect(fill = "white", colour = NA), legend.position = "bottom", legend.key = ggplot2::element_blank(),
+                   legend.text = ggplot2::element_text(size = legend), legend.title = ggplot2::element_blank())
+}
+# RColorBrewer "Blues"[2:9] as Knigge's scale_colour_gradientn, and brewer "Blues"[7] for the "p < 0.05" key.
+.KN_BLUES <- c("#DEEBF7", "#C6DBEF", "#9ECAE1", "#6BAED6", "#4292C6", "#2171B5", "#08519C", "#08306B")
+.KN_DARKBLUE <- "#00008B"; .KN_PURPLE <- "#A020F0"; .KN_STEEL <- "#4682B4"; .KN_GREY <- "#BEBEBE"; .KN_DARKGREY <- "#A9A9A9"; .KN_KEYBLUE <- "#2171B5"
+.KN_PT <- c(fig5 = 2.35, fig6 = 1.06, funnel = 1.89)
+.KN_ZLAB <- expression(frac(hat(beta)[IV], sigma[hat(beta)[IV]]))
+.KN_CHILAB <- expression(chi[homogeneity]^2)
+# theme_minimal as in Knigge's code, line sizes scaled by f, text floored at 5.5 pt; bold = TRUE for the 14 pt bold axis text of mr.plot and mr.forest.plot.
+# Point sizes: the originals are 72 dpi PNGs whose antialiasing widens points, so sizes are set from the measured diameters
+# (Fig 5 13 of 916 px, Figs 7-8 13 of 1140 px, Fig 6 6 of 806 px) rather than from size x f: .KN_PT.
+# Text factor: the originals' 72 dpi hinting draws text about 1.38 times larger than its point size at the same zoom (tick glyph
+# heights measured: Fig 5 15.3 vs 10.9, Fig 6 17.4 vs 12.7 per 1000 px of width), as with the points (.KN_PT). Legend keys and
+# spacing follow the base size, as in theme_minimal; the base text has a 5 pt floor.
+.KN_TXT <- 1.38
+.kn_theme <- function(f, bold = FALSE) {
+  b <- max(5, 11 * f * .KN_TXT)
+  t <- ggplot2::theme_minimal(base_size = b, base_line_size = 0.5 * f, base_rect_size = 0.5 * f) + ggplot2::theme(legend.position = "bottom", plot.title = ggplot2::element_text(hjust = 0),
+    legend.margin = ggplot2::margin(0, 0, 0, 0), legend.box.margin = ggplot2::margin(0, 0, 0, 0), legend.spacing.x = grid::unit(0.6 * b, "pt"), legend.key.spacing.x = grid::unit(0.15 * b, "pt"), legend.box.spacing = grid::unit(0.3 * b, "pt"),
+    legend.key.width = grid::unit(1.6 * b, "pt"), legend.key.height = grid::unit(1.6 * b, "pt"), legend.text = ggplot2::element_text(margin = ggplot2::margin(l = 0.3 * b, r = 0.3 * b)))
+  if (bold) t <- t + ggplot2::theme(axis.text = ggplot2::element_text(size = 14 * f * .KN_TXT, face = "bold", colour = "grey30"), axis.title = ggplot2::element_text(size = 14 * f * .KN_TXT, face = "bold"))
+  t
+}
+
+mode_density_plot <- function(k) {
+  r <- k$by / k$bx; se <- abs(k$sy / k$bx); w <- (1 / se^2) / sum(1 / se^2); s <- min(stats::sd(r), stats::mad(r)); if (!is.finite(s) || s <= 0) return(NULL)
+  xs <- seq(min(r) - 3 * s, max(r) + 3 * s, length.out = 512)
+  d <- do.call(rbind, lapply(c(0.25, 0.5, 1), function(phi) { h <- phi * 0.9 * s * length(r)^(-1 / 5); data.frame(x = xs, y = vapply(xs, function(x) sum(w * stats::dnorm(x, r, h)), 0), phi = format(phi)) }))
+  ggplot2::ggplot(d, ggplot2::aes(x, y, colour = phi)) + ggplot2::geom_line(linewidth = .MRR_LW[["thick"]]) +
+    ggplot2::scale_colour_manual(NULL, values = c("0.25" = "#1A85FF", "0.5" = "#D41159", "1" = "#00BF7F"), breaks = c("0.25", "0.5", "1"), labels = parse(text = c("phi == \".25\"", "phi == \".5\"", "phi == 1"))) +
+    ggplot2::scale_x_continuous(labels = .stata_lab) + ggplot2::scale_y_continuous(labels = .stata_lab) +
+    ggplot2::labs(x = "IV estimates", y = "Density", colour = NULL) + .mrr_theme(legend = 8.3)
+}
+
+egger_plot <- function(k, ci_level = 0.95) {
+  s <- sign(k$bx); d <- data.frame(bx = abs(k$bx), by = k$by * s, sx = k$sx, sy = k$sy)
+  f <- stats::lm(by ~ bx, data = d, weights = 1 / sy^2); z <- stats::qnorm(1 - (1 - ci_level) / 2); rse <- max(1, summary(f)$sigma)
+  nx <- data.frame(bx = seq(0, max(d$bx + z * d$sx), length.out = 100)); pr <- stats::predict(f, nx, se.fit = TRUE); sf <- pr$se.fit / summary(f)$sigma * rse
+  b <- data.frame(bx = nx$bx, fit = pr$fit, lo = pr$fit - z * sf, hi = pr$fit + z * sf)
+  cap <- 0.0036 * 1.1 * max(nx$bx)   # mrrobust rcap: 17 of 5400 units across the graph, about 0.36 % of the x span
+  ggplot2::ggplot() + ggplot2::geom_ribbon(data = b, ggplot2::aes(bx, ymin = lo, ymax = hi, fill = "MR-Egger 95% CI"), alpha = 0.5) +
+    ggplot2::geom_errorbar(data = d, ggplot2::aes(bx, ymin = by - z * sy, ymax = by + z * sy, linetype = "95% CIs"), width = cap, colour = "black", linewidth = .MRR_LW[["thin"]]) +
+    ggplot2::geom_point(data = d, ggplot2::aes(bx, by, shape = "Instruments"), size = 0.5, stroke = 0.5, colour = "black") + ggplot2::geom_line(data = b, ggplot2::aes(bx, fit, colour = "MR-Egger"), linewidth = .MRR_LW[["thick"]]) +
+    ggplot2::scale_fill_manual(NULL, values = "#CCCCCC") + ggplot2::scale_colour_manual(NULL, values = "black") + ggplot2::scale_linetype_manual(NULL, values = 1) + ggplot2::scale_shape_manual(NULL, values = 15) +
+    ggplot2::scale_x_continuous(labels = .stata_lab) + ggplot2::scale_y_continuous(labels = .stata_lab) +
+    ggplot2::guides(shape = ggplot2::guide_legend(order = 1, override.aes = list(size = 1.2)), linetype = ggplot2::guide_legend(order = 2), colour = ggplot2::guide_legend(order = 3), fill = ggplot2::guide_legend(order = 4)) +
+    ggplot2::labs(x = "Instrument-exposure associations", y = "Instrument-outcome associations") + .mrr_theme()
+}
+
+# SIMEX as mrreggersimex: two panels side by side, each with its own y title and lambda x title, one shared legend below
+# (SIMEX / Original / Simulated over Quadratic fit / Extrapolation). Falls back to a faceted plot when cowplot is missing.
+simex_plot <- function(k, B = 200L, seed = 1L) {
+  if (!requireNamespace("simex", quietly = TRUE)) return(NULL)
+  s <- sign(k$bx); d <- data.frame(bx = abs(k$bx), by = k$by * s, w = 1 / k$sy^2, sx = k$sx / k$sy)
+  d$byw <- d$by / k$sy; d$bxw <- d$bx / k$sy; d$iw <- 1 / k$sy
+  fit <- stats::lm(byw ~ iw + bxw - 1, data = d, x = TRUE, y = TRUE); RNGkind("Mersenne-Twister", "Inversion", "Rejection"); set.seed(seed)
+  sx <- tryCatch(simex::simex(fit, B = B, measurement.error = d$sx, SIMEXvariable = "bxw", fitting.method = "quad", asymptotic = FALSE, lambda = c(0.5, 1, 1.5, 2)), error = function(e) NULL)
+  if (is.null(sx)) return(NULL)
+  th <- sx$SIMEX.estimates; lam <- th[, 1]; mk <- function(j, lab) { y <- th[, j]; q <- stats::lm(y ~ lam + I(lam^2)); gx <- seq(-1, 2, length.out = 100)
+    list(pts = data.frame(lambda = lam, est = y, what = lab, orig = lam == 0), fit = data.frame(lambda = gx, est = stats::predict(q, data.frame(lam = gx)), what = lab, extra = gx < 0),
+         sim = data.frame(lambda = -1, est = stats::predict(q, data.frame(lam = -1)), what = lab)) }
+  a <- mk(which(colnames(th) == "bxw"), "MR-Egger slope"); b <- mk(which(colnames(th) == "iw"), "MR-Egger intercept")
+  P <- rbind(a$pts, b$pts); Fq <- rbind(a$fit, b$fit); Sm <- rbind(a$sim, b$sim); P$what <- factor(P$what, c("MR-Egger slope", "MR-Egger intercept")); Fq$what <- factor(Fq$what, levels(P$what)); Sm$what <- factor(Sm$what, levels(P$what))
+  marks <- function(P, Fq, Sm) list(ggplot2::geom_line(data = Fq[!Fq$extra, ], ggplot2::aes(lambda, est, linetype = "Quadratic fit"), linewidth = .MRR_LW[["fit"]]), ggplot2::geom_line(data = Fq[Fq$extra, ], ggplot2::aes(lambda, est, linetype = "Extrapolation"), linewidth = .MRR_LW[["fit"]]),
+    ggplot2::geom_point(data = P[!P$orig, ], ggplot2::aes(lambda, est, shape = "Simulated"), size = 0.8, stroke = 0.5), ggplot2::geom_point(data = P[P$orig, ], ggplot2::aes(lambda, est, shape = "Original"), size = 0.62, stroke = 0.38),
+    ggplot2::geom_point(data = Sm, ggplot2::aes(lambda, est, shape = "SIMEX"), size = 0.96, stroke = 0.25),
+    ggplot2::scale_shape_manual(NULL, values = c("Original" = 1, "Simulated" = 16, "SIMEX" = 4), breaks = c("SIMEX", "Original", "Simulated")), ggplot2::scale_linetype_manual(NULL, values = c("Quadratic fit" = 1, "Extrapolation" = 2), breaks = c("Quadratic fit", "Extrapolation")),
+    ggplot2::scale_x_continuous(breaks = -1:2, labels = .stata_lab, expand = ggplot2::expansion(mult = 0.05)), ggplot2::scale_y_continuous(labels = .stata_lab),
+    ggplot2::guides(shape = ggplot2::guide_legend(order = 1, nrow = 1, override.aes = list(size = 1.5, stroke = 0.5)), linetype = ggplot2::guide_legend(order = 2, nrow = 1)),
+    .mrr_theme(base = 6.2, legend = 6.6, grid = .MRR_LW[["fit"]]), ggplot2::theme(legend.box = "vertical", legend.spacing.y = grid::unit(0, "pt"), legend.margin = ggplot2::margin(0, 0, 0, 0)))
+  pane <- function(w) ggplot2::ggplot() + marks(P[P$what == w, ], Fq[Fq$what == w, ], Sm[Sm$what == w, ]) + ggplot2::labs(x = expression(lambda), y = w)
+  tryCatch({ p1 <- pane("MR-Egger slope"); p2 <- pane("MR-Egger intercept"); lg <- cowplot::get_plot_component(p1, "guide-box-bottom", return_all = FALSE)
+    nl <- ggplot2::theme(legend.position = "none")
+    cowplot::plot_grid(cowplot::plot_grid(p1 + nl, p2 + nl, nrow = 1), lg, ncol = 1, rel_heights = c(1, 0.24)) },
+    error = function(e) ggplot2::ggplot() + marks(P, Fq, Sm) + ggplot2::facet_wrap(~ what, scales = "free_y", strip.position = "left") + ggplot2::labs(x = expression(lambda), y = NULL) +
+      ggplot2::theme(strip.placement = "outside", strip.background = ggplot2::element_blank(), strip.text = ggplot2::element_text(size = 6.2, colour = "black")))
+}
+
+# Knigge Figures 5 to 8 (mr.plot, mr.forest.plot, mr.funnel.plot), redrawn with the package's settings. Variants flagged by MR Studio's
+# Q step are drawn as Knigge draws chochran.Q == 0 (red, legend "p > 0.05"); with no flagged variant the package's no-Q branch is used.
+knigge_figures <- function(k, title) {
+  if (nrow(k) < 4L) return(NULL); G <- ggplot2::ggplot; A <- ggplot2::aes
+  fl <- knigge_q_flags(k); keep <- !fl; if (sum(keep) < 3L) keep[] <- TRUE; fits <- .kn_fits(k, keep); hq <- any(!keep)
+  s <- sign(k$bx); d <- data.frame(id = k$id, bx = abs(k$bx), by = k$by * s, sx = k$sx, sy = k$sy, flag = fl & !keep); d$ratio <- d$by / d$bx; d$rse <- d$sy / d$bx; d$z <- d$ratio / d$rse
+  d$q <- factor(ifelse(d$flag, "flag", "keep"), c("flag", "keep"))
+  ln <- data.frame(name = c("IVW", "IVW.Q", "MRegger", "MRegger.Q"), a = c(fits$ivw[["a"]], fits$ivw_q[["a"]], fits$egger[["a"]], fits$egger_q[["a"]]), b = c(fits$ivw[["b"]], fits$ivw_q[["b"]], fits$egger[["b"]], fits$egger_q[["b"]]),
+                   se = c(fits$ivw[["se"]], fits$ivw_q[["se"]], fits$egger[["se"]], fits$egger_q[["se"]]))
+  zcol <- function(o) ggplot2::scale_colour_gradientn(name = .KN_ZLAB, colours = .KN_BLUES, guide = ggplot2::guide_colourbar(order = o))
+  qshape <- function(f, o) list(ggplot2::scale_shape_manual(name = .KN_CHILAB, values = c(flag = 19, keep = 19), limits = c("flag", "keep"), labels = c("p > 0.05", "p < 0.05"), drop = FALSE),
+    ggplot2::guides(shape = ggplot2::guide_legend(order = o, override.aes = list(shape = 21, colour = "white", fill = c("red", .KN_KEYBLUE), size = 5 * f * 1.35, alpha = 1))))
+  pts <- function(f, x, y, ps) list(ggplot2::geom_point(A(.data[[x]], .data[[y]], colour = z, shape = q), data = d, size = ps, stroke = 0.5 * f, alpha = 0.8),
+    ggplot2::geom_point(A(.data[[x]], .data[[y]]), data = d[d$flag, ], colour = "red", size = ps * 4.1 / 4, stroke = 0.5 * f),
+    ggplot2::geom_rug(A(.data[[x]], .data[[y]], colour = z), data = d[!d$flag, ], sides = "bl", linewidth = 0.5 * f), ggplot2::geom_rug(A(.data[[x]], .data[[y]]), data = d[d$flag, ], colour = "red", sides = "bl", linewidth = 0.5 * f))
+  # Fig 5 (mr.plot): f = 0.433. Error bars darkblue alpha 0.3; IVW dashed, MR-Egger solid, darkblue, before-Q lines alpha 0.2 when Q removed variants;
+  # zero lines darkgrey; marginal densities steelblue (flagged variants red, alpha 0.3) on the axes, 0.2 of the panel.
+  f <- 0.433; ln$alpha <- if (hq) c(0.2, 1, 0.2, 1) else 1
+  p5 <- G(d, A(bx, by)) + ggplot2::geom_hline(yintercept = 0, colour = .KN_DARKGREY, linewidth = 0.5 * f) + ggplot2::geom_vline(xintercept = 0, colour = .KN_DARKGREY, linewidth = 0.5 * f) +
+    ggplot2::geom_errorbar(A(ymin = by - 1.96 * sy, ymax = by + 1.96 * sy), width = 0, colour = .KN_DARKBLUE, alpha = 0.3, linewidth = 0.5 * f) + ggplot2::geom_errorbarh(A(xmin = bx - 1.96 * sx, xmax = bx + 1.96 * sx), height = 0, colour = .KN_DARKBLUE, alpha = 0.3, linewidth = 0.5 * f) +
+    ggplot2::geom_abline(A(intercept = a, slope = b, linetype = name, alpha = I(alpha)), data = ln, colour = .KN_DARKBLUE, linewidth = 0.5 * f) + pts(f, "bx", "by", .KN_PT[["fig5"]]) + zcol(3) + qshape(f, 1) +
+    ggplot2::scale_linetype_manual("Method", values = c(IVW = "dashed", IVW.Q = "dashed", MRegger = "solid", MRegger.Q = "solid")) +
+    ggplot2::guides(linetype = ggplot2::guide_legend(order = 2, nrow = 1, override.aes = list(alpha = if (hq) c(0.2, 1, 0.2, 1) else 1, colour = .KN_DARKBLUE))) +
+    ggplot2::labs(title = title, x = expression(hat(beta)[exposure]), y = expression(hat(beta)[outcome])) + .kn_theme(f, bold = TRUE) + ggplot2::theme(legend.box = "horizontal")
+  # Marginals: steelblue densities of the kept variants. Knigge's code adds a red (alpha 0.3) geom_density of the p > 0.05 variants,
+  # which the ggplot2 of the original figure drew as a low band over just their range; it is drawn here as that band (7 % of the blue peak).
+  f5 <- tryCatch({ dens <- function(v) { g <- list(ggplot2::geom_density(A(x = val), data = data.frame(val = d[[v]][!d$flag]), fill = .KN_STEEL, colour = "black", alpha = 1, linewidth = 0.2 * f))
+      if (any(d$flag)) { r <- range(d[[v]][d$flag]); if (diff(r) == 0) r <- r + c(-1, 1) * 0.005 * diff(range(d[[v]]))
+        g <- c(g, list(ggplot2::annotate("rect", xmin = r[1], xmax = r[2], ymin = 0, ymax = 0.07 * max(stats::density(d[[v]][!d$flag])$y), fill = "red", colour = "black", alpha = 0.3, linewidth = 0.2 * f))) }
+      g }
+    xd <- cowplot::axis_canvas(p5, axis = "x") + dens("bx") + ggplot2::scale_y_continuous(expand = c(0, 0))
+    yd <- cowplot::axis_canvas(p5, axis = "y", coord_flip = TRUE) + dens("by") + ggplot2::scale_y_continuous(expand = c(0, 0)) + ggplot2::coord_flip()
+    g <- cowplot::insert_xaxis_grob(p5, xd, grid::unit(0.2, "null"), position = "top"); cowplot::ggdraw(cowplot::insert_yaxis_grob(g, yd, grid::unit(0.2, "null"), position = "right")) }, error = function(e) p5)
+  # Fig 6 (mr.forest.plot): f = 0.492. Rows bottom to top: variants in data order, IVW, Egger and, with Q, IVW / Egger Cochran's Q. Points size 1.5,
+  # error bars alpha 0.5 in the row colour, dotted zero line, no legend. Bands to the top variant row: with Q Egger grey 0.6, IVW grey 0.4,
+  # Egger Q steelblue 0.6, IVW Q purple 0.4 (as the package draws them); without Q Egger purple 0.6, IVW darkblue 0.4.
+  f <- 0.492; mo <- if (hq) c(1, 3, 2, 4) else c(1, 3)   # ln rows bottom to top: IVW, Egger, IVW Q, Egger Q
+  mlab <- c("IVW", "IVW Cochran's Q", "Egger", "Egger Cochran's Q"); mcol <- if (hq) c(.KN_GREY, .KN_DARKBLUE, .KN_GREY, .KN_PURPLE) else c(.KN_DARKBLUE, NA, .KN_PURPLE, NA)
+  fo <- rbind(data.frame(label = d$id, est = d$ratio, lo = d$ratio - 1.96 * d$rse, hi = d$ratio + 1.96 * d$rse, col = ifelse(d$flag, "red", "black")),
+              data.frame(label = mlab[mo], est = ln$b[mo], lo = ln$b[mo] - 1.96 * ln$se[mo], hi = ln$b[mo] + 1.96 * ln$se[mo], col = mcol[mo]))
+  fo$label <- factor(fo$label, unique(fo$label))
+  band <- function(i, fill, alpha) ggplot2::annotate("rect", xmin = ln$b[i] - 1.96 * ln$se[i], xmax = ln$b[i] + 1.96 * ln$se[i], ymin = -Inf, ymax = nrow(d), fill = fill, alpha = alpha, colour = NA)
+  bands <- if (hq) list(band(3, .KN_GREY, 0.6), band(1, .KN_GREY, 0.4), band(4, .KN_STEEL, 0.6), band(2, .KN_PURPLE, 0.4)) else list(band(3, .KN_PURPLE, 0.6), band(1, .KN_DARKBLUE, 0.4))
+  f6 <- G(fo, A(est, label)) + ggplot2::geom_point(A(colour = I(col)), size = .KN_PT[["fig6"]], stroke = 0.5 * f) + ggplot2::geom_vline(xintercept = 0, linetype = 3, linewidth = 0.5 * f) +
+    ggplot2::geom_errorbarh(A(xmin = lo, xmax = hi, colour = I(col)), height = 0.5, alpha = 0.5, linewidth = 0.5 * f) + bands +
+    ggplot2::labs(title = title, x = expression(beta[IV]), y = "") + .kn_theme(f, bold = TRUE) + ggplot2::theme(legend.position = "none")
+  # Figs 7-8 (mr.funnel.plot): f = 0.348. 95 % limits (1.96 se) dotted and 3.29 se limits twodash; before Q grey, after Q darkblue alpha 0.6;
+  # estimate lines darkblue (alpha 0.3 before Q), dashed for IVW and solid for MR-Egger; grey alpha 0.3 shading outside the outer limits within the data range.
+  f <- 0.348
+  fun <- function(m, mname) { i0 <- which(ln$name == m); i1 <- which(ln$name == paste0(m, ".Q")); ys <- seq(0, max(d$rse), length.out = 60); lty <- if (m == "IVW") "dashed" else "solid"
+    lim <- function(b) data.frame(y = ys, l95 = b - 1.96 * ys, u95 = b + 1.96 * ys, l99 = b - 3.29 * ys, u99 = b + 3.29 * ys)
+    f0 <- lim(ln$b[i0]); f1 <- lim(ln$b[i1]); sh <- if (hq) f1 else f0; xr <- range(c(d$ratio, f0$l99, f0$u99, if (hq) c(f1$l99, f1$u99)))
+    l2 <- function(fr, v, col, alpha, lt) ggplot2::geom_line(A(x, y), data = data.frame(x = fr[[v]], y = fr$y), inherit.aes = FALSE, colour = col, alpha = alpha, linetype = lt, linewidth = 0.5 * f)
+    g <- G(d, A(ratio, rse)) + ggplot2::geom_ribbon(A(y = y, xmin = xr[1], xmax = pmax(l99, xr[1])), data = sh, inherit.aes = FALSE, orientation = "y", fill = .KN_GREY, alpha = 0.3) +
+      ggplot2::geom_ribbon(A(y = y, xmin = pmin(u99, xr[2]), xmax = xr[2]), data = sh, inherit.aes = FALSE, orientation = "y", fill = .KN_GREY, alpha = 0.3) +
+      l2(f0, "l95", .KN_GREY, 1, "dotted") + l2(f0, "u95", .KN_GREY, 1, "dotted") + l2(f0, "l99", .KN_GREY, 1, "twodash") + l2(f0, "u99", .KN_GREY, 1, "twodash")
+    if (hq) g <- g + l2(f1, "l95", .KN_DARKBLUE, 0.6, "dotted") + l2(f1, "u95", .KN_DARKBLUE, 0.6, "dotted") + l2(f1, "l99", .KN_DARKBLUE, 0.6, "twodash") + l2(f1, "u99", .KN_DARKBLUE, 0.6, "twodash")
+    nm <- c(mname, paste0(mname, ".Q")); vl <- data.frame(x = c(ln$b[i0], ln$b[i1])[if (hq) 1:2 else 1], which = nm[if (hq) 1:2 else 1], alpha = c(0.3, 1)[if (hq) 1:2 else 1])
+    g + ggplot2::geom_vline(A(xintercept = x, linetype = which, alpha = I(alpha)), data = vl, colour = .KN_DARKBLUE, linewidth = 0.5 * f) +
+      ggplot2::scale_linetype_manual("Method", values = stats::setNames(c(lty, lty), nm), breaks = vl$which) + ggplot2::guides(linetype = ggplot2::guide_legend(order = 1, override.aes = list(alpha = c(0.1, 1)[seq_len(nrow(vl))]))) +
+      pts(f, "ratio", "rse", .KN_PT[["funnel"]]) + zcol(2) + qshape(f, 3) + ggplot2::scale_y_reverse() +
+      ggplot2::labs(title = title, x = expression(beta[IV]), y = expression(sigma[beta[IV]])) + .kn_theme(f) }
+  list(fig5 = f5, fig6 = f6, fig7 = fun("IVW", "Inverse-Variance Weighted method"), fig8 = fun("MRegger", "MR-egger method"), n_flag = sum(fl))
+}
+
+# ---- MendelianRandomization figures (mr_plot, mr_forest, mr_funnel) ----
+# The package draws for a 7.29 x 4.51 in device (its pkgdown reference figures). mrf_restyle scales every layer's line width, point size and
+# stroke, and the theme's text and lines, by s = w_mm / 185.2, so a figure written w_mm wide looks as the reference does at the same zoom.
+# Colours, shapes and line types are the package's own and are left unchanged.
+# Where to call it, in extra_figures (report_core.R): wrap each package plot before put(), for example
+#   g <- tryCatch(mrf_restyle(MendelianRandomization::mr_forest(mri, alpha = al, ordered = TRUE), wmm), error = function(e) NULL)
+#   g <- tryCatch(mrf_methods_plot(mri, al, mm, wmm), error = function(e) NULL)
+#   g <- tryCatch(mrf_restyle(MendelianRandomization::mr_funnel(mri, CI = TRUE), wmm), error = function(e) NULL)
+#   g <- tryCatch(mrf_restyle(MendelianRandomization::mr_plot(mri, interactive = FALSE, labels = FALSE, line = "ivw", orientate = TRUE), wmm), error = function(e) NULL)
+#   g <- tryCatch(mrf_restyle(MendelianRandomization::mr_plot(MendelianRandomization::mr_allmethods(mri, method = "all", alpha = al), interactive = FALSE), wmm), error = function(e) NULL)
+# and give mr_plot, mr_allmethods, mr_funnel and the methods forest the reference aspect: height round(wmm / 1.617) (the variant forest keeps its height per variant).
+MRF_ASPECT <- 7.29 / 4.51
+mrf_restyle <- function(g, w_mm = 140, ref_mm = 185.2) {
+  if (!inherits(g, "ggplot")) return(g); s <- w_mm / ref_mm
+  for (L in g$layers) { p <- L$aes_params
+    if (inherits(L$geom, "GeomPoint")) { L$aes_params$size <- (if (is.null(p$size)) 1.5 else p$size) * s; L$aes_params$stroke <- (if (is.null(p$stroke)) 0.5 else p$stroke) * s }
+    else if (inherits(L$geom, c("GeomText", "GeomLabel"))) L$aes_params$size <- (if (is.null(p$size)) 3.88 else p$size) * s
+    else { L$aes_params$linewidth <- (if (!is.null(p$linewidth)) p$linewidth else if (!is.null(p$size)) p$size else 0.5) * s; L$aes_params$size <- NULL } }
+  th <- g$theme; if (is.null(th$text)) g <- g + ggplot2::theme(text = ggplot2::element_text(size = 11), line = ggplot2::element_line(linewidth = 0.5), rect = ggplot2::element_rect(linewidth = 0.5))
+  mods <- list(legend.key.size = grid::unit(1.2 * s, "lines"))
+  for (nm in names(g$theme)) { el <- g$theme[[nm]]; sz <- tryCatch(el$size, error = function(e) NULL); lw <- tryCatch(el$linewidth, error = function(e) NULL)
+    if (inherits(el, "element_text") && is.numeric(sz) && !inherits(sz, "rel")) mods[[nm]] <- ggplot2::element_text(size = sz * s)
+    if (inherits(el, "element_line") && is.numeric(lw) && !inherits(lw, "rel")) mods[[nm]] <- ggplot2::element_line(linewidth = lw * s)
+    if (inherits(el, "element_rect") && is.numeric(lw) && !inherits(lw, "rel")) mods[[nm]] <- ggplot2::element_rect(linewidth = lw * s) }
+  g + do.call(ggplot2::theme, mods)
+}
+# Methods forest plot (mr_forest with snp_estimates = FALSE), restyled; call in place of the second mr_forest in extra_figures.
+mrf_methods_plot <- function(mri, alpha = 0.05, methods = c("ivw", "median", "egger"), w_mm = 140) mrf_restyle(MendelianRandomization::mr_forest(mri, alpha = alpha, snp_estimates = FALSE, methods = methods), w_mm)

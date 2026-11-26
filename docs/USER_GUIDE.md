@@ -176,7 +176,9 @@ hidden.
 - MR-Egger
 - weighted median
 - weighted mode
-- MR-PRESSO
+- simple mode
+
+MR-PRESSO, radial MR and MR-Lasso, which the instrument review on Results uses, are not in the set; tick them when you want that review.
 
 Each rests on a different assumption about pleiotropy. Add others as needed. **Customise** on a card changes its settings; the
 settings are written into the script and the report.

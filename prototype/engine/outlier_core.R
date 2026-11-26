@@ -5,12 +5,16 @@
 # statistical step lives here beyond arithmetic on the packages' own results (Q minus df, I squared, excess reduction).
 # The primary analysis is never changed: the selected set drives a labelled, data-driven sensitivity analysis (FR-100).
 
-OUTLIER_DETECTORS <- c(presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger", lasso = "MR-Lasso")
-OUTLIER_FLAG_ROW <- c(presso = "presso_outliers", radial = "radial_outliers", radegger = "radial_outliers", lasso = "lasso_excluded")
+OUTLIER_DETECTORS <- c(presso = "MR-PRESSO", radial = "Radial IVW", radegger = "Radial MR-Egger", lasso = "MR-Lasso", cook = "Cook's distance", studres = "Studentized residuals")   # Round 109: cook, studres
+OUTLIER_FLAG_ROW <- c(presso = "presso_outliers", radial = "radial_outliers", radegger = "radial_outliers", lasso = "lasso_excluded", cook = "cook_outliers", studres = "studres_outliers")
 OUTLIER_CAP <- 0.20      # FR-95a; kept by the Round 32 calibration
 OUTLIER_FLOOR <- 5L      # FR-95b
 OUTLIER_TRIGGER <- 0.05  # FR-90; kept by the Round 32 calibration
 OUTLIER_REANALYSIS <- c("ivw_mre", "egger", "wm")   # FR-96; MR-PRESSO is added when its global test triggered the module
+# Round 109: the outlier detectors and the methods that give no causal estimate are not rerun on the reduced sets; every other method of the study is.
+OUTLIER_NOT_RERUN <- c("presso", "radial", "radegger", "lasso", "cook", "studres", "mrclust", "steiger", "loo", "sign", "clr", "rucker", "ivw_steiger")
+outlier_methods <- function(pay) { m <- unique(vapply(Filter(function(e) identical(e$estimand, "causal_effect"), pay$estimates %||% list()), function(e) as.character(e$method), ""))
+  union(OUTLIER_REANALYSIS, setdiff(m, OUTLIER_NOT_RERUN)) }
 
 .o_num <- function(x) { x <- suppressWarnings(as.numeric(x)); if (length(x)) x[[1]] else NA_real_ }
 .o_dg <- function(pay, m, n) { for (g in pay$diagnostics) if (identical(g$method, m) && identical(g$name, n)) return(g); NULL }
@@ -51,11 +55,11 @@ outlier_sets <- function(pay) {
 }
 
 #' FR-96: the comparison statistics of one analysed set, read from its pair payload.
-outlier_stats <- function(pay) {
+outlier_stats <- function(pay, methods = character()) {   # Round 109: methods: every other estimator of the study, for the comparison table
   q <- .o_dg(pay, "ivw_mre", "cochran_q"); rq <- .o_dg(pay, "egger", "rucker_q"); it <- .o_est(pay, "egger", "pleiotropy_intercept"); g <- .o_dg(pay, "presso", "presso_global_test")
   e <- function(m, f) { x <- .o_est(pay, m); if (is.null(x)) NA_real_ else .o_num(x[[f]]) }
   Q <- .o_num(q$value); df <- .o_num(q$df)
-  data.frame(n = e("ivw_mre", "n_ivs_used"), q = Q, q_df = df, q_p = .o_num(q$p), i2 = if (is.finite(Q) && Q > 0) max(0, (Q - df) / Q) else NA_real_,
+  out <- data.frame(n = e("ivw_mre", "n_ivs_used"), q = Q, q_df = df, q_p = .o_num(q$p), i2 = if (is.finite(Q) && Q > 0) max(0, (Q - df) / Q) else NA_real_,
              excess = Q - df, q_rucker = .o_num(rq$value), q_diff = Q - .o_num(rq$value),
              int = if (is.null(it)) NA_real_ else .o_num(it$estimate), int_lo = if (is.null(it)) NA_real_ else .o_num(it$ci_lower),
              int_hi = if (is.null(it)) NA_real_ else .o_num(it$ci_upper), int_p = if (is.null(it)) NA_real_ else .o_num(it$p),
@@ -63,6 +67,8 @@ outlier_stats <- function(pay) {
              ivw = e("ivw_mre", "estimate"), ivw_lo = e("ivw_mre", "ci_lower"), ivw_hi = e("ivw_mre", "ci_upper"),
              egger = e("egger", "estimate"), egger_lo = e("egger", "ci_lower"), egger_hi = e("egger", "ci_upper"),
              wm = e("wm", "estimate"), wm_lo = e("wm", "ci_lower"), wm_hi = e("wm", "ci_upper"), stringsAsFactors = FALSE)
+  for (m in setdiff(methods, c("ivw_mre", "egger", "wm"))) { out[[paste0("m_", m)]] <- e(m, "estimate"); out[[paste0("m_", m, "_lo")]] <- e(m, "ci_lower"); out[[paste0("m_", m, "_hi")]] <- e(m, "ci_upper") }
+  out
 }
 
 #' FR-99: the pre-specified selection rule. It never looks at the causal estimates or their P values.
@@ -92,12 +98,13 @@ outlier_select <- function(scen, triggered) {
 
 #' Builds the scenario table from the primary payload and the payloads of the analysed sets (a named list by set id; NULL if not run).
 outlier_scenarios <- function(pay, sets, pays) {
-  base <- cbind(data.frame(set = "all", label = "All instruments", n_removed = 0L, agreement = NA_real_, eligible = TRUE, why = "primary analysis", stringsAsFactors = FALSE), outlier_stats(pay))
+  ms <- outlier_methods(pay)
+  base <- cbind(data.frame(set = "all", label = "All instruments", n_removed = 0L, agreement = NA_real_, eligible = TRUE, why = "primary analysis", stringsAsFactors = FALSE), outlier_stats(pay, ms))
   base$ids <- list(character())
   rows <- lapply(seq_len(nrow(sets)), function(i) {
-    p <- pays[[sets$set[i]]]; st <- if (is.null(p)) outlier_stats(list()) else outlier_stats(p)
+    p <- pays[[sets$set[i]]]; st <- if (is.null(p)) outlier_stats(list(), ms) else outlier_stats(p, ms)
     r <- cbind(sets[i, c("set", "label", "n_removed", "agreement", "eligible", "why"), drop = FALSE], st); r$ids <- sets$ids[i]; r })
-  sc <- do.call(rbind, c(list(base), rows))
+  sc <- do.call(rbind, c(list(base), rows)); attr(sc, "methods") <- ms
   sc$q_change <- base$q - sc$q; sc$excess_reduction <- sc$q_change - sc$n_removed
   outlier_strength(sc, pay)
 }

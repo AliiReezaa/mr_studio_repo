@@ -524,7 +524,7 @@ expect("opengwas pair: the analysis runs from downloaded data, replay identical,
 ui_state_set(h12$con, "pairs", list(list(ex = paste0("lib:", rx$trait), out = paste0("lib:", ro$trait), exName = pp12$exposure_label, outName = pp12$outcome_label, folder = r12$pair_folder, methods = as.list(c("ivw_mre", "egger")), ci = 0.95, pthr = 5e-8, simulated = FALSE, ledger = pp12$ledger, anc_x = "EUR", anc_y = "EUR")))
 pk12 <- build_package(h12, c("report", "refs"), 140); htm12 <- paste(readLines(file.path(pk12$dir, "report.html"), warn = FALSE), collapse = "\n")
 expect("opengwas report: the methods name the OpenGWAS datasets, the date, the clumping settings, the proxy rule and the package versions", grepl("obtained from the OpenGWAS database (dataset sim-exp-1", htm12, fixed = TRUE) && grepl("from the stored, pre-computed clumps of OpenGWAS (default settings, preclumped = 1)", htm12, fixed = TRUE) && grepl("within 10,000 kb, 1000 Genomes EUR", htm12, fixed = TRUE) && grepl("of at least 0.8", htm12, fixed = TRUE) && grepl("found only through proxy variants", htm12, fixed = TRUE) && !grepl("were were", htm12, fixed = TRUE) && grepl("sample size 300,000", htm12, fixed = TRUE))
-expect("opengwas report: no wrong claim that the analyst declared independence, the limitations say the panel is a reference sample, data availability names the public source", !grepl("did not perform clumping", htm12, fixed = TRUE) && !grepl("rests on the analyst", htm12, fixed = TRUE) && grepl("reference sample", htm12, fixed = TRUE) && grepl("public OpenGWAS database (api.opengwas.io), dataset IDs: sim-exp-1; sim-out-1", htm12, fixed = TRUE) && !grepl("Add the public source", htm12, fixed = TRUE))
+expect("opengwas report: no wrong claim that the analyst declared independence, the limitations say the panel is a reference sample, data availability names the public source", !grepl("did not perform clumping", htm12, fixed = TRUE) && !grepl("rests on the analyst", htm12, fixed = TRUE) && grepl("reference sample", htm12, fixed = TRUE) && grepl("public OpenGWAS database (api.opengwas.io), dataset IDs: sim-exp-1", htm12, fixed = TRUE) && grepl("sim-out-1", htm12, fixed = TRUE) && !grepl("Add the public source", htm12, fixed = TRUE))
 DBI::dbDisconnect(h12$con)
 rx_b <- ogw_get_exposure("sim-exp-1", tok_ok, p = 5e-6, name = "Second exposure")
 expect("opengwas pair: an outcome fetched for one exposure cannot be paired with another (its other variants were never downloaded)", grepl("downloaded only for the instruments of", err_of(pair_input(paste0("lib:", rx_b$trait), paste0("lib:", ro$trait)))))
@@ -2044,8 +2044,8 @@ local({
          regexpr("sqliteSetBusyHandler", runner) < regexpr("journal_mode=WAL", runner))
   app <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n"); bodies <- paste(vapply(BG_ACTIONS, function(f) paste(deparse(f), collapse = "\n"), ""), collapse = "\n")
   expect("Round 83: the run of every kind of study (one pair at a time), the sensitivity, tie and outlier reanalyses, mediation, bidirectional MR-cML, LD score regression and the publication package run in the background; a run stays with its own study",
-         setequal(names(BG_ACTIONS), c("run_pair", "run_sens", "run_outliers", "run_ties", "mediation", "bidir_cml", "build_package", "ldsc")) &&
-         all(vapply(c("mediation", "bidir_cml", "run_sens", "run_outliers", "run_ties", "build_package"), function(k) grepl(sprintf('%s = bg_go("%s", a)', k, k), app, fixed = TRUE), TRUE)) &&
+         setequal(names(BG_ACTIONS), c("run_pair", "run_sens", "run_outliers", "run_ties", "run_harm", "mediation", "bidir_cml", "build_package", "ldsc")) &&
+         all(vapply(c("mediation", "bidir_cml", "run_sens", "run_outliers", "run_ties", "run_harm", "build_package"), function(k) grepl(sprintf('%s = bg_go("%s", a)', k, k), app, fixed = TRUE), TRUE)) &&
          grepl('if (identical(t, "ldsc")) return(bg_go("ldsc", a))', app, fixed = TRUE) && grepl('bg_start(rq$dir, "run_pair", a, act = "run_all")', app, fixed = TRUE) &&
          grepl("rq$dir <- rv$h$dir", app, fixed = TRUE) && grepl("A run is already going on in", app, fixed = TRUE) && !grepl("rv$h", bodies, fixed = TRUE) && !grepl("run_one(", app, fixed = TRUE))
   cz <- paste(readLines(file.path(args_dir, "cause_core.R"), warn = FALSE), collapse = "\n")
@@ -2326,7 +2326,7 @@ local({
       "console.log([fp(0) === '< 1e-300', pEq(0) === '< 1e-300', pEq(0.012) === '= 0.012', src.indexOf(\"= ' + fp(\") < 0, fcol(1.09e-4) === '0.000109', fcol(-0.032) === '-0.032',",
       "  !/still running/.test(box) && /Finished\\./.test(box) && /all 940 numbers identical/.test(box), etaParts()[1] === 'The run took 14 min 30 s.',",
       "  /Only one detector was run/.test(dm) && /data-a=\"add_detectors\"/.test(dm) && /about 15 min/.test(dm), est > 800 && est < 1000,",
-      "  /\\['ivw_mre', 'egger', 'wm', 'mode', 'presso', 'radial', 'radegger', 'lasso'\\]/.test(src), /'units of ' \\+ esc\\(pair\\.outName\\)/.test(src), !/not built/i.test(src.replace(/=== 'NOT BUILT'/g, ''))].join(' '));"), f)
+      "  /\\['ivw_mre', 'egger', 'wm', 'mode', 'smode'\\]/.test(src), /'units of ' \\+ esc\\(pair\\.outName\\)/.test(src), !/not built/i.test(src.replace(/=== 'NOT BUILT'/g, ''))].join(' '));"), f)
     o <- paste(system2("node", f, stdout = TRUE, stderr = TRUE), collapse = " ")
     expect("Round 91: on the screen, an underflowed P reads \"< 1e-300\", table columns stay in decimals, a finished box drops its \"still running\" notes and says Finished, the time tile says how long the run took, the review offers the missing outlier detectors with a fair time, MR-PRESSO time follows its measurement, the recommended set holds all four detectors, the effect sentence names its units, and no screen says \"not built\"",
            identical(o, paste(rep("true", 13), collapse = " ")))
@@ -2521,7 +2521,7 @@ local({
          grepl("S.medBusy || S.revBusy || S.mvBusy || S.factsBusy || ld(S.ldsc)", js, fixed = TRUE) && grepl("S._kept = true; return false;", js, fixed = TRUE) &&
          grepl("if (S._kept) { S._kept = false; go(S._stepScreen || 'data'); break; }", js, fixed = TRUE))
   expect("Round 97: the mediation standard set adds weighted mode, MVMR-Egger and MVMR median; mediation steps get no multiple-testing note; a failed pair's reason is shown whole",
-         grepl("['ivw_mre', 'egger', 'wm', 'mode', 'mvivw', 'mvegger', 'mvmedian']", js, fixed = TRUE) && grepl("n_pairs = if (identical(kind, \"mediation\")) 1L else length(facts)", fc, fixed = TRUE) &&
+         grepl("['ivw_mre', 'egger', 'wm', 'mode', 'smode', 'mvivw', 'mvegger', 'mvmedian']", js, fixed = TRUE) && grepl("n_pairs = if (identical(kind, \"mediation\")) 1L else length(facts)", fc, fixed = TRUE) &&
          grepl("send('feas', { params: S.params, kind: S.kind })", js, fixed = TRUE) && !grepl(".slice(0, 220));", js, fixed = TRUE))
 })
 
@@ -2622,7 +2622,7 @@ local({
          grepl("the analyst declared", .strand_forward_text("(action 2: palindromic variants are aligned using allele frequency and dropped when the strand is ambiguous)", list(), FALSE), fixed = TRUE))
   expect("Round 100: Limitations no longer say clumping was not done when MR Studio clumped the file, name the methods that allow for overlap, and Data availability names OpenGWAS complete GWAS by ID",
          grepl("is.null(cx$src_x$og) && is.null(cx$ledger$clump)", rc, fixed = TRUE) && grepl("reported in the Results, allow%s for sample overlap", rc, fixed = TRUE) &&
-         grepl("paste0(\"OpenGWAS:\", s$vcf$id, \" (complete summary statistics)\")", rc, fixed = TRUE) && grepl("of which 1 was absent", rc, fixed = TRUE))
+         grepl("paste0(\"OpenGWAS:\", s$vcf$id, gwas_cite(s$vcf, \" \"), \" (complete summary statistics)\")", rc, fixed = TRUE) && grepl("of which 1 was absent", rc, fixed = TRUE))
   expect("Round 100: the supplement has a sheet for each genome-wide method that ran",
          grepl("Round 100: genome-wide methods in the supplement", rc, fixed = TRUE) && grepl("\"04_across_pairs\", m, \"*_results.csv\"", rc, fixed = TRUE))
   ok <- tryCatch({ .lhcmr_download(paste0("file://", file.path(tempdir(), "no_such_file.gz")), file.path(tempdir(), "lhc_x.gz"), tries = 1L); "no error" }, error = function(e) conditionMessage(e))
@@ -2820,4 +2820,213 @@ local({
     grepl("case 'bg_finished'", js, fixed = TRUE) && grepl("If you close MR Studio, the pair being calculated still finishes", js, fixed = TRUE))
 })
 
+# ---- Round 108: forest plot numbers ran under the scatter plot in a window that was not full size ----
+local({
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  expect("Round 108: the forest plot number column fits a full line with a P value, the card wraps below the scatter plot before it is squeezed, and a very narrow window scrolls instead of hiding numbers",
+    grepl("flex:none;width:330px;white-space:nowrap;text-align:right", js, fixed = TRUE) && grepl("margin:6px 342px 0 132px", js, fixed = TRUE) &&
+    grepl("<div style=\"overflow-x:auto\"><div style=\"min-width:614px\">' + body + ax", js, fixed = TRUE) &&
+    grepl("<section style=\"flex:1 1 620px;min-width:0", js, fixed = TRUE) && !grepl("width:236px", js, fixed = TRUE))
+  ap <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  expect("Round 108: the pairs of a run are kept with the study when the run starts and come back when the study is reopened before they all finished",
+    grepl('if (length(a$design)) tryCatch(ui_state_set(rv$h$con, "design", a$design)', ap, fixed = TRUE) && grepl('design = ui_state_get(h$con, "design") %||% list()', ap, fixed = TRUE) &&
+    grepl("design: S.pairs.map((p) => ({ ex: p.ex, out: p.out", js, fixed = TRUE) && grepl("(m.design || []).filter((d) => !(m.pairs || []).some((p) => same(p, d)))", js, fixed = TRUE))
+  h <- studio_new("Round 108 design")
+  ui_state_set(h$con, "design", list(list(ex = "lib:LDL", out = "lib:CHD", rev = FALSE), list(ex = "lib:BMI", out = "lib:CHD", rev = FALSE)))
+  expect("Round 108: the outcome download says it can be paired with other OpenGWAS exposures, as Check looks it up again for them",
+    grepl("You can still pair this outcome with any other OpenGWAS exposure in a study: before Check, MR Studio looks it up again", js, fixed = TRUE) && !grepl("can only be paired with that exposure", js, fixed = TRUE))
+  d <- ui_state_get(h$con, "design")
+  expect("Round 108: a saved design reads back with every pair", length(d) == 2L && identical(d[[2]]$ex, "lib:BMI") && identical(d[[2]]$out, "lib:CHD"))
+  DBI::dbDisconnect(h$con)
+})
+
+# ---- Round 109: further MendelianRandomization estimators (items 20 to 24) ----
+h109 <- studio_new("Round 109 methods"); p109 <- pair_input("expA", "outA"); d109 <- p109$input$data[1:14, ]; q109 <- p109$input; q109$data <- d109
+mi109 <- MendelianRandomization::mr_input(d109$beta_x, d109$se_x, d109$beta_y, d109$se_y)
+r109 <- studio_run(h109, p109$exposure_label, "Outcome 14", q109, c("egger_rob", "hetpen", "clr"), idx = 1L, params = list(ci_level = 0.95)); pl109 <- pair_payload(h109$dir, r109$pair_folder); e109 <- .est_df(pl109)
+expect("Round 109: robust / penalised MR-Egger, heterogeneity-penalised and CLR run as scripts and replay identically", identical(pl109$replay$status, "identical") && all(vapply(r109$results, function(x) identical(x$status, "ok"), TRUE)))
+expect("Round 109: robust / penalised MR-Egger equals MendelianRandomization::mr_egger(robust, penalized)", abs(e109$estimate[e109$method == "egger_rob"] - MendelianRandomization::mr_egger(mi109, robust = TRUE, penalized = TRUE)@Estimate) < 1e-10)
+expect("Round 109: heterogeneity-penalised equals mr_hetpen on the same grid", { r <- d109$beta_y / d109$beta_x; lo <- min(r) - 1; hi <- max(r) + 1
+  f <- MendelianRandomization::mr_hetpen(mi109, CIMin = lo, CIMax = hi, CIStep = (hi - lo) / 2000); x <- e109[e109$method == "hetpen", ]
+  abs(x$estimate - f@Estimate) < 1e-10 && abs(x$ci_lower - min(f@CILower)) < 1e-10 && abs(x$ci_upper - max(f@CIUpper)) < 1e-10 && is.na(x$se) })
+expect("Round 109: CLR gives intervals as diagnostics and no point estimate, as mr_clr", { g <- Filter(function(x) x$name == "clr_interval", pl109$diagnostics)
+  r <- d109$beta_y / d109$beta_x; lo <- min(r) - 1; hi <- max(r) + 1; f <- MendelianRandomization::mr_clr(mi109, nx = stats::median(d109$n_x), ny = stats::median(d109$n_y), CIMin = lo, CIMax = hi, CIStep = (hi - lo) / 2000)
+  !any(e109$method == "clr") && length(g) == 1L && identical(g[[1]]$note, paste(sprintf("%.4g to %.4g", f@CLRlower, f@CLRupper), collapse = "; ")) })
+expect("Round 109: heterogeneity-penalised is refused above 16 variants, CLR without sample sizes", { q <- p109$input; q2 <- q109; q2$data$n_x <- NA
+  identical(ADAPTER_HETPEN_V11$check(q, resolve_params(ADAPTER_HETPEN_V11, list()))$codes, "FEAS_TOO_MANY_IVS") && identical(ADAPTER_CLR_V11$check(q2, resolve_params(ADAPTER_CLR_V11, list()))$codes, "FEAS_NEEDS_N") })
+expect("Round 109: the package example of mr_clr (LDL on CHD) gives the help page intervals", { f <- MendelianRandomization::mr_clr(MendelianRandomization::mr_input(MendelianRandomization::ldlc, MendelianRandomization::ldlcse, MendelianRandomization::chdlodds, MendelianRandomization::chdloddsse), nx = 17723, ny = 60801)
+  abs(f@CLRlower - 2.51) < 0.01 && abs(f@CLRupper - 3.74) < 0.01 })
+mv109 <- mv_pair_input(c("expA", "expB"), "outA")
+r109m <- studio_run(h109, "A and B", "outA", mv109$input, c("mvivwme", "mvgmm"), idx = 2L, params = list(ci_level = 0.95)); pl109m <- pair_payload(h109$dir, r109m$pair_folder); e109m <- .est_df(pl109m)
+expect("Round 109: MVMR-IVW with measurement error and MVMR GMM run as scripts, replay identically and equal the package", { d <- mv109$input$data; d <- d[d$mr_keep, ]
+  bx <- as.matrix(d[, c("beta_x_1", "beta_x_2")]); sx <- as.matrix(d[, c("se_x_1", "se_x_2")]); mi <- MendelianRandomization::mr_mvinput(bx = bx, bxse = sx, by = d$beta_y, byse = d$se_y)
+  sd <- as.integer(sub("^seed <- ([0-9]+).*", "\\1", grep("^seed <- ", readLines(Sys.glob(file.path(h109$dir, "03_pairs", r109m$pair_folder, "02_scripts", "*mvivwme*.R"))), value = TRUE)[1])); a <- MendelianRandomization::mr_mvivwme(mi, correl.x = diag(2), seed = sd); b <- MendelianRandomization::mr_mvgmm(mi, nx = c(stats::median(d$n_x_1), stats::median(d$n_x_2)), ny = stats::median(d$n_y), cor.x = diag(2))
+  identical(pl109m$replay$status, "identical") && all(vapply(r109m$results, function(x) identical(x$status, "ok"), TRUE)) &&
+    max(abs(e109m$estimate[e109m$method == "mvivwme"] - a@Estimate)) < 1e-8 && max(abs(e109m$estimate[e109m$method == "mvgmm"] - b@Estimate)) < 1e-8 })
+expect("Round 109: the new methods are named in the report, the UI list and the references", { js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  all(c("egger_rob", "hetpen", "clr", "mvivwme", "mvgmm") %in% names(METHOD_REFS)) && all(vapply(c("egger_rob", "hetpen", "clr", "mvivwme", "mvgmm"), function(m) grepl(paste0("id: '", m, "'"), js, fixed = TRUE), TRUE)) &&
+    all(c("burgess2018hetpen", "wang2022clr", "patel2023") %in% names(REFS)) })
+# ---- Round 109: items 2, 3, 5, 7, 10, 25, 26, 28, 29, 30, 31 ----
+local({
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  expect("Round 109: the standard publication set is IVW, MR-Egger, weighted median, weighted mode and simple mode", grepl("['ivw_mre', 'egger', 'wm', 'mode', 'smode'];   // Round 109: the five methods", js, fixed = TRUE) && !grepl("'mode', 'presso', 'radial', 'radegger', 'lasso'];", js, fixed = TRUE))
+  expect("Round 109: P cut points print in scientific form (5e-6, not 0.000005 or 5e-06); results such as P < 0.001 are untouched",
+    identical(fmt_thr(c(0.000005, 5e-8, 1e-5, 0.05, 0.001)), c("5e-6", "5e-8", "1e-5", "0.05", "0.001")) && identical(sci_thr_text("variants below P 0.000005, P < 5e-06, P = 0.003, P < 0.001"), "variants below P 5e-6, P < 5e-6, P = 0.003, P < 0.001") &&
+      grepl("fmtThr(l.threshold)", js, fixed = TRUE) && grepl("fmtThr(r.source.params.pval)", js, fixed = TRUE))
+  expect("Round 109: Backspace, Delete, F5, Ctrl or Cmd+R and history keys do nothing outside text fields", grepl("if (blockNavKey(e)) return;", js, fixed = TRUE) && grepl("(k === 'Backspace' || k === 'Delete') && !editableTarget(e.target)", js, fixed = TRUE) && grepl("k === 'F5'", js, fixed = TRUE))
+  expect("Round 109: the OpenGWAS window stays open when fewer than 3 instruments pass, and the next download replaces it", grepl("const OGW_FEW = 3;", js, fixed = TRUE) && grepl("replace: (P.replace && P.replace === P.name) ? P.replace : ''", js, fixed = TRUE) &&
+    grepl("identical(replace, nm)) unlink(dest, recursive = TRUE)", paste(readLines(file.path(args_dir, "opengwas_core.R"), warn = FALSE), collapse = "\n"), fixed = TRUE))
+  expect("Round 109: a binary outcome shows OR (95% CI) with the log OR on Results, in the report sentence and the supplement", grepl("(lor ? 'OR (' + ciL(lev) + ') ", js, fixed = TRUE) && grepl(" log OR' : ", js, fixed = TRUE) &&
+    grepl("OR = 1.492 (95% CI 1.105 to 2.014; log OR 0.400; P = ", .ci_phrase(list(estimate = 0.4, ci_lower = 0.1, ci_upper = 0.7, ci_level = 0.95, p = 0.01), "log_or"), fixed = TRUE) &&
+    grepl("beta = 0.400 (95% CI", .ci_phrase(list(estimate = 0.4, ci_lower = 0.1, ci_upper = 0.7, ci_level = 0.95, p = 0.01), "beta"), fixed = TRUE))
+  expect("Round 109: SIMEX check row on Check and the instrument review table has a column for every method", grepl("Regression dilution of MR-Egger (I", js, fixed = TRUE) && grepl("oMs.map((m) => th(esc(MSHORT(m.id))", js, fixed = TRUE))
+})
+expect("Round 109: MAF below 0.01 is removed (exposure EAF, else outcome EAF), a variant with no EAF is kept and counted", {
+  d <- data.frame(variant_id = paste0("rs", 1:5), eaf_x = c(0.005, 0.5, NA, NA, 0.995), eaf_y = c(0.5, 0.5, 0.004, NA, 0.5), mr_keep = TRUE, harmonise_action = "aligned", stringsAsFactors = FALSE)
+  m <- maf_filter(d); identical(m$d$mr_keep, c(FALSE, TRUE, FALSE, TRUE, FALSE)) && m$led$removed == 3L && m$led$not_checked == 1L && identical(m$d$harmonise_action[1], "dropped_low_maf") &&
+    grepl("could not be checked (kept)", maf_text(m$led), fixed = TRUE) })
+expect("Round 109: the three F statistics follow their formulas, and say why when EAF or N is missing", {
+  d <- data.frame(beta_x = c(0.1, 0.2, 0.05), se_x = c(0.01, 0.02, 0.01), eaf_x = c(0.3, 0.5, 0.1), n_x = 10000, stringsAsFactors = FALSE)
+  f <- instrument_f_stats(d); r2 <- 2 * d$beta_x^2 * d$eaf_x * (1 - d$eaf_x); f2 <- r2 * (10000 - 2) / (1 - r2); R2 <- sum(r2); fa <- R2 * (10000 - 3 - 1) / (3 * (1 - R2))
+  g <- instrument_f_stats(d[, c("beta_x", "se_x")])
+  abs(f$f_z$mean - mean((d$beta_x / d$se_x)^2)) < 1e-9 && abs(f$f_r2$mean - mean(f2)) < 1e-9 && abs(f$f_all$value - fa) < 1e-9 && !is.null(g$f_r2$why) && !is.null(g$f_all$why) &&
+    grepl("Overall F of the 3 instruments", f_stats_text(f), fixed = TRUE) && grepl("could not be computed", f_stats_text(g), fixed = TRUE) })
+expect("Round 109: a library pair reports the MAF filter and the three F statistics in its ledger and at Check", {
+  pf <- tryCatch(pair_facts("expA", "outA"), error = function(e) NULL); !is.null(pf) && is.character(pf$f_text) && nzchar(pf$f_text) })
+expect("Round 109: SIMEX is added by itself when MR-Egger is chosen and I2GX is below 0.9, and not otherwise", {
+  set.seed(1); d <- data.frame(beta_x = rnorm(20, 0.05, 0.01), se_x = 0.02, mr_keep = TRUE); d2 <- d; d2$se_x <- 0.001
+  a <- simex_auto(c("ivw_mre", "egger"), d); b <- simex_auto(c("ivw_mre", "egger"), d2); cc <- simex_auto(c("ivw_mre", "wm"), d)
+  identical(a$added, "egger_simex") && "egger_simex" %in% a$methods && is.null(b$added) && is.null(cc$added) })
+expect("Round 109: each GWAS is cited with author, year and PMID in the report and on the Data card", identical(gwas_cite(list(author = "Xue A", year = 2018, pmid = "30054458")), "(Xue, 2018; PMID 30054458)") &&
+  identical(gwas_cite(list(author = "", year = NA, pmid = "")), "") && grepl("pub = sub(", paste(deparse(library_catalogue), collapse = " "), fixed = TRUE))
+expect("Round 109: the instrument review reruns every estimating method of the study, not the detectors", { p <- list(estimates = list(list(method = "ivw_mre", estimand = "causal_effect"), list(method = "presso", estimand = "causal_effect"), list(method = "cml", estimand = "causal_effect"), list(method = "mode", estimand = "causal_effect")))
+  m <- outlier_methods(p); all(c("ivw_mre", "egger", "wm", "cml", "mode") %in% m) && !("presso" %in% m) &&
+    all(c("m_cml", "m_cml_lo", "m_cml_hi") %in% names(outlier_stats(list(), c("ivw_mre", "cml")))) })
+expect("Round 109: an outcome lookup says per variant why there was no proxy (or that the panel is needed to tell)", {
+  b <- list(info = function(jwt, id = NULL) data.frame(id = "x-1", trait = "T", population = "European", sample_size = 1000, stringsAsFactors = FALSE))
+  r <- proxy_reasons(c("rs1", "rs2"), dir = file.path(tempdir(), "no_panel")); is.null(r) && grepl("Why no proxy: ", paste(deparse(ogw_get_outcome), collapse = " "), fixed = TRUE) })
+pnl <- file.path(Sys.getenv("HOME"), "Library", "Application Support", "org.R-project.R", "R", "MRStudio.before-clean-test", "ld_ref", "1kg.v3")
+if (!file.exists(file.path(pnl, "EUR.bed"))) pnl <- ld_panel_dir()
+real_pnl <- file.exists(file.path(pnl, "EUR.bed")) && file.info(file.path(pnl, "EUR.bed"))$size > 1e8   # the full 1000 Genomes panel, not the small test fixture
+if (real_pnl && !is.na(plink_bin())) expect("Round 109: real case (VitD1 instruments lost in T2D): no r2 0.8 proxy, or proxies missing in the outcome", {
+  r <- proxy_reasons(c("rs9328367", "rs80261862", "rs10469075"), 0.8, 0.3, "EUR", dir = pnl); if (is.null(r) || nrow(r) < 3L) cat("  proxy_reasons gave nothing; plink:", plink_bin(), "panel:", pnl, "\n") else cat("  ", paste(r$why, collapse = " | "), "\n")
+  grepl("no other variant has r2 of at least 0.8", r$why[1], fixed = TRUE) && grepl("rs75145722", r$why[2], fixed = TRUE) && grepl("not in this outcome either", r$why[2], fixed = TRUE) && grepl("rs10469076", r$why[3], fixed = TRUE) && grepl("not in this outcome either", r$why[3], fixed = TRUE) })
+# ---- Round 109: power (item 1) and the added figures (items 8, 9, 12, 13, 14) ----
+expect("Round 109: power reproduces the mRnd worked example (N = 53,218 for 80% power) and rounds sample sizes up", {
+  a <- mr_power_2sls(alpha = 0.05, byx = 1.3, bOLS = 1.41, R2xz = 0.01, varx = 1, vary = 116.6, power_target = 0.8); b <- mr_power_2sls(N = 53218, byx = 1.3, bOLS = 1.41, R2xz = 0.01, vary = 116.6)
+  c1 <- mr_power_binary(N = 10000, K = 0.5, OR = 1.5, R2xz = 0.02, power_target = 0.8); y <- mr_power_yz(byx = 0.2, R2xz = 0.02, power_target = 0.8)
+  identical(a$n_needed, 53218) && abs(b$power - 0.8) < 1e-4 && c1$n_needed == ceiling(c1$n_needed) && y$n_needed == ceiling(y$n_needed) && abs(b$f - (1 + 53218 * 0.01 / 0.99)) < 1e-9 })
+expect("Round 109: power inputs are checked (alpha, R2, K, OR, negative residual variance)", grepl("alpha must be", err_of(mr_power_yz(N = 100, alpha = 2, byx = 0.1, R2xz = 0.1))) && grepl("share of cases", err_of(mr_power_binary(N = 100, K = 1.2, OR = 1.5, R2xz = 0.1))) &&
+  grepl("not 1", err_of(mr_power_binary(N = 100, K = 0.2, OR = 1, R2xz = 0.1))) && grepl("negative residual variance", err_of(mr_power_2sls(N = 100, byx = 1, bOLS = 2, R2xz = 0.1, vary = 1))))
+expect("Round 109: pair power fills N and R2 from the pair and writes the Methods sentence", { pw <- tryCatch(pair_power("expA", "outA", 0.3), error = function(e) e)
+  !inherits(pw, "error") && is.finite(pw$power) && grepl("Brion et al. (mRnd", pw$text, fixed = TRUE) && is.finite(pw$r2xz) })
+h109f <- studio_new("Round 109 figures"); p109f <- pair_input("expA", "outA")
+r109f <- studio_run(h109f, p109f$exposure_label, p109f$outcome_label, p109f$input, c("ivw_mre", "egger", "wm", "mode", "egger_simex"), idx = 1L, params = list(ci_level = 0.95, nboot = 200L, simex_b = 50L))
+ui_state_set(h109f$con, "pairs", list(list(ex = "expA", out = "outA", exName = p109f$exposure_label, outName = p109f$outcome_label, folder = r109f$pair_folder, methods = c("ivw_mre", "egger", "wm", "mode", "egger_simex"))))
+pk109 <- tryCatch(build_package(h109f, c("report", "figures", "text"), 140), error = function(e) e)
+expect("Round 109: the package has the MendelianRandomization forest, funnel, scatter and all-methods plots, the mode density, the MR-Egger plot and the SIMEX plot, named in the report", {
+  !inherits(pk109, "error") && { f <- list.files(file.path(pk109$dir, "figures")); keys <- c("mr_forest_variants", "mr_forest_methods", "mr_funnel", "mr_plot", "mr_allmethods", "mode_density", "mregger", "mregger_simex", "knigge_mr_plot", "knigge_forest", "knigge_funnel_ivw", "knigge_funnel_egger")
+    all(vapply(keys, function(k) any(grepl(paste0("_", k, "\\.pdf$"), f)), TRUE)) && grepl("as mrrobust mreggersimex", paste(readLines(file.path(pk109$dir, "report.html"), warn = FALSE), collapse = " "), fixed = TRUE) } })
+# ---- Round 109: Cook's distance and studentized residuals (item 27) ----
+h109o <- studio_new("Round 109 influence"); p109o <- pair_input("expA", "outA"); q109o <- p109o$input; q109o$data$beta_y[3] <- q109o$data$beta_y[3] + 0.5
+r109o <- studio_run(h109o, p109o$exposure_label, "Outcome with an outlier", q109o, c("ivw_mre", "egger", "cook", "studres"), idx = 1L, params = list(ci_level = 0.95)); pl109o <- pair_payload(h109o$dir, r109o$pair_folder)
+expect("Round 109: Cook's distance (4 / k) and studentized residuals (|r| > 2) flag the variants lm() flags, replay identically and feed the outlier analysis", {
+  d <- q109o$data[q109o$data$mr_keep, ]; f <- stats::lm(beta_y ~ beta_x - 1, data = d, weights = 1 / d$se_y^2)
+  c1 <- d$variant_id[stats::cooks.distance(f) > 4 / nrow(d)]; s1 <- d$variant_id[abs(stats::rstudent(f)) > 2]
+  g <- function(n) { x <- Filter(function(z) identical(z$name, n), pl109o$diagnostics); if (length(x)) .o_ids(x[[1]]$note) else "missing" }
+  st <- outlier_sets(pl109o)
+  identical(pl109o$replay$status, "identical") && setequal(g("cook_outliers"), c1) && setequal(g("studres_outliers"), s1) && d$variant_id[3] %in% c1 && all(c("cook", "studres") %in% attr(st, "detectors_run")) })
+# ---- Round 109: MR-Clust (item 15); runs where mrclust is installed (the build installs it), otherwise only the registration is checked ----
+expect("Round 109: MR-Clust is registered (adapter, name, reference, screen) and left out with the reason where it is not installed", {
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n"); rm_ <- runnable_methods(c("ivw_mre", "mrclust"), pair_input("expA", "outA")$input)
+  !is.null(param_adapters()$mrclust) && identical(METHOD_REFS$mrclust, "foley2021") && grepl("id: 'mrclust'", js, fixed = TRUE) &&
+    (requireNamespace("mrclust", quietly = TRUE) || grepl("not installed", rm_$left_out[["mrclust"]], fixed = TRUE)) })
+if (requireNamespace("mrclust", quietly = TRUE)) {
+  expect("Round 109: MR-Clust reproduces the published SBP on CAD example (four clusters, one negative, seed 2000030885)", {
+    s <- mrclust::SBP_CAD; d <- data.frame(variant_id = s$chr.pos, beta_x = s$bx, se_x = s$bxse, beta_y = s$by, se_y = s$byse, mr_keep = TRUE, stringsAsFactors = FALSE)
+    r <- ADAPTER_MRCLUST_V11$run(list(data = d, exposure_id = "SBP", outcome_id = "CAD", outcome_scale = "log_or"), resolve_params(ADAPTER_MRCLUST_V11, list()), list(seed = 2000030885L))
+    g <- r$diagnostics[grepl("^mrclust_cluster_", r$diagnostics$name), ]
+    nrow(g) == 4L && all(abs(g$value - c(-0.071, 0.053, 0.113, 0.208)) < 5e-4) && identical(as.integer(g$df), c(4L, 45L, 9L, 4L)) && !nrow(r$estimates) &&
+      r$diagnostics$value[r$diagnostics$name == "mrclust_null"] == 5 })
+  h109c <- studio_new("Round 109 MR-Clust"); p109c <- pair_input("expA", "outA")
+  r109c <- studio_run(h109c, p109c$exposure_label, p109c$outcome_label, p109c$input, c("ivw_mre", "mrclust"), idx = 1L, params = list(ci_level = 0.95)); pl109c <- pair_payload(h109c$dir, r109c$pair_folder)
+  expect("Round 109: MR-Clust runs as a script in a study and replays identically", identical(pl109c$replay$status, "identical") && all(vapply(r109c$results, function(x) identical(x$status, "ok"), TRUE)))
+}
+# ---- Round 109: GSMR (item 6); the published example runs where gsmr2 is installed and MRGUI_GSMR_XMAT names gsmr_example.xmat.gz ----
+expect("Round 109: GSMR is registered, needs the LD matrix, and is left out with the reason when the LD matrix cannot be built", {
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n"); sc <- paste(readLines(file.path(args_dir, "..", "..", "contracts", "r", "script.R"), warn = FALSE), collapse = "\n")
+  h <- studio_new("Round 109 GSMR"); p <- pair_input("expA", "outA"); r <- tryCatch(studio_run(h, p$exposure_label, p$outcome_label, p$input, c("ivw_mre", "gsmr"), idx = 1L), error = function(e) e)
+  !is.null(param_adapters()$gsmr) && identical(METHOD_REFS$gsmr, "zhu2018") && grepl("id: 'gsmr'", js, fixed = TRUE) && grepl("spec$ld_file <- sprintf(\"ld_matrix_%s.csv\", a$id)", sc, fixed = TRUE) &&
+    !inherits(r, "error") && grepl("^left out,", r$left_out[["gsmr"]]) })
+xm <- Sys.getenv("MRGUI_GSMR_XMAT")
+if (requireNamespace("gsmr2", quietly = TRUE) && nzchar(xm) && file.exists(xm)) expect("Round 109: GSMR reproduces the gsmr2 vignette (LDL-C on CAD: bxy 0.4234802, SE 0.02221671; 39 weak, 5 in LD, 9 HEIDI outliers)", {
+  e <- new.env(); utils::data("gsmr", package = "gsmr2", envir = e); g <- e$gsmr_data
+  id <- scan(xm, what = "", nlines = 1, quiet = TRUE); X <- utils::read.table(xm, header = FALSE, skip = 2); sid <- intersect(g$SNP, id); gd <- g[match(sid, g$SNP), ]; o <- match(sid, id)
+  ld <- stats::cor(X[, o]); dimnames(ld) <- list(id[o], id[o])
+  d <- data.frame(variant_id = as.character(gd$SNP), beta_x = gd$bzx, se_x = gd$bzx_se, p_x = gd$bzx_pval, eaf_x = gd$a1_freq, n_x = gd$bzx_n, beta_y = gd$bzy, se_y = gd$bzy_se, p_y = gd$bzy_pval, n_y = gd$bzy_n, mr_keep = TRUE, stringsAsFactors = FALSE)
+  r <- suppressWarnings(ADAPTER_GSMR_V11$run(list(data = d, ld = ld, exposure_id = "LDL-C", outcome_id = "CAD", outcome_scale = "log_or", exposure_scale = "beta"), resolve_params(ADAPTER_GSMR_V11, list(gsmr_std = "yes", gsmr_n_ref = 7703L)), list(seed = 1L)))
+  abs(r$estimates$estimate[1] - 0.4234802) < 1e-6 && abs(r$estimates$se[1] - 0.02221671) < 1e-7 })
+# ---- Round 109: harmonisation action 1, 2 or 3 as a sensitivity setting (item 4) ----
+expect("Round 109: the harmonisation action can be chosen (1 keeps palindromic variants, 3 drops all of them) and each runs as its own labelled pair", {
+  a1 <- tryCatch(pair_input("lib:Trait X", "lib:Trait Y", action = 1L), error = function(e) e); a3 <- tryCatch(pair_input("lib:Trait X", "lib:Trait Y", action = 3L), error = function(e) e)
+  a0 <- tryCatch(pair_input("lib:Trait X", "lib:Trait Y"), error = function(e) e)
+  ok <- !inherits(a1, "error") && !inherits(a3, "error") && !inherits(a0, "error") && identical(a1$ledger$harmonise_action, 1L) && identical(a3$ledger$harmonise_action, 3L) &&
+    a1$ledger$dropped_palindromic == 0L && a3$ledger$dropped_palindromic >= a0$ledger$dropped_palindromic && grepl("must be 1, 2 or 3", err_of(pair_input("lib:Trait X", "lib:Trait Y", action = 4L)))
+  h <- studio_new("Round 109 harmonisation"); r <- tryCatch(studio_run_harm(h, "lib:Trait X", "lib:Trait Y", 3L, c("ivw_mre"), 0.95, idx = 2L), error = function(e) e)
+  ok && !inherits(r, "error") && grepl("[harmonisation: action 3]", r$label, fixed = TRUE) && identical(r$counts$dropped_palindromic, a3$ledger$dropped_palindromic) &&
+    grepl("Simulated traits are already aligned", err_of(pair_input("expA", "outA", action = 1L))) })
+local({ js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n"); ap <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  expect("Round 109: Results offers the other harmonisation actions, the comparison and the report name each one", grepl("function harmSection(pair)", js, fixed = TRUE) && grepl("case 'run_harm'", js, fixed = TRUE) &&
+    grepl("x.kind === m.rec.kind", js, fixed = TRUE) && grepl("BG_ACTIONS$run_harm", ap, fixed = TRUE) && grepl("harmonised again with TwoSampleMR action", paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = " "), fixed = TRUE)) })
+# ---- Round 109: GRAPPLE and PPMR (items 18, 19); full simulations are in private_notes/r109_methods/<pkg>/tests.R ----
+expect("Round 109: GRAPPLE, MVMR GRAPPLE and PPMR are registered and left out with the reason where their package is not installed", {
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n"); rm_ <- runnable_methods(c("ivw_mre", "grapple"), pair_input("expA", "outA")$input)
+  all(c("grapple", "mvgrapple", "ppmr") %in% names(param_adapters())) && identical(METHOD_REFS$ppmr, "yuan2020") && grepl("id: 'mvgrapple'", js, fixed = TRUE) &&
+    (requireNamespace("GRAPPLE", quietly = TRUE) || grepl("not installed", rm_$left_out[["grapple"]], fixed = TRUE)) })
+if (requireNamespace("GRAPPLE", quietly = TRUE)) {
+  h109g <- studio_new("Round 109 GRAPPLE"); p109g <- pair_input("expA", "outA")
+  r109g <- studio_run(h109g, p109g$exposure_label, p109g$outcome_label, p109g$input, c("ivw_mre", "grapple"), idx = 1L, params = list(ci_level = 0.95, gr_loss = "l2")); pl109g <- pair_payload(h109g$dir, r109g$pair_folder); e109g <- .est_df(pl109g)
+  expect("Round 109: GRAPPLE runs as a script, replays identically and agrees with IVW within one SE on the demo pair", {
+    g <- e109g[e109g$method == "grapple" & e109g$estimand == "causal_effect", ]; i <- e109g[e109g$method == "ivw_mre" & e109g$estimand == "causal_effect", ]
+    identical(pl109g$replay$status, "identical") && nrow(g) == 1L && abs(g$estimate - i$estimate) < g$se })
+}
+if (requireNamespace("PPMR", quietly = TRUE)) expect("Round 109: PPMR gives an estimate with likelihood-ratio P values and no interval, as the package gives none", {
+  set.seed(7); J <- 20; R <- 0.3^abs(outer(1:J, 1:J, "-")); bx <- as.vector(R %*% stats::rnorm(J, 0, 0.05)); by <- 0.3 * bx + as.vector(R %*% stats::rnorm(J, 0, 0.002))
+  d <- data.frame(variant_id = paste0("rs", 1:J), beta_x = bx, se_x = 0.01, beta_y = by, se_y = 0.01, n_x = 10000, n_y = 10000, mr_keep = TRUE)
+  ld <- R; dimnames(ld) <- list(d$variant_id, d$variant_id)
+  r <- ADAPTER_PPMR_V11$run(list(data = d, ld = ld, exposure_id = "X", outcome_id = "Y", outcome_scale = "beta"), resolve_params(ADAPTER_PPMR_V11, list()), list(seed = 1L))
+  nrow(r$estimates) == 1L && is.finite(r$estimates$estimate) && is.na(r$estimates$ci_lower) && is.finite(r$estimates$p) })
+# ---- Round 109: mode estimates table (item 9) ----
+expect("Round 109: the mode table gives simple, weighted and NOME mode estimates at phi 0.25, 0.5 and 1, equal to mr_mbe, and the workbook has the sheet", {
+  p <- pair_input("expA", "outA"); d <- p$input$data[p$input$data$mr_keep, ]; k <- data.frame(id = d$variant_id, bx = d$beta_x, by = d$beta_y, sx = d$se_x, sy = d$se_y)
+  m <- mode_table(k, 0.95, iterations = 200L); f <- MendelianRandomization::mr_mbe(MendelianRandomization::mr_input(k$bx, k$sx, k$by, k$sy), weighting = "weighted", stderror = "delta", phi = 0.5, seed = 12345L, iterations = 200L)
+  w <- m[m$estimator == "Weighted mode" & m$phi == 0.5, ]
+  nrow(m) == 12L && setequal(unique(m$estimator), c("Simple mode", "Weighted mode", "Simple mode (NOME)", "Weighted mode (NOME)")) && abs(w$estimate - f@Estimate) < 1e-12 && abs(w$se - f@StdError) < 1e-12 &&
+    grepl("sheets$`Mode estimates` <- mtab", paste(readLines(file.path(args_dir, "report_core.R"), warn = FALSE), collapse = "\n"), fixed = TRUE) })
+expect("Round 109: the MBE method with simple-mode weighting runs (mr_mbe calls it unweighted; Simple mode returned nothing before)", {
+  p <- pair_input("expA", "outA"); r <- ADAPTER_MBE_V11$run(p$input, resolve_params(ADAPTER_MBE_V11, list(mbe_weighting = "simple", mbe_iter = 500L)), list(seed = 1L)); nrow(r$estimates) == 1L && is.finite(r$estimates$estimate) })
+# ---- Round 109: PubMed ID at import (item 10) ----
+expect("Round 109: an imported file can carry the PubMed ID of its GWAS; it is checked, saved and cited in the report and on the Data card", {
+  r <- import_save(fxx, "ex.csv", ",", names(exd), mpl, modifyList(fct("Trait P", "exposure", "yes"), list(pmid = "PMID 30054458", author = "Xue A", year = 2018)))
+  rec <- library_recipe("Trait P"); bad <- err_of(import_save(fxx, "ex.csv", ",", names(exd), mpl, modifyList(fct("Trait Q", "exposure", "yes"), list(pmid = "30054x58"))))
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  identical(rec$facts$pmid, "30054458") && grepl("digits only", bad, fixed = TRUE) && grepl("PMID 30054458", gwas_cite_rec(rec), fixed = TRUE) && grepl("id=\"f_pmid\"", js, fixed = TRUE) })
+# ---- Round 109: the further figures on the Results screen (items 8, 9, 11 to 14) ----
+expect("Round 109: Results shows the package's further figures of a pair, drawn by the same code (SVG with caption for every figure)", {
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n"); ap <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  pr <- ui_state_get(h109f$con, "pairs")[[1]]; cx <- pair_context(h109f, pr); td <- tempfile("figs-"); dir.create(file.path(td, "figures"), recursive = TRUE)
+  xf <- extra_figures(cx, td, "P", 160); keys <- vapply(xf, `[[`, "", "key"); sv <- vapply(xf, function(x) { s <- grep("[.]svg$", x$files, value = TRUE); if (length(s)) paste(readLines(s[1], warn = FALSE), collapse = "") else "" }, "")
+  all(c("mr_forest_variants", "mr_funnel", "mr_plot", "mode_density", "mregger", "mregger_simex", "knigge_mr_plot", "knigge_forest", "knigge_funnel_ivw", "knigge_funnel_egger") %in% keys) && all(grepl("<svg", sv, fixed = TRUE)) &&
+    grepl("function figsSection(pair)", js, fixed = TRUE) && grepl("case 'pair_figs'", js, fixed = TRUE) && grepl("pair_figs = {", ap, fixed = TRUE) })
+# ---- Round 109: the figures script of each pair reproduces the shipped figures ----
+expect("Round 109: each pair gets 05_figures/make_figures.R (in the capsule), and running it redraws the pair's figures identical to the package", {
+  pk <- build_package(h109f, c("figs", "capsule"), 140); pr <- ui_state_get(h109f$con, "pairs")[[1]]; fd <- file.path(h109f$dir, "03_pairs", pr$folder, "05_figures")
+  cap <- utils::unzip(file.path(pk$dir, "reproducibility_capsule.zip"), list = TRUE)$Name
+  td <- tempfile("mkfig-"); dir.create(td); file.copy(list.files(fd, full.names = TRUE), td)
+  rb <- file.path(R.home("bin"), "Rscript")
+  wd <- getwd(); setwd(td); o <- suppressWarnings(system2(rb, c("--vanilla", "make_figures.R"), stdout = TRUE, stderr = TRUE)); setwd(wd)
+  shipped <- list.files(file.path(pk$dir, "figures"), pattern = "^P1_.*[.]png$"); redrawn <- list.files(file.path(td, "figures"), pattern = "^P1_.*[.]png$")
+  same <- vapply(shipped, function(f) file.exists(file.path(td, "figures", f)) && identical(unname(tools::md5sum(file.path(pk$dir, "figures", f))), unname(tools::md5sum(file.path(td, "figures", f)))), TRUE)
+  if (!all(same)) for (f in shipped[!same]) { a <- png::readPNG(file.path(pk$dir, "figures", f)); b <- png::readPNG(file.path(td, "figures", f)); cat("  not identical:", f, if (identical(dim(a), dim(b))) sprintf("share of differing pixels %.5f, max diff %.3f", mean(abs(a - b) > 1e-6), max(abs(a - b))) else "size differs", "\n") }
+  file.exists(file.path(fd, "make_figures.R")) && any(grepl("05_figures/make_figures.R$", cap)) && length(shipped) >= 10L && setequal(shipped, redrawn) && all(same) })
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

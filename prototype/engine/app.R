@@ -43,8 +43,8 @@ run_params <- function(x) {
   if (!is.null(x$mv_iter)) out$mv_iter <- as.integer(round(as.numeric(x$mv_iter)))
   for (k in intersect(c("pwm_penk", "smn_phi", "wmn_phi"), names(x))) out[[k]] <- as.numeric(x[[k]])   # Round 59
   for (k in intersect(c("eb_nboot", "pwm_nboot", "smn_nboot", "wmn_nboot", "rk_nboot"), names(x))) out[[k]] <- as.integer(round(as.numeric(x[[k]])))
-  for (k in intersect(c("ml_psi", "mbe_phi", "piv_lambda"), names(x))) out[[k]] <- as.numeric(x[[k]])   # Round 58
-  for (k in intersect(c("mbe_iter", "cml_pert", "mv_cml_pert"), names(x))) out[[k]] <- as.integer(round(as.numeric(x[[k]])))
+  for (k in intersect(c("ml_psi", "mbe_phi", "piv_lambda", "hp_prior", "gr_rho_xy", "ppmr_eps", "gsmr_gwas_p", "gsmr_heidi_single", "gsmr_heidi_multi", "gsmr_ld_fdr", "gsmr_ld_r2"), names(x))) out[[k]] <- as.numeric(x[[k]])   # Round 58
+  for (k in intersect(c("mbe_iter", "cml_pert", "mv_cml_pert", "hp_grid", "clr_grid", "gsmr_nsnps", "gsmr_n_ref", "ppmr_max_iter"), names(x))) out[[k]] <- as.integer(round(as.numeric(x[[k]])))
   if (!is.null(x$mv_qhet_iter)) out$mv_qhet_iter <- as.integer(round(as.numeric(x$mv_qhet_iter)))   # Round 54
   for (k in grep("^mv_r_[1-5]_[2-6]$", names(x), value = TRUE)) out[[k]] <- as.numeric(x[[k]])   # Round 53: phenotypic correlations of the exposures
   if (!is.null(x$lso_fraction)) out$lso_fraction <- as.numeric(x$lso_fraction)   # Round 43
@@ -103,7 +103,7 @@ BG_ACTIONS$run_outliers <- function(h, a, ev) { t <- "run_outliers"   # Round 42
             if (!is.null(done[[key]])) { pays[[sets$set[i]]] <- done[[key]]$pay; next }
             old <- Filter(function(x) identical(x$parent, parent) && identical(sort(unlist(x$remove)), rem), sens)
             idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(h$dir)) + 1L
-            r <- tryCatch(studio_run_without(h, a$ex, a$out, rem, OUTLIER_REANALYSIS, prm$ci_level, idx, params = prm, pthr = as.numeric(a$pthr %||% 5e-8), keep_presso = "presso" %in% trig, keep_loo = any(vapply(pay$diagnostics, function(d) identical(d$method, "loo"), TRUE)), inp = pin), error = function(e) e)
+            r <- tryCatch(studio_run_without(h, a$ex, a$out, rem, outlier_methods(pay), prm$ci_level, idx, params = prm, pthr = as.numeric(a$pthr %||% 5e-8), keep_presso = "presso" %in% trig, keep_loo = any(vapply(pay$diagnostics, function(d) identical(d$method, "loo"), TRUE)), inp = pin), error = function(e) e)
             if (inherits(r, "error")) { ev("outliers_done", ok = FALSE, parent = parent, msg = paste0(sets$label[i], ": ", conditionMessage(r))); return() }
             bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
             if (length(bad)) { ev("outliers_done", ok = FALSE, parent = parent, msg = paste0(sets$label[i], ": some methods did not finish: ", paste(bad, collapse = ", "))); return() }
@@ -132,6 +132,20 @@ BG_ACTIONS$run_ties <- function(h, a, ev) { t <- "run_ties"   # Round 28: tie se
           tryCatch(save_instrument_selection(h$dir, r$pair_folder, r$selection), error = function(e) NULL)
           sens <- Filter(function(x) !(identical(x$parent, parent) && identical(x$kind, "ties")), sens)
           rec <- list(parent = parent, kind = "ties", remove = list(), folder = r$pair_folder, label = r$label, kept = r$kept, regions = r$ties$regions, swaps = list(out = r$ties$out, `in` = r$ties[["in"]]))
+          sens[[length(sens) + 1L]] <- rec; ui_state_set(h$con, "sens", sens)
+          ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(h$dir, r$pair_folder), reused = isTRUE(r$reused))
+        }
+
+BG_ACTIONS$run_harm <- function(h, a, ev) {   # Round 109: the pair again with harmonisation action 1, 2 or 3, as its own labelled pair
+          req(h); parent <- a$folder; act <- as.integer(a$action); kd <- paste0("harm", act)
+          sens <- ui_state_get(h$con, "sens") %||% list(); old <- Filter(function(x) identical(x$parent, parent) && identical(x$kind, kd), sens)
+          idx <- if (length(old)) as.integer(sub("^P([0-9]+)_.*", "\\1", old[[1]]$folder)) else length(studio_pair_folders(h$dir)) + 1L
+          r <- tryCatch(studio_run_harm(h, a$ex, a$out, act, unlist(a$methods), run_params(a$params)$ci_level, idx, params = run_params(a$params), pthr = as.numeric(a$pthr %||% 5e-8)), error = function(e) e)
+          if (inherits(r, "error")) { ev("sens_done", ok = FALSE, msg = conditionMessage(r)); return() }
+          bad <- if (isTRUE(r$reused)) character() else names(Filter(function(x) !identical(x$status, "ok"), r$results))
+          if (length(bad)) { ev("sens_done", ok = FALSE, msg = paste("Some methods did not finish:", paste(bad, collapse = ", "))); return() }
+          sens <- Filter(function(x) !(identical(x$parent, parent) && identical(x$kind, kd)), sens)
+          rec <- list(parent = parent, kind = kd, action = act, remove = list(), folder = r$pair_folder, label = r$label, kept = r$kept, counts = r$counts)
           sens[[length(sens) + 1L]] <- rec; ui_state_set(h$con, "sens", sens)
           ev("sens_done", ok = TRUE, rec = rec, payload = pair_payload(h$dir, r$pair_folder), reused = isTRUE(r$reused))
         }
@@ -176,6 +190,7 @@ BG_ACTIONS$run_pair <- function(h, a, ev) { t0 <- Sys.time()
       if (mvp && !inherits(inp, "error")) inp <- tryCatch({ inp$input <- mv_with_cov(h, a$ex, inp$input); inp }, error = function(e) e)   # Round 55
       if (inherits(inp, "error")) { pair_done(i = a$i, ok = FALSE, msg = conditionMessage(inp)); return() }
       meths <- unlist(a$methods); prm <- run_params(a$params); ci <- prm$ci_level
+      sx_auto <- simex_auto(meths, inp$input$data); meths <- sx_auto$methods   # Round 109: MR-Egger with SIMEX added for this pair when its I2GX is below 0.9
       live_reset(); .say(sprintf("Pair %s: %s → %s, %d instruments; preparing the analysis data and writing one R script per method", a$i + 1L, inp$exposure_label, inp$outcome_label, sum(inp$input$data$mr_keep %in% TRUE)), "The scripts and the data are saved in the pair folder, so every result can be rerun in R and checked.")
       # The contract slugs labels to 30 characters, so two different traits can share a folder name. The pair number keeps them apart.
       old <- Filter(function(p) identical(p$ex, a$ex) && identical(p$out, a$out), ui_state_get(h$con, "pairs") %||% list())
@@ -280,7 +295,7 @@ mr_server <- function(engine_dir) {
       orph <- tryCatch(bg_orphan_runs(h$dir, names(bg$jobs)), error = function(e) list())
       for (o in orph) bg_watch(o$job, name, quiet = TRUE, on_done = function(r) ev("bg_finished", study = name))
       orph <- lapply(orph, function(o) o[c("started", "pair")])
-      ev(t, name = name, dir = h$dir, root = root, plan = plan, orphan = orph, pairs = pairs, sens = sens, mvcov = ui_state_get(h$con, "mv_cov") %||% list(), outliers = ui_state_get(h$con, "outliers") %||% list(), payloads = payloads, overlap = overlap_get(h), to = to, jobs = length(bg_running(h$dir)), queue = !is.null(rq$pairs) && identical(rq$dir, h$dir), studies = studies_overview(root))
+      ev(t, name = name, dir = h$dir, root = root, plan = plan, orphan = orph, pairs = pairs, design = ui_state_get(h$con, "design") %||% list(), sens = sens, mvcov = ui_state_get(h$con, "mv_cov") %||% list(), outliers = ui_state_get(h$con, "outliers") %||% list(), payloads = payloads, overlap = overlap_get(h), to = to, jobs = length(bg_running(h$dir)), queue = !is.null(rq$pairs) && identical(rq$dir, h$dir), studies = studies_overview(root))
     }
 
     # Round 55: individual-level file for the MVMR covariances. Only its header is read here; the covariances are computed on request.
@@ -438,6 +453,7 @@ mr_server <- function(engine_dir) {
           if (length(orph)) stop(sprintf("A run is already going on in \"%s\": the pair %s, started at %s before MR Studio was closed, is still finishing in the background. Wait until it ends (a message appears), then run again: pairs already saved are reused.", basename(rv$h$dir), orph[[1]]$pair, orph[[1]]$started))
           rq$dir <- rv$h$dir; rq$name <- basename(rv$h$dir); rq$pairs <- a$pairs; rq$k <- 1L; rq$pause <- FALSE; rq$stop <- FALSE; rq$ok <- 0L; rq$total <- as.integer(a$total %||% length(a$pairs)); rq$study <- a$study %||% ""
           if (identical(length(a$pairs), rq$total)) tryCatch(prune_pairs(rv$h$con, a$pairs), error = function(e) NULL)   # Round 101: a full run drops pairs no longer in the design
+          if (length(a$design)) tryCatch(ui_state_set(rv$h$con, "design", a$design), error = function(e) NULL)   # Round 108: the pairs of this run, kept so a study reopened before they all finished still shows them
           rq$done_before <- rq$total - length(a$pairs); later::later(run_queue_step, 0.05) },
         run_pause = { rq$pause <- isTRUE(a$on); if (!rq$pause && !is.null(rq$pairs)) later::later(run_queue_step, 0.05) },
         run_stop = { rq$stop <- TRUE; if (isTRUE(rq$pause) || is.null(rq$pairs)) { rq$pause <- FALSE; later::later(run_queue_step, 0.05) } },
@@ -470,6 +486,7 @@ mr_server <- function(engine_dir) {
           ev("outliers_chosen", parent = a$folder, res = ol[[j[1]]])
         },
         run_ties = bg_go("run_ties", a),
+        run_harm = bg_go("run_harm", a),   # Round 109
         build_package = bg_go("build_package", a),
         open_package = { req(rv$h); open_in_file_manager(file.path(rv$h$dir, "05_publication", a$folder)) },
         open_folder = { req(rv$h); open_in_file_manager(rv$h$dir) },
@@ -526,6 +543,19 @@ mr_server <- function(engine_dir) {
           ogw_token_set(tok); ev("ogw_token", ok = TRUE, token = ogw_token_info(tok), msg = "Token kept in memory until you close MR Studio.")
         },
         ogw_token_clear = { ogw_token_set(NULL); ev("ogw_token", ok = TRUE, token = ogw_token_info(NULL), msg = "Token removed.") },
+        pair_figs = {   # Round 109: the package's extra figures of one pair, drawn for the Results screen (same code as the package)
+          r <- tryCatch({ req(rv$h); pr <- Filter(function(x) identical(x$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (!length(pr)) stop("This pair has no saved results yet.")
+            cx <- pair_context(rv$h, pr[[1]]); td <- tempfile("figs-"); dir.create(file.path(td, "figures"), recursive = TRUE); on.exit(unlink(td, recursive = TRUE), add = TRUE)
+            xf <- extra_figures(cx, td, "P", 160, (cx$ce$ci_level %||% 0.95)[1])
+            lapply(xf, function(x) { s <- grep("[.]svg$", x$files, value = TRUE); list(key = x$key, caption = x$caption, svg = if (length(s)) paste(readLines(s[1], warn = FALSE, encoding = "UTF-8"), collapse = "\n") else "") }) }, error = function(e) e)
+          if (inherits(r, "error")) ev("pair_figs", ok = FALSE, folder = a$folder, msg = conditionMessage(r)) else ev("pair_figs", ok = TRUE, folder = a$folder, figs = r)
+        },
+        power = {   # Round 109: power of a pair (mRnd formulas), kept for the report
+          r <- tryCatch(pair_power(a$ex, a$out, a$effect, as.numeric(a$alpha %||% 0.05), as.numeric(a$target %||% 0.8), as.numeric(a$bols %||% NA), as.numeric(a$pthr %||% 5e-8)), error = function(e) e)
+          if (inherits(r, "error")) { ev("power_res", ok = FALSE, msg = conditionMessage(r)); return() }
+          if (!is.null(rv$h)) tryCatch(ui_state_set(rv$h$con, "power", r[c("exposure", "outcome", "text", "power", "n_needed")]), error = function(e) NULL)
+          ev("power_res", ok = TRUE, res = r)
+        },
         ogw_token_test = {
           r <- tryCatch(ogw_token_test(ogw_token_get(), isTRUE(settings_read()$offline)), error = function(e) e)
           ev("ogw_token_tested", ok = !inherits(r, "error"), msg = if (inherits(r, "error")) conditionMessage(r) else "OpenGWAS accepted the token.")
@@ -541,7 +571,7 @@ mr_server <- function(engine_dir) {
           pl <- ogw_search_payload(res); ev("ogw_results", q = a$q, total = pl$total, rows = pl$rows, nocat = FALSE)
         },
         ogw_dl_exposure = {
-          r <- tryCatch(ogw_get_exposure(a$id, ogw_token_get(), as.numeric(a$p), as.numeric(a$r2), as.numeric(a$kb), a$pop, a$name, isTRUE(settings_read()$offline), where = if (isTRUE(a$where %in% c("local", "server_live"))) a$where else "server"), error = function(e) e)
+          r <- tryCatch(ogw_get_exposure(a$id, ogw_token_get(), as.numeric(a$p), as.numeric(a$r2), as.numeric(a$kb), a$pop, a$name, isTRUE(settings_read()$offline), where = if (isTRUE(a$where %in% c("local", "server_live"))) a$where else "server", replace = as.character(a$replace %||% "")), error = function(e) e)
           if (inherits(r, "error")) { ev("ogw_dl", ok = FALSE, msg = conditionMessage(r)); return() }
           ev("ogw_dl", ok = TRUE, rec = r, reused = isTRUE(r$reused), items = library_list(), templates = template_list(), catalogue = catalogue_all())
         },

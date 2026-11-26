@@ -539,6 +539,8 @@ import_save <- function(path, orig_name, sep, columns, mapping, facts, root = st
   if (identical(facts$scale, "z")) facts$scale_saved <- "beta"   # per SD of the trait
   dir.create(dest, recursive = TRUE, showWarnings = FALSE)
   lib_table_write(d, dest, "standardised")
+  if (length(facts$pmid) && nzchar(as.character(facts$pmid))) { facts$pmid <- sub("^PMID:? *", "", trimws(as.character(facts$pmid)), ignore.case = TRUE)   # Round 109: optional PubMed ID of the GWAS (item 10)
+    if (!grepl("^[0-9]{1,9}$", facts$pmid)) stop("The PubMed ID must be digits only (for example 30054458), or empty.", call. = FALSE) } else facts$pmid <- NULL
   rec <- list(trait = nm, role = facts$role, facts = facts, mapping = mp, original = list(file = orig_name, bytes = file.size(orig_path), sha256 = sha256_file(orig_path)),
               rows_in_file = n_all, rows_kept = nrow(d), warnings = v$warnings[!startsWith(v$warnings, "This check looked at the first")], changes = as.list(c(prep_notes, pan, tr$changes)), saved_at = format(Sys.time(), "%Y-%m-%d %H:%M:%S"),
               build_saved = if ((facts$build %||% "unknown") %in% c("37", "38")) "GRCh37" else "as in the file (build not known)", liftover = if (identical(facts$build, "38")) LIFTOVER_CHAIN[c("file", "sha256", "source")] else NULL,
