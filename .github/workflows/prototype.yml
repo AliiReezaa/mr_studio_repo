@@ -457,8 +457,9 @@ jobs:
       - name: Screen logic and server tests (study, pair, run, results)
         run: |
           # Round 109: the GSMR example genotypes (gsmr_example.xmat.gz, in the gsmr2 source) for the real-result test of GSMR
-          tar -xzf "$RUNNER_TEMP/gsmr2_e7953cc.tar.gz" -C "$RUNNER_TEMP" 2>/dev/null || true
-          XM="$(ls "$RUNNER_TEMP"/gsmr2-*/gsmr_example.xmat.gz 2>/dev/null | head -n 1)"; if [[ -n "$XM" && "$RUNNER_OS" == "Windows" ]]; then XM="$(cygpath -m "$XM")"; fi
+          # Round 110: unpacked from inside the folder; on Windows, tar read "D:\..." as host:path, so nothing was unpacked and the test was skipped
+          XD="$PWD"; cd "$RUNNER_TEMP" && { tar -xzf gsmr2_e7953cc.tar.gz 2>/dev/null || true; }; XM="$(ls "$PWD"/gsmr2-*/gsmr_example.xmat.gz 2>/dev/null | head -n 1)"; cd "$XD"
+          if [[ -n "$XM" && "$RUNNER_OS" == "Windows" ]]; then XM="$(cygpath -m "$XM")"; fi; echo "GSMR example genotypes: ${XM:-not found}"
           export MRGUI_GSMR_XMAT="$XM"; export OMP_NUM_THREADS=1
           "$RBIN" --no-echo --no-restore --vanilla --file=prototype/engine/test_studio.R
 

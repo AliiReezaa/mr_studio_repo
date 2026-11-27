@@ -263,7 +263,7 @@ pair_context <- function(h, p) {
   v <- do.call(rbind, lapply(pay$variants, function(x) data.frame(id = x$id, bx = x$bx, by = x$by, sx = x$sx, sy = x$sy, keep = x$keep, stringsAsFactors = FALSE)))
   kept <- v[v$keep, , drop = FALSE]; Fs <- (kept$bx / kept$sx)^2
   fstats <- tryCatch({ f <- Sys.glob(file.path(h$dir, "03_pairs", p$folder, "01_data", "analysis_data_*.csv"))[1]; dd <- utils::read.csv(f, stringsAsFactors = FALSE)   # Round 109: from the analysis data (EAF, N)
-    if (!"beta_x" %in% names(dd)) NULL else instrument_f_stats(dd[as.logical(dd$mr_keep), , drop = FALSE]) }, error = function(e) NULL)
+    if (!"beta_x" %in% names(dd)) NULL else instrument_f_stats(dd[as.logical(dd$mr_keep), , drop = FALSE], p$ledger$x_scale %||% "unknown") }, error = function(e) NULL)
   st <- pay$settings %||% list(); dt <- Sys.glob(file.path(h$dir, "03_pairs", p$folder, "01_data", "analysis_data_*.csv"))
   dd <- if (length(dt)) utils::read.csv(dt[1], stringsAsFactors = FALSE) else NULL
   nx <- if (!is.null(dd$n_x)) stats::median(dd$n_x, na.rm = TRUE) else NA_real_; ny <- if (!is.null(dd$n_y)) stats::median(dd$n_y, na.rm = TRUE) else NA_real_
@@ -696,7 +696,9 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
       if (isTRUE(cx$mv)) {   # Round 50: one forest of direct effects, grouped by exposure; no scatter or variant-level plots
         est$label <- paste0(ce$exposure_label, ": ", .short_mv(ce$method)); est$col <- "#2b3fc7"; est <- est[order(match(est$exposure_label, unique(est$exposure_label))), , drop = FALSE]
         fh <- max(40, 22 + 8 * nrow(est)); ff <- .fig_write(file.path(pk, "figures", paste0(tag, "_mvmr_forest")), wmm, fh, function() .draw_forest(est))
-        figs[[i]] <- list(forest = ff, fh = fh); for (f in ff) add(f); next }
+        figs[[i]] <- list(forest = ff, fh = fh); for (f in ff) add(f)
+        xf <- tryCatch(mv_extra_figures(cx, pk, tag, wmm, (ce$ci_level %||% 0.95)[1]), error = function(e) list()); figs[[i]]$xtra <- xf; for (x in xf) for (f in x$files) add(f)   # Round 110: item 12
+        next }
       fh <- max(40, 22 + 8 * nrow(est)); ff <- .fig_write(file.path(pk, "figures", paste0(tag, "_forest")), wmm, fh, function() .draw_forest(est))
       ceS <- ce[ce$method != "radegger", , drop = FALSE]   # the radial Egger intercept is on a weighted scale, so it cannot be drawn as a line on this plot
       ln <- lapply(seq_len(nrow(ceS)), function(j) { m <- ceS$method[j]; ic <- cx$est$estimate[cx$est$estimand == "pleiotropy_intercept" & cx$est$method == "egger"]; list(name = .short[[m]], col = .MCOL[[m]], lty = if (m == "ivw_mre") 1 else if (m == "egger") 2 else 3, a = if (m == "egger" && length(ic)) ic[1] else 0, b = ceS$estimate[j]) })
@@ -724,7 +726,7 @@ build_package <- function(h, items, width_mm = 180, pub = NULL, pairs = NULL) {
         ob <- if (!is.null(la)) .fig_write(file.path(pk, "figures", paste0(tag, "_outlier_leave_one_out")), wmm, 55, function() draw_outlier_loo(lb, la, ce$estimate[ce$method == "ivw_mre"][1], ol$chosen_ivw$estimate[1], est$unit[1])) else character()
         figs[[i]]$oc <- oc; figs[[i]]$oa <- oa; figs[[i]]$oh <- oh; figs[[i]]$ah <- ah; figs[[i]]$or <- rr; figs[[i]]$ol <- ob; for (f in c(oc, oa, rr, ob)) add(f)
       } }
-    FIG_REC$on <- FALSE; for (i in seq_along(ctxs)) if (!isTRUE(ctxs[[i]]$mv) && !is.null(figs[[i]])) tryCatch(write_figures_script(h, ctxs[[i]], i, wmm, FIG_REC$items, vapply(figs[[i]]$xtra %||% list(), `[[`, "", "key")), error = function(e) note <<- c(note, paste("The figures script could not be written:", conditionMessage(e))))   # Round 109
+    FIG_REC$on <- FALSE; for (i in seq_along(ctxs)) if (!is.null(figs[[i]])) tryCatch(write_figures_script(h, ctxs[[i]], i, wmm, FIG_REC$items, vapply(figs[[i]]$xtra %||% list(), `[[`, "", "key")), error = function(e) note <<- c(note, paste("The figures script could not be written:", conditionMessage(e))))   # Round 109
     if (!is.null(med)) { md <- mediation_forest_df(med); if (nrow(md)) {   # Round 98: the mediation estimates as a figure
       lg <- txt$legends; length(lg) <- 2L * length(ctxs); lg[is.na(lg)] <- ""; k <- length(ctxs) + 1L; fh <- max(40, 22 + 8 * nrow(md))
       mf <- .fig_write(file.path(pk, "figures", "mediation_forest"), wmm, fh, function() .draw_forest(md)); figs[[k]] <- list(forest = mf, fh = fh); for (f in mf) add(f)
@@ -862,6 +864,13 @@ gwas_cite <- function(s, lead = "") {
 # (as mrrobust mrmodalplot), the MR-Egger plot with its confidence band (as mrrobust mreggerplot) and the SIMEX extrapolation (as
 # mrrobust mreggersimex). Each is a list(key, files, caption); a figure that cannot be drawn is left out.
 .MRF_METHODS <- c(ivw_mre = "ivw", smed = "median", wm = "wmedian", egger = "egger", maxlik = "maxlik", mbe = "mbe", mode = "mbe", conmix = "conmix")
+#' Round 110: MendelianRandomization's mr_forest prints its plot itself (print(forest)), which opened R's default device and wrote Rplots.pdf
+#' into the working folder. The package's plot calls run with a device that writes nothing; the device that was current stays current.
+.fig_quiet <- function(expr) {
+  prev <- grDevices::dev.cur(); grDevices::pdf(NULL); d <- grDevices::dev.cur()
+  on.exit({ if (d %in% grDevices::dev.list()) grDevices::dev.off(d); if (prev > 1L && prev %in% grDevices::dev.list()) grDevices::dev.set(prev) }, add = TRUE)
+  expr
+}
 extra_figures <- function(cx, pk, tag, wmm, ci_level = 0.95) {
   k <- cx$kept; if (is.null(k) || nrow(k) < 3L) return(list())
   if (!requireNamespace("MendelianRandomization", quietly = TRUE) || !requireNamespace("ggplot2", quietly = TRUE)) return(list())
@@ -869,16 +878,16 @@ extra_figures <- function(cx, pk, tag, wmm, ci_level = 0.95) {
   al <- 1 - ci_level; out <- list(); ran <- unique(cx$ce$method %||% character())
   put <- function(key, h, g, cap) { f <- .fig_write(file.path(pk, "figures", paste0(tag, "_", key)), wmm, h, function() print(g)); if (length(f)) out[[length(out) + 1L]] <<- list(key = key, files = f, caption = cap) }
   pc <- .pct(ci_level); nm <- sprintf("%s on %s", cx$p$exName, cx$p$outName)
-  g <- tryCatch(mrf_restyle(MendelianRandomization::mr_forest(mri, alpha = al, ordered = TRUE), wmm), error = function(e) NULL)
+  g <- tryCatch(.fig_quiet(mrf_restyle(MendelianRandomization::mr_forest(mri, alpha = al, ordered = TRUE), wmm)), error = function(e) NULL)
   if (!is.null(g)) put("mr_forest_variants", max(60, 20 + 3.2 * nrow(k)), g, sprintf("Variant forest plot (MendelianRandomization mr_forest) of %s: the ratio estimate of each variant with its %s confidence interval, ordered by estimate, and the IVW estimate (diamond).", nm, pc))
   mm <- unique(unname(.MRF_METHODS[intersect(names(.MRF_METHODS), ran)]))
-  g <- if (length(mm)) tryCatch(.fig_seeded(mrf_methods_plot(mri, al, mm, wmm)), error = function(e) NULL) else NULL
+  g <- if (length(mm)) tryCatch(.fig_quiet(.fig_seeded(mrf_methods_plot(mri, al, mm, wmm))), error = function(e) NULL) else NULL
   if (!is.null(g)) put("mr_forest_methods", round(wmm / 1.617), g, sprintf("Methods forest plot (MendelianRandomization mr_forest) of %s: the estimate and %s confidence interval of each method that MendelianRandomization can draw among those run.", nm, pc))
-  g <- tryCatch(mrf_restyle(MendelianRandomization::mr_funnel(mri, CI = TRUE), wmm), error = function(e) NULL)
+  g <- tryCatch(.fig_quiet(mrf_restyle(MendelianRandomization::mr_funnel(mri, CI = TRUE), wmm)), error = function(e) NULL)
   if (!is.null(g)) put("mr_funnel", round(wmm / 1.617), g, sprintf("Funnel plot (MendelianRandomization mr_funnel) of %s: each variant's ratio estimate (x) against its precision, |beta_x| / se_y (y), with 95%% intervals; solid line at zero, dashed line at the IVW estimate. It differs from the funnel plot above, which has the standard error on a reversed axis.", nm))
-  g <- tryCatch(mrf_restyle(MendelianRandomization::mr_plot(mri, interactive = FALSE, labels = FALSE, line = "ivw", orientate = TRUE), wmm), error = function(e) NULL)
+  g <- tryCatch(.fig_quiet(mrf_restyle(MendelianRandomization::mr_plot(mri, interactive = FALSE, labels = FALSE, line = "ivw", orientate = TRUE), wmm)), error = function(e) NULL)
   if (!is.null(g)) put("mr_plot", round(wmm / 1.617), g, sprintf("Scatter plot (MendelianRandomization mr_plot) of %s, variants oriented to a positive effect on the exposure, with error bars on both axes and the IVW line (variant labels are in the supplement tables).", nm))
-  g <- tryCatch(mrf_restyle(MendelianRandomization::mr_plot(.fig_seeded(MendelianRandomization::mr_allmethods(mri, method = "all", alpha = al)), interactive = FALSE), wmm), error = function(e) NULL)   # fixed random state: the robust fits sample at random
+  g <- tryCatch(.fig_quiet(mrf_restyle(MendelianRandomization::mr_plot(.fig_seeded(MendelianRandomization::mr_allmethods(mri, method = "all", alpha = al)), interactive = FALSE), wmm)), error = function(e) NULL)   # fixed random state: the robust fits sample at random
   if (!is.null(g)) put("mr_allmethods", round(wmm / 1.617), g, sprintf("All-methods plot (MendelianRandomization mr_allmethods, method = \"all\", and mr_plot) of %s: one line per estimator (medians, IVW and MR-Egger with their penalised and robust versions).", nm))
   if (any(c("mode", "smode", "smode_nome", "wmode_nome", "mbe") %in% ran)) { g <- mode_density_plot(k); if (!is.null(g)) put("mode_density", round(wmm * 0.6), g, sprintf("Density of the single-variant ratio estimates of %s (as mrrobust mrmodalplot), smoothed with bandwidth multipliers phi = 0.25, 0.5 and 1; the mode-based estimates are the peaks [Hartwig 2017].", nm)) }
   if (any(c("egger", "radegger", "egger_simex", "egger_boot", "egger_rob") %in% ran)) { g <- egger_plot(k, ci_level); if (!is.null(g)) put("mregger", round(wmm * 0.6), g, sprintf("MR-Egger plot of %s (as mrrobust mreggerplot): variants oriented to a positive effect on the exposure with %s confidence intervals, the MR-Egger line with its own intercept and the shaded %s confidence band.", nm, pc, pc)) }
@@ -891,6 +900,54 @@ extra_figures <- function(cx, pk, tag, wmm, ci_level = 0.95) {
   if ("egger_simex" %in% ran) { g <- simex_plot(k); if (!is.null(g)) put("mregger_simex", round(wmm * 0.6), g, sprintf("SIMEX for MR-Egger of %s (as mrrobust mreggersimex): the MR-Egger slope (left) and intercept (right) against lambda; open circle the original estimate, dots the simulated estimates, solid line the quadratic fit, dashed line its extrapolation to lambda = -1 and cross the SIMEX estimate.", nm)) }
   out
 }
+# ---- Round 110: figures of every multivariable pair (item 12) ----
+#' The variants of a multivariable pair as its methods used them: every exposure and the outcome present, kept by harmonisation (as .mv_core).
+.mv_fig_data <- function(h, p) {
+  f <- Sys.glob(file.path(h$dir, "03_pairs", p$folder, "01_data", "analysis_data_*.csv")); if (!length(f)) return(NULL)
+  d <- utils::read.csv(f[1], stringsAsFactors = FALSE); K <- sum(grepl("^beta_x_[0-9]+$", names(d))); if (K < 2L) return(NULL)
+  bxn <- sprintf("beta_x_%d", seq_len(K)); sxn <- sprintf("se_x_%d", seq_len(K)); keep <- if ("mr_keep" %in% names(d)) as.logical(d$mr_keep) %in% TRUE else rep(TRUE, nrow(d))
+  use <- keep & is.finite(d$beta_y) & is.finite(d$se_y) & d$se_y > 0 & stats::complete.cases(d[, c(bxn, sxn)])
+  d <- d[use, c("variant_id", bxn, sxn, "beta_y", "se_y"), drop = FALSE]; rownames(d) <- NULL; d
+}
+#' The MendelianRandomization MRMVInput of a multivariable pair (cx$mvdat), with the exposure labels of the pair.
+.mv_mri <- function(cx) {
+  d <- cx$mvdat; K <- sum(grepl("^beta_x_[0-9]+$", names(d))); labs <- as.character(cx$labels %||% character()); if (length(labs) != K) labs <- sprintf("Exposure %d", seq_len(K))
+  MendelianRandomization::mr_mvinput(bx = as.matrix(d[, sprintf("beta_x_%d", seq_len(K)), drop = FALSE]), bxse = as.matrix(d[, sprintf("se_x_%d", seq_len(K)), drop = FALSE]),
+    by = d$beta_y, byse = d$se_y, snps = d$variant_id, exposure = labs, outcome = cx$p$outName %||% "the outcome")
+}
+#' MendelianRandomization's mr_plot of an MRMVInput (static): each variant's association with the outcome against its fitted value from
+#' the MVMR-IVW model (by regressed on all bx, through the origin, weights se_y^-2), 95% error bars on both axes (the horizontal ones are the
+#' confidence interval of the fitted value) and the line through the origin with gradient 1. Same list(key, files, caption) as extra_figures.
+mv_extra_figures <- function(cx, pk, tag, wmm, ci_level = 0.95) {
+  d <- cx$mvdat; if (is.null(d) || nrow(d) < 3L) return(list())
+  if (!requireNamespace("MendelianRandomization", quietly = TRUE) || !requireNamespace("ggplot2", quietly = TRUE)) return(list())
+  mvi <- .mv_mri(cx); out <- list()
+  put <- function(key, h, g, cap) { f <- .fig_write(file.path(pk, "figures", paste0(tag, "_", key)), wmm, h, function() print(g)); if (length(f)) out[[length(out) + 1L]] <<- list(key = key, files = f, caption = cap) }
+  g <- tryCatch(.fig_quiet(mrf_restyle(MendelianRandomization::mr_plot(mvi, interactive = FALSE, error = TRUE, line = TRUE, orientate = FALSE, labels = FALSE), wmm)), error = function(e) NULL)
+  if (!is.null(g)) { wr <- function(x, n) if (is.character(x)) paste(strwrap(x, n), collapse = "\n") else x   # the package's axis titles are long: wrapped, at 11 pt, so they fit
+    g$labels$x <- wr(g$labels$x, 70); g$labels$y <- wr(g$labels$y, 40); g <- g + ggplot2::theme(axis.title = ggplot2::element_text(size = 11)) }
+  if (!is.null(g)) put("mvmr_plot", round(wmm * 0.75), g, sprintf("Multivariable scatter plot (MendelianRandomization mr_plot of the multivariable input) of %s on %s, %d variants: each variant's association with the outcome (y) against its fitted value from the MVMR-IVW model of all exposures (x), with 95%% error bars on both axes (horizontal: the confidence interval of the fitted value) and the line through the origin with gradient 1. Variants far from the line fit the model poorly. Variant labels are in the supplementary data.",
+    paste(mvi@exposure, collapse = ", "), mvi@outcome, nrow(d)))
+  out
+}
+#' Round 110: the interactive versions of MendelianRandomization's mr_plot (the package's default, interactive = TRUE: plotly, the variant
+#' named on hover) for the Results screen; the package and the report keep the static figures. Each is list(key, caption, json), json the
+#' plotly figure (plotly::plotly_json). A univariable pair gets the scatter plot (as the static mr_plot figure: oriented, IVW line), a
+#' multivariable pair the plot of the outcome associations against the fitted values. mr_allmethods has no interactive version.
+interactive_figures <- function(cx) {
+  if (!requireNamespace("MendelianRandomization", quietly = TRUE) || !requireNamespace("plotly", quietly = TRUE)) return(list())
+  grDevices::pdf(NULL); on.exit(grDevices::dev.off(), add = TRUE)   # ggplotly measures text on a device; none is left open or written
+  one <- function(key, p, cap) { j <- tryCatch(as.character(plotly::plotly_json(p, jsonedit = FALSE)), error = function(e) NULL); if (is.null(j)) NULL else list(key = key, caption = cap, json = j) }
+  out <- if (isTRUE(cx$mv)) { d <- cx$mvdat; if (is.null(d) || nrow(d) < 3L) list() else { mvi <- .mv_mri(cx)
+      list(one("mvmr_plot_interactive", MendelianRandomization::mr_plot(mvi, interactive = TRUE, error = TRUE, line = TRUE, orientate = FALSE),
+        sprintf("Interactive multivariable scatter plot (MendelianRandomization mr_plot, interactive) of %s on %s: hover a point for the variant; outcome association against its fitted value from MVMR-IVW, 95%% error bars on both axes, line through the origin with gradient 1. Zoom by dragging; double-click to reset.", paste(mvi@exposure, collapse = ", "), mvi@outcome))) } }
+    else { k <- cx$kept; if (is.null(k) || nrow(k) < 3L) list() else { mri <- MendelianRandomization::mr_input(bx = k$bx, bxse = k$sx, by = k$by, byse = k$sy, snps = k$id, exposure = cx$p$exName, outcome = cx$p$outName)
+      list(one("mr_plot_interactive", MendelianRandomization::mr_plot(mri, interactive = TRUE, labels = FALSE, line = "ivw", orientate = TRUE),
+        sprintf("Interactive scatter plot (MendelianRandomization mr_plot, interactive) of %s on %s: hover a point for the variant and its associations; variants oriented to a positive effect on the exposure, 95%% error bars on both axes and the IVW line. Zoom by dragging; double-click to reset.", cx$p$exName, cx$p$outName))) } }
+  Filter(Negate(is.null), out)
+}
+#' Round 110: plotly.js as shipped with the R package plotly (offline; sent to the screen once, when the first interactive figure is shown).
+plotly_js_text <- function() { f <- system.file("htmlwidgets", "lib", "plotlyjs", "plotly-latest.min.js", package = "plotly"); if (!nzchar(f)) return(NULL); paste(readLines(f, warn = FALSE, encoding = "UTF-8"), collapse = "\n") }
 #' Round 109: density of the ratio estimates at three bandwidths (Hartwig 2017 bandwidth h = phi * 0.9 * min(sd, mad) * n^(-1/5)), weighted.
 mode_density_plot <- function(k) {
   r <- k$by / k$bx; se <- abs(k$sy / k$bx); w <- (1 / se^2) / sum(1 / se^2); s <- min(stats::sd(r), stats::mad(r)); if (!is.finite(s) || s <= 0) return(NULL)
@@ -1008,9 +1065,10 @@ write_figures_script <- function(h, cx, i, wmm, items, xkeys) {
   pd <- file.path(h$dir, "03_pairs", cx$p$folder); if (!dir.exists(pd)) return(invisible(NULL)); fd <- file.path(pd, "05_figures"); dir.create(fd, showWarnings = FALSE)
   tag <- sprintf("P%d", i); its <- Filter(function(x) startsWith(x$base, paste0(tag, "_")) && !(sub(paste0("^", tag, "_"), "", x$base) %in% xkeys), items)
   saveRDS(its, file.path(fd, "figure_inputs.rds"), version = 2)
-  utils::write.csv(cx$kept, file.path(fd, "figure_data.csv"), row.names = FALSE); utils::write.csv(cx$ce, file.path(fd, "figure_estimates.csv"), row.names = FALSE)
-  saveRDS(list(kept = cx$kept, ce = cx$ce), file.path(fd, "figure_pair.rds"), version = 2)   # exact values (the CSV files round to 15 digits)
-  calls <- unique(unlist(lapply(its, function(x) all.names(x$body)))); deps <- .fig_deps(unique(c(".fig_write", "extra_figures", "fig_warmup", calls)))
+  mv <- isTRUE(cx$mv); xfun <- if (mv) "mv_extra_figures" else "extra_figures"   # Round 110: a multivariable pair gets its script too
+  utils::write.csv(if (mv) cx$mvdat else cx$kept, file.path(fd, "figure_data.csv"), row.names = FALSE); utils::write.csv(cx$ce, file.path(fd, "figure_estimates.csv"), row.names = FALSE)
+  saveRDS(if (mv) list(mvdat = cx$mvdat, ce = cx$ce, labels = cx$labels) else list(kept = cx$kept, ce = cx$ce), file.path(fd, "figure_pair.rds"), version = 2)   # exact values (the CSV files round to 15 digits)
+  calls <- unique(unlist(lapply(its, function(x) all.names(x$body)))); deps <- .fig_deps(unique(c(".fig_write", xfun, "fig_warmup", calls)))
   df <- tempfile(fileext = ".R"); dump(deps, file = df, envir = environment(extra_figures)); defs <- readLines(df, warn = FALSE); unlink(df)
   defs <- vapply(enc2utf8(defs), function(s) { cp <- utf8ToInt(s); if (all(cp < 128L)) return(s); paste(vapply(cp, function(c) if (c < 128L) intToUtf8(c) else sprintf("\\u%04x", c), ""), collapse = "") }, "", USE.NAMES = FALSE)   # ASCII only: other characters as \u escapes, so the script reads the same in any locale
   pk <- c("ggplot2", "MendelianRandomization", "cowplot", "simex", "codetools"); ver <- vapply(pk, function(p) tryCatch(as.character(utils::packageVersion(p)), error = function(e) "not installed"), "")
@@ -1018,7 +1076,7 @@ write_figures_script <- function(h, cx, i, wmm, items, xkeys) {
     sprintf("# Written by MR Studio %s with %s. Packages: %s.", .mrs_ver_build(), R.version.string, paste(sprintf("%s %s", pk, ver), collapse = ", ")),
     "# Run from this folder:  Rscript make_figures.R   (the figures are written to ./figures as PDF, SVG and PNG at 300 dpi)",
     "# The plotting functions below are the ones MR Studio used; figure_inputs.rds holds the data of each figure as drawn,",
-    "# figure_data.csv the instruments (bx, by, sx, sy) and figure_estimates.csv the estimates of the pair.", "",
+    if (mv) "# figure_data.csv the variants (beta_x_k and se_x_k of each exposure k, beta_y, se_y) and figure_estimates.csv the estimates of the pair." else "# figure_data.csv the instruments (bx, by, sx, sy) and figure_estimates.csv the estimates of the pair.", "",
     "if (!isTRUE(l10n_info()[[\"UTF-8\"]])) for (l in c(\"C.UTF-8\", \"en_US.UTF-8\", \"English_United States.utf8\")) if (nzchar(suppressWarnings(Sys.setlocale(\"LC_CTYPE\", l)))) break   # Greek letters (phi) need a UTF-8 locale", "",
     "# ---- plotting functions of MR Studio ----", defs, "",
     "for (ns in c(\"ggplot2\", \"MendelianRandomization\", \"cowplot\", \"simex\")) suppressWarnings(requireNamespace(ns, quietly = TRUE))   # as MR Studio, before any figure",
@@ -1028,7 +1086,7 @@ write_figures_script <- function(h, cx, i, wmm, items, xkeys) {
     "for (f in readRDS(\"figure_inputs.rds\")) { e <- list2env(f$data, parent = globalenv()); d <- eval(call(\"function\", NULL, f$body), e)",
     "  .fig_write(file.path(\"figures\", f$base), f$w_mm, f$h_mm, d) }",
     sprintf("cx <- c(readRDS(\"figure_pair.rds\"), list(p = list(exName = %s, outName = %s)))   # the instruments and estimates, exact (also in the CSV files)", deparse(cx$p$exName), deparse(cx$p$outName)),
-    sprintf("invisible(extra_figures(cx, \".\", %s, %d, %s))", deparse(tag), as.integer(wmm), format((cx$ce$ci_level %||% 0.95)[1])))
+    sprintf("invisible(%s(cx, \".\", %s, %d, %s))", xfun, deparse(tag), as.integer(wmm), format((cx$ce$ci_level %||% 0.95)[1])))
   writeLines(txt, file.path(fd, "make_figures.R"), useBytes = TRUE)
   invisible(file.path(fd, "make_figures.R"))
 }

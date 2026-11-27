@@ -114,7 +114,8 @@ mv_context <- function(h, p) {
   srcs <- if (isTRUE(p$simulated)) character(0) else unique(unlist(lapply(c(unlist(p$ex), p$out), function(i) if (startsWith(i %||% "", "lib:")) ogid(i) else NULL)))
   list(mv = TRUE, p = p, pay = pay, est = est, ce = ce, methods = unlist(p$methods), simulated = isTRUE(p$simulated), settings = pay$settings %||% list(), ledger = p$ledger,
        overlap = tryCatch(overlap_get(h)[[ovk]], error = function(e) NULL), sources = srcs,
-       cond_f = vapply(g("mvivw", "mv_cond_f"), function(d) as.numeric(d$value), 0), q = g("mvivw", "mv_q"), qa = g("mvivw", "mv_q_a"), labels = labs, cov_source = { n <- g("mvivw", "mv_pheno_cor"); if (!length(n)) n <- g("mvqhet", "mv_pheno_cor"); if (length(n)) n[[1]]$note else NULL }, vars = data.frame(), pthr = p$pthr %||% 5e-8)
+       cond_f = vapply(g("mvivw", "mv_cond_f"), function(d) as.numeric(d$value), 0), q = g("mvivw", "mv_q"), qa = g("mvivw", "mv_q_a"), labels = labs, cov_source = { n <- g("mvivw", "mv_pheno_cor"); if (!length(n)) n <- g("mvqhet", "mv_pheno_cor"); if (length(n)) n[[1]]$note else NULL }, vars = data.frame(), pthr = p$pthr %||% 5e-8,
+       mvdat = tryCatch(.mv_fig_data(h, p), error = function(e) NULL))   # Round 110: the variants as the MV methods used them, for the multivariable mr_plot
 }
 mv_add_text <- function(txt, mvx) {
   st <- mvx[[1]]$settings; used <- unique(unlist(lapply(mvx, `[[`, "methods")))

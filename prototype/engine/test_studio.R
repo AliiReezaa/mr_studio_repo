@@ -3043,4 +3043,43 @@ expect("Round 109a: the cached height of M is cleared before each figure device 
   p1 <- grep("[.]png$", f1, value = TRUE); p2 <- grep("[.]png$", f2, value = TRUE)
   lengths(regmatches(fw, gregexpr(".fig_metric_reset()", fw, fixed = TRUE))) == 3L && grepl(".fig_metric_reset()", pw, fixed = TRUE) && same_dev &&
     length(p1) == 1L && identical(unname(tools::md5sum(p1)), unname(tools::md5sum(p2))) })
+# ---- Round 110: F statistics on the exposure's scale (item 3) ----
+expect("Round 110: the variance-explained F statistics follow the exposure's scale (SD, unknown, other unit, binary)", {
+  set.seed(1); d <- data.frame(beta_x = rnorm(20, .05, .01), se_x = .005, eaf_x = runif(20, .1, .9), n_x = 1e5)
+  sc <- vapply(list(list(facts = list(kind = "binary")), list(source = list(unit = "SD")), list(source = list(unit = "standard deviation units")), list(source = list(unit = "mmol/L")), list(source = list(unit = NA)), list()), .f_scale, "")
+  t_sd <- f_stats_text(instrument_f_stats(d, "sd")); t_un <- f_stats_text(instrument_f_stats(d, "unknown")); fo <- instrument_f_stats(d, "other"); t_ot <- f_stats_text(fo); fb <- instrument_f_stats(d, "binary"); t_bi <- f_stats_text(fb)
+  identical(sc, c("binary", "sd", "sd", "other", "unknown", "unknown")) && !grepl("assumes", t_sd) && grepl("assumes the exposure is in standard deviation (SD) units", t_un, fixed = TRUE) &&
+    identical(fo$f_r2$r2_from, "beta, SE and N") && grepl("not in SD units", t_ot) && grepl("N = 100,000", t_ot, fixed = TRUE) &&
+    !is.null(fb$f_r2$why) && is.null(fb$f_all$value) && grepl("is not given: the exposure is binary", t_bi, fixed = TRUE) && !grepl("Overall F", t_bi) && is.finite(fb$f_z$mean) &&
+    identical(instrument_f_stats(d)$f_r2$mean, instrument_f_stats(d, "sd")$f_r2$mean) })
+expect("Round 110: the pair ledger records the exposure's scale and computes the F statistics on it", {
+  src <- paste(readLines(file.path(args_dir, "studio_core.R"), warn = FALSE), collapse = "\n"); grepl("led$x_scale <- .f_scale(ex$recipe)", src, fixed = TRUE) && grepl("instrument_f_stats(d[d$mr_keep, , drop = FALSE], led$x_scale)", src, fixed = TRUE) })
+# ---- Round 110: multivariable mr_plot (item 12) ----
+ui_state_set(h50$con, "pairs", list(list(ex = list("expA", "expB"), out = "outA", mv = TRUE, exName = p50$exposure_label, exNames = as.list(p50$exposure_labels), outName = p50$outcome_label, folder = r50$pair_folder, methods = as.list(m50), ci = 0.95, pthr = 5e-8, simulated = TRUE, ledger = p50$ledger)))
+expect("Round 110: a multivariable pair gets the MendelianRandomization mr_plot of its MRMVInput in the package, with caption", {
+  cx <- mv_context(h50, ui_state_get(h50$con, "pairs")[[1]]); td <- tempfile("mvf-"); dir.create(file.path(td, "figures"), recursive = TRUE); x <- mv_extra_figures(cx, td, "P1", 140)
+  nrow(cx$mvdat) == 60L && length(x) == 1L && identical(x[[1]]$key, "mvmr_plot") && any(grepl("[.]png$", x[[1]]$files)) && grepl("fitted value from the MVMR-IVW model", x[[1]]$caption, fixed = TRUE) && grepl("Simulated exposure A, Simulated exposure B", x[[1]]$caption, fixed = TRUE) })
+expect("Round 110: the figures script of a multivariable pair redraws its figures identical to the package", {
+  pk <- build_package(h50, c("figs", "capsule"), 140); pr <- ui_state_get(h50$con, "pairs")[[1]]; fd <- file.path(h50$dir, "03_pairs", pr$folder, "05_figures")
+  td <- tempfile("mkmv-"); dir.create(td); file.copy(list.files(fd, full.names = TRUE), td)
+  rb <- default_rscript(); old <- Sys.getenv(c("RHOME", "R_LIBS"), unset = NA); Sys.setenv(RHOME = R.home(), R_LIBS = paste(.libPaths(), collapse = .Platform$path.sep))
+  wd <- getwd(); setwd(td); o <- suppressWarnings(system2(rb, c("--vanilla", "make_figures.R"), stdout = TRUE, stderr = TRUE)); setwd(wd)
+  for (v in names(old)) if (is.na(old[[v]])) Sys.unsetenv(v) else do.call(Sys.setenv, stats::setNames(list(old[[v]]), v))
+  shipped <- list.files(file.path(pk$dir, "figures"), pattern = "^P1_.*[.]png$"); redrawn <- list.files(file.path(td, "figures"), pattern = "^P1_.*[.]png$")
+  same <- vapply(shipped, function(f) file.exists(file.path(td, "figures", f)) && identical(unname(tools::md5sum(file.path(pk$dir, "figures", f))), unname(tools::md5sum(file.path(td, "figures", f)))), TRUE)
+  ck <- c(script = file.exists(file.path(fd, "make_figures.R")), both = all(c("P1_mvmr_forest.png", "P1_mvmr_plot.png") %in% shipped), same_set = setequal(shipped, redrawn), identical = all(same))
+  if (!all(ck)) cat("  failed checks:", names(ck)[!ck], "| output:", utils::tail(o, 6), "\n"); all(ck) })
+expect("Round 110: Results gets the interactive mr_plot (plotly JSON, variant on hover) of a univariable and a multivariable pair, with plotly.js once and no device left open", {
+  n0 <- length(grDevices::dev.list()); iu <- interactive_figures(pair_context(h109f, ui_state_get(h109f$con, "pairs")[[1]])); im <- interactive_figures(mv_context(h50, ui_state_get(h50$con, "pairs")[[1]]))
+  ju <- jsonlite::fromJSON(iu[[1]]$json, simplifyVector = FALSE); jm <- jsonlite::fromJSON(im[[1]]$json, simplifyVector = FALSE)
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n"); ap <- paste(readLines(file.path(args_dir, "app.R"), warn = FALSE), collapse = "\n")
+  identical(iu[[1]]$key, "mr_plot_interactive") && identical(im[[1]]$key, "mvmr_plot_interactive") && length(ju$data) >= 2L && length(jm$data) >= 2L && length(grDevices::dev.list()) == n0 &&
+    nchar(plotly_js_text() %||% "") > 1e6 && grepl("function drawPly()", js, fixed = TRUE) && grepl("have_plotly: !!window.Plotly", js, fixed = TRUE) && !grepl("!pair.folder || pair.mv) return", js, fixed = TRUE) &&
+    grepl("figsSection(pair) + hetOptions(pay, 'mv')", js, fixed = TRUE) && grepl("mv_extra_figures(cx, td, \"P\", 160, cl)", ap, fixed = TRUE) && grepl("inter = tryCatch(interactive_figures(cx)", ap, fixed = TRUE) })
+expect("Round 110: drawing the package's figures writes no Rplots.pdf (mr_forest prints its plot itself) and leaves the current device current", {
+  td <- tempfile("quiet-"); dir.create(file.path(td, "figures"), recursive = TRUE); wd <- getwd(); setwd(td)
+  grDevices::pdf(NULL); mine <- grDevices::dev.cur(); n0 <- length(grDevices::dev.list())
+  xf <- tryCatch(extra_figures(pair_context(h109f, ui_state_get(h109f$con, "pairs")[[1]]), td, "Q", 140), error = function(e) list()); xm <- tryCatch(mv_extra_figures(mv_context(h50, ui_state_get(h50$con, "pairs")[[1]]), td, "M", 140), error = function(e) list()); setwd(wd)
+  ok <- !file.exists(file.path(td, "Rplots.pdf")) && identical(grDevices::dev.cur(), mine) && length(grDevices::dev.list()) == n0 && length(xf) >= 8L && length(xm) == 1L
+  grDevices::dev.off(mine); ok })
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

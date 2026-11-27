@@ -322,7 +322,7 @@ library_pair_input <- function(exp_id, out_id, pthr = 5e-8, root = studies_root(
   # Round 109: minimum minor allele frequency (MAF = min(EAF, 1 - EAF)), from the exposure EAF, else the outcome EAF; a variant with neither is kept
   # and counted as not checked. Rare variants give unstable associations and are poorly tagged by the reference panel.
   mf <- maf_filter(d, maf_min); d <- mf$d; led$maf <- mf$led; led$kept <- sum(d$mr_keep)
-  led$fstats <- instrument_f_stats(d[d$mr_keep, , drop = FALSE])   # Round 109: three F statistics of the kept instruments
+  led$x_scale <- .f_scale(ex$recipe); led$fstats <- instrument_f_stats(d[d$mr_keep, , drop = FALSE], led$x_scale)   # Round 109: three F statistics of the kept instruments; Round 110: on the exposure's scale
   if (led$kept < 2L) stop("Fewer than 2 instruments remain after harmonisation.")
   # Round 33: allele-frequency check of both datasets against the panel of their ancestry (reported, nothing removed)
   ec <- list(x = tryCatch(eaf_panel_check(d, d$eaf_x, ex$dir, .gwas_pop(ex$recipe) %||% ex$recipe$facts$ancestry, ex$recipe$trait), error = function(e) list(run = FALSE, why = conditionMessage(e), trait = ex$recipe$trait)),
@@ -405,7 +405,7 @@ pair_facts <- function(exp_id, out_id, pthr = 5e-8, p = NULL) {   # p: an input 
        simulated = isTRUE(p$simulated), anc_x = p$anc_x, anc_y = p$anc_y, gpop_x = p$gpop_x, gpop_y = p$gpop_y, ledger = p$ledger, ukb_both = isTRUE(p$ukb_both), og_x = !is.null(p$source_x), og_y = !is.null(p$source_y),
        scale_x = p$input$exposure_scale %||% "beta", steiger = steiger_readiness(p),
        i2gx = if (exists("feas_i2gx")) feas_i2gx(kept$beta_x, kept$se_x) else NA_real_, full_gwas = full_gwas_status(exp_id, out_id),
-       f_text = f_stats_text(p$ledger$fstats %||% instrument_f_stats(kept)), maf_text = maf_text(p$ledger$maf))   # Round 109: the three F statistics and the MAF filter
+       f_text = f_stats_text(p$ledger$fstats %||% instrument_f_stats(kept, p$ledger$x_scale %||% "unknown")), maf_text = maf_text(p$ledger$maf))   # Round 109: the three F statistics and the MAF filter
 }
 #' Round 72e: whether both traits of a pair are complete summary statistics (genome-wide, in the Data library), as LD score regression,
 #' MRlap, MR-APSS, CAUSE and LHC-MR need. OpenGWAS downloads hold only instruments and their lookups.
@@ -894,15 +894,26 @@ maf_filter <- function(d, maf_min = MAF_MIN) {
 #'      F = R2 (N - 2) / (1 - R2), mean and minimum;
 #'   3. overall F of all k instruments, F = R2 (N - k - 1) / (k (1 - R2)), R2 the sum over instruments.
 #' N is the exposure sample size of each variant (n_x). What cannot be computed says why.
-instrument_f_stats <- function(d) {
-  k <- nrow(d); out <- list(k = k)
+#' Round 110: 2 beta^2 EAF (1 - EAF) is the variance explained only when the exposure is in SD units. scale (from .f_scale) is "sd", "unknown"
+#' (as "sd", and the text says it is assumed), "other" (a stated unit that is not SD: R2 from beta, SE and N only, which does not depend on the
+#' unit) or "binary" (log odds: no variance explained on the observed scale, so 2 and 3 are not given; F = (beta / SE)^2 is used).
+.f_scale <- function(recipe) {
+  if (identical(recipe$facts$kind, "binary")) return("binary")
+  u <- trimws(as.character(recipe$source$unit %||% recipe$facts$unit %||% "")[1]); if (is.na(u) || !nzchar(u) || toupper(u) %in% c("NA", "NULL", "?")) return("unknown")
+  if (grepl("^(sd|s\\.d\\.?|sds|standard deviations?|standardi[sz]ed|z|z-?scores?|rank-?based inverse normal|inverse normal|ivnt|inverse-normal transformed)( units?)?$", tolower(u))) "sd" else "other"
+}
+instrument_f_stats <- function(d, scale = "unknown") {
+  k <- nrow(d); out <- list(k = k, scale = scale)
   if (!k) return(out)
   f1 <- (d$beta_x / d$se_x)^2; out$f_z <- list(mean = mean(f1), min = min(f1), formula = "F = (beta / SE)^2")
   N <- if ("n_x" %in% names(d)) suppressWarnings(as.numeric(d$n_x)) else rep(NA_real_, k)
   e <- if ("eaf_x" %in% names(d)) suppressWarnings(as.numeric(d$eaf_x)) else rep(NA_real_, k)
   r2_eaf <- ifelse(is.finite(e) & e > 0 & e < 1, 2 * d$beta_x^2 * e * (1 - e), NA_real_)
   r2_n <- ifelse(is.finite(N) & N > 0, d$beta_x^2 / (d$beta_x^2 + N * d$se_x^2), NA_real_)
+  if (identical(scale, "other")) r2_eaf <- rep(NA_real_, k)
   r2 <- ifelse(is.finite(r2_eaf), r2_eaf, r2_n); src <- if (all(is.finite(r2_eaf))) "EAF" else if (any(is.finite(r2_eaf))) "EAF, else beta, SE and N" else "beta, SE and N"
+  if (identical(scale, "binary")) { w <- "the exposure is binary (log odds), so it has no variance explained on the observed scale; F = (beta / SE)^2 above is the measure of strength"
+    out$f_r2 <- list(why = w, formula = "F = R2 (N - 2) / (1 - R2)"); out$f_all <- list(why = w, formula = "F = R2 (N - k - 1) / (k (1 - R2))"); return(out) }
   if (!all(is.finite(N) & N > 2)) out$f_r2 <- list(why = "the exposure sample size (N) of every instrument is needed", formula = "F = R2 (N - 2) / (1 - R2)")
   else if (!all(is.finite(r2))) out$f_r2 <- list(why = "the exposure EAF, or the sample size, of every instrument is needed", formula = "F = R2 (N - 2) / (1 - R2)")
   else { f2 <- r2 * (N - 2) / (1 - r2); out$f_r2 <- list(mean = mean(f2), min = min(f2), r2_from = src, formula = "R2 = 2 beta^2 EAF (1 - EAF); F = R2 (N - 2) / (1 - R2)") }
@@ -917,9 +928,12 @@ f_stats_text <- function(fs) {
   if (is.null(fs) || !isTRUE(fs$k > 0)) return("")
   r <- function(x) formatC(x, digits = 1, format = "f", big.mark = ",")
   a <- sprintf("Per variant, F = (beta / SE)^2: mean %s, minimum %s.", r(fs$f_z$mean), r(fs$f_z$min))
-  b <- if (!is.null(fs$f_r2$why)) sprintf("F from the variance explained could not be computed: %s.", fs$f_r2$why) else sprintf("Per variant from the variance explained (R2 = 2 beta^2 EAF (1 - EAF)%s; F = R2 (N - 2) / (1 - R2)): mean %s, minimum %s.", if (identical(fs$f_r2$r2_from, "EAF")) "" else ", or from beta, SE and N where EAF is missing", r(fs$f_r2$mean), r(fs$f_r2$min))
-  c <- if (!is.null(fs$f_all$why)) sprintf("The overall F of all instruments could not be computed: %s.", fs$f_all$why) else sprintf("Overall F of the %d instruments together (F = R2 (N - k - 1) / (k (1 - R2)), R2 = %s summed over them, N = %s): %s.", fs$k, formatC(fs$f_all$r2, digits = 3, format = "g"), format(round(fs$f_all$n), big.mark = ","), r(fs$f_all$value))
-  paste(a, b, c)
+  sc <- fs$scale %||% "unknown"; r2f <- if (identical(fs$f_r2$r2_from, "beta, SE and N")) "R2 = beta^2 / (beta^2 + N SE^2)" else sprintf("R2 = 2 beta^2 EAF (1 - EAF)%s", if (identical(fs$f_r2$r2_from, "EAF")) "" else ", or from beta, SE and N where EAF is missing")
+  b <- if (!is.null(fs$f_r2$why)) sprintf("F from the variance explained %s: %s.", if (identical(sc, "binary")) "is not given" else "could not be computed", fs$f_r2$why) else sprintf("Per variant from the variance explained (%s; F = R2 (N - 2) / (1 - R2)): mean %s, minimum %s.", r2f, r(fs$f_r2$mean), r(fs$f_r2$min))
+  if (is.null(fs$f_r2$why) && !identical(fs$f_r2$r2_from, "beta, SE and N") && identical(sc, "unknown")) b <- paste(b, "The units of the exposure are not recorded; this R2 assumes the exposure is in standard deviation (SD) units, and is not the variance explained otherwise.")
+  if (is.null(fs$f_r2$why) && identical(sc, "other")) b <- paste(b, "The exposure is not in SD units, so R2 is computed from beta, SE and N, which does not depend on the unit, and not from EAF.")
+  c <- if (identical(sc, "binary")) "" else if (!is.null(fs$f_all$why)) sprintf("The overall F of all instruments could not be computed: %s.", fs$f_all$why) else sprintf("Overall F of the %d instruments together (F = R2 (N - k - 1) / (k (1 - R2)), R2 = %s summed over them, N = %s): %s.", fs$k, formatC(fs$f_all$r2, digits = 3, format = "g"), format(round(fs$f_all$n), big.mark = ",", scientific = FALSE), r(fs$f_all$value))
+  trimws(paste(a, b, c))
 }
 #' One sentence on the MAF filter for Check, the report and STROBE-MR.
 maf_text <- function(m) {

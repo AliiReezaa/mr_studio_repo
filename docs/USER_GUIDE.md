@@ -154,7 +154,9 @@ exposure an outcome download was made for does not matter.
 
 The app checks every pair before you choose methods, and shows each result with what it means:
 
-- **Instrument strength** (F statistics), and how many instruments each pair has.
+- **Instrument strength** (F statistics), and how many instruments each pair has. F = (beta / SE)^2 is given for every exposure. The
+  F from the variance explained (R2 from EAF) assumes the exposure is in SD units: for another unit R2 comes from beta, SE and N,
+  and for a binary exposure it is not given.
 - **What happened to each instrument**: found in the outcome or not, found through a proxy, dropped because the alleles could not be
   matched or because it is palindromic with an ambiguous strand.
 - **Ancestry** of each GWAS, as OpenGWAS lists it or as you declared it.
@@ -206,6 +208,10 @@ For each pair:
 - diagnostics: heterogeneity (Cochran's Q), the MR-Egger intercept, the Steiger direction test, leave-one-out;
 - **Which instruments drive the result?**: outlier analyses (MR-PRESSO, radial MR) and a rerun without chosen variants;
 - the analyses that need full summary statistics, if you run them.
+- **More figures** (Show the figures): the forest, funnel and scatter plots of MendelianRandomization, the all-methods plot, the
+  mode-estimate density, the MR-Egger and SIMEX plots and Figures 5 to 8 of mendelianrandomization, as in the publication package,
+  and an interactive scatter plot: hover a point to see the variant, drag to zoom, double-click to reset. A multivariable pair shows
+  the multivariable scatter plot (outcome associations against the fitted values) and its interactive version.
 
 **Reading the result.** Check whether the methods agree in direction and roughly in size, whether the MR-Egger intercept is close
 to zero, and whether heterogeneity is large. When the methods disagree, the result depends on which pleiotropy assumption holds,

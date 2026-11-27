@@ -545,10 +545,12 @@ mr_server <- function(engine_dir) {
         ogw_token_clear = { ogw_token_set(NULL); ev("ogw_token", ok = TRUE, token = ogw_token_info(NULL), msg = "Token removed.") },
         pair_figs = {   # Round 109: the package's extra figures of one pair, drawn for the Results screen (same code as the package)
           r <- tryCatch({ req(rv$h); pr <- Filter(function(x) identical(x$folder, a$folder), ui_state_get(rv$h$con, "pairs") %||% list()); if (!length(pr)) stop("This pair has no saved results yet.")
-            cx <- pair_context(rv$h, pr[[1]]); td <- tempfile("figs-"); dir.create(file.path(td, "figures"), recursive = TRUE); on.exit(unlink(td, recursive = TRUE), add = TRUE)
-            xf <- extra_figures(cx, td, "P", 160, (cx$ce$ci_level %||% 0.95)[1])
-            lapply(xf, function(x) { s <- grep("[.]svg$", x$files, value = TRUE); list(key = x$key, caption = x$caption, svg = if (length(s)) paste(readLines(s[1], warn = FALSE, encoding = "UTF-8"), collapse = "\n") else "") }) }, error = function(e) e)
-          if (inherits(r, "error")) ev("pair_figs", ok = FALSE, folder = a$folder, msg = conditionMessage(r)) else ev("pair_figs", ok = TRUE, folder = a$folder, figs = r)
+            mv <- isTRUE(pr[[1]]$mv); cx <- if (mv) mv_context(rv$h, pr[[1]]) else pair_context(rv$h, pr[[1]])   # Round 110: a multivariable pair too
+            td <- tempfile("figs-"); dir.create(file.path(td, "figures"), recursive = TRUE); on.exit(unlink(td, recursive = TRUE), add = TRUE); cl <- (cx$ce$ci_level %||% 0.95)[1]
+            xf <- if (mv) mv_extra_figures(cx, td, "P", 160, cl) else extra_figures(cx, td, "P", 160, cl)
+            list(figs = lapply(xf, function(x) { s <- grep("[.]svg$", x$files, value = TRUE); list(key = x$key, caption = x$caption, svg = if (length(s)) paste(readLines(s[1], warn = FALSE, encoding = "UTF-8"), collapse = "\n") else "") }),
+                 inter = tryCatch(interactive_figures(cx), error = function(e) list())) }, error = function(e) e)   # Round 110: the interactive mr_plot
+          if (inherits(r, "error")) ev("pair_figs", ok = FALSE, folder = a$folder, msg = conditionMessage(r)) else ev("pair_figs", ok = TRUE, folder = a$folder, figs = r$figs, inter = r$inter, plotly_js = if (length(r$inter) && !isTRUE(a$have_plotly)) plotly_js_text() else NULL)
         },
         power = {   # Round 109: power of a pair (mRnd formulas), kept for the report
           r <- tryCatch(pair_power(a$ex, a$out, a$effect, as.numeric(a$alpha %||% 0.05), as.numeric(a$target %||% 0.8), as.numeric(a$bols %||% NA), as.numeric(a$pthr %||% 5e-8)), error = function(e) e)
