@@ -301,7 +301,8 @@ pair_context <- function(h, p) {
 
 # ---------- text ----------
 .ci_phrase <- function(r, scale) { ratio <- scale %in% c("log_or"); f <- function(x) if (ratio) exp(x) else x   # Round 109: an OR keeps its log OR alongside
-  sprintf("%s = %s (%s CI %s to %s%s; P = %s)", if (ratio) "OR" else "beta", .fnum(f(r$estimate)), .pct(r$ci_level), .fnum(f(r$ci_lower)), .fnum(f(r$ci_upper)), if (ratio) sprintf("; log OR %s", .fnum(r$estimate)) else "", .fp_res(r$p, r$p_resolution)) }
+  ci <- if (is.finite(suppressWarnings(as.numeric(r$ci_lower))) && is.finite(suppressWarnings(as.numeric(r$ci_upper)))) sprintf("%s CI %s to %s", .pct(r$ci_level), .fnum(f(r$ci_lower)), .fnum(f(r$ci_upper))) else "no confidence interval"   # Round 110a: PPMR gives none
+  sprintf("%s = %s (%s%s; P = %s)", if (ratio) "OR" else "beta", .fnum(f(r$estimate)), ci, if (ratio) sprintf("; log OR %s", .fnum(r$estimate)) else "", .fp_res(r$p, r$p_resolution)) }
 #' Round 103: the packages behind the methods that were run, from each method's adapter (a version number or a pinned commit),
 #' and the methods MR Studio implements itself. Before, the text named TwoSampleMR for every estimate.
 # Round 104: methods whose estimator MR Studio computes itself although their script loads a package (Q-minimisation uses
@@ -894,7 +895,7 @@ extra_figures <- function(cx, pk, tag, wmm, ci_level = 0.95) {
   kn <- tryCatch(knigge_figures(k, sprintf("%s ~ %s", cx$p$outName, cx$p$exName)), error = function(e) NULL)   # Round 109: item 11
   if (!is.null(kn)) { qn <- sprintf("Flagged in red: the %d variant(s) whose contribution to Cochran's Q exceeds the chi-squared cut-off at 0.05 / k (MR Studio's Q step).", kn$n_flag)
     put("knigge_mr_plot", round(wmm * 0.85), kn$fig5, sprintf("MR plot of %s (layout of mr.plot, matthijsknigge/mendelianrandomization, redrawn): variant effects with 95%% error bars on both axes, coloured by the ratio z, with IVW and MR-Egger lines before and after Q filtering, marginal densities and rug marks. %s", nm, qn))
-    put("knigge_forest", max(60, 25 + 3.2 * nrow(k)), kn$fig6, sprintf("Forest plot of %s (layout of mr.forest.plot, redrawn): each variant's ratio estimate with its 95%% CI, IVW and MR-Egger before and after Q filtering at the top, the IVW interval shaded and a dotted line at zero. %s", nm, qn))
+    put("knigge_forest", max(60, round(25 + 4 * (nrow(k) + 4))), kn$fig6, sprintf("Forest plot of %s (layout of mr.forest.plot, redrawn): each variant's ratio estimate with its 95%% CI, IVW and MR-Egger before and after Q filtering at the top, the IVW interval shaded and a dotted line at zero. %s", nm, qn))
     put("knigge_funnel_ivw", round(wmm * 0.75), kn$fig7, sprintf("Funnel plot for IVW of %s (layout of mr.funnel.plot, redrawn): ratio estimate against its standard error (reversed axis) with funnel limits around the IVW estimate before and after Q filtering. %s", nm, qn))
     put("knigge_funnel_egger", round(wmm * 0.75), kn$fig8, sprintf("Funnel plot for MR-Egger of %s (layout of mr.funnel.plot, redrawn), as the IVW funnel plot around the MR-Egger estimate. %s", nm, qn)) }
   if ("egger_simex" %in% ran) { g <- simex_plot(k); if (!is.null(g)) put("mregger_simex", round(wmm * 0.6), g, sprintf("SIMEX for MR-Egger of %s (as mrrobust mreggersimex): the MR-Egger slope (left) and intercept (right) against lambda; open circle the original estimate, dots the simulated estimates, solid line the quadratic fit, dashed line its extrapolation to lambda = -1 and cross the SIMEX estimate.", nm)) }
@@ -915,6 +916,14 @@ extra_figures <- function(cx, pk, tag, wmm, ci_level = 0.95) {
   MendelianRandomization::mr_mvinput(bx = as.matrix(d[, sprintf("beta_x_%d", seq_len(K)), drop = FALSE]), bxse = as.matrix(d[, sprintf("se_x_%d", seq_len(K)), drop = FALSE]),
     by = d$beta_y, byse = d$se_y, snps = d$variant_id, exposure = labs, outcome = cx$p$outName %||% "the outcome")
 }
+#' Round 110a: per-variant contributions to Cochran's Q of MVMR-IVW from the variants of a multivariable pair (cx$mvdat), largest first, with
+#' the total, its degrees of freedom and P, and the Bonferroni cut-off (chi-squared 1 df at 0.05 / n).
+mv_q_contrib <- function(d) {
+  K <- sum(grepl("^beta_x_[0-9]+$", names(d))); bx <- as.matrix(d[, sprintf("beta_x_%d", seq_len(K)), drop = FALSE]); n <- nrow(d); if (n <= K) return(NULL)
+  b <- stats::coef(stats::lm(d$beta_y ~ bx - 1, weights = d$se_y^-2)); q <- as.numeric((d$beta_y - bx %*% b)^2 / d$se_y^2); o <- order(-q)
+  list(rows = data.frame(variant_id = as.character(d$variant_id[o]), q = q[o], share = q[o] / sum(q), stringsAsFactors = FALSE), total = sum(q), df = n - K, n = n,
+       p = stats::pchisq(sum(q), n - K, lower.tail = FALSE), cut = stats::qchisq(1 - 0.05 / n, 1))
+}
 #' MendelianRandomization's mr_plot of an MRMVInput (static): each variant's association with the outcome against its fitted value from
 #' the MVMR-IVW model (by regressed on all bx, through the origin, weights se_y^-2), 95% error bars on both axes (the horizontal ones are the
 #' confidence interval of the fitted value) and the line through the origin with gradient 1. Same list(key, files, caption) as extra_figures.
@@ -928,6 +937,25 @@ mv_extra_figures <- function(cx, pk, tag, wmm, ci_level = 0.95) {
     g$labels$x <- wr(g$labels$x, 70); g$labels$y <- wr(g$labels$y, 40); g <- g + ggplot2::theme(axis.title = ggplot2::element_text(size = 11)) }
   if (!is.null(g)) put("mvmr_plot", round(wmm * 0.75), g, sprintf("Multivariable scatter plot (MendelianRandomization mr_plot of the multivariable input) of %s on %s, %d variants: each variant's association with the outcome (y) against its fitted value from the MVMR-IVW model of all exposures (x), with 95%% error bars on both axes (horizontal: the confidence interval of the fitted value) and the line through the origin with gradient 1. Variants far from the line fit the model poorly. Variant labels are in the supplementary data.",
     paste(mvi@exposure, collapse = ", "), mvi@outcome, nrow(d)))
+  # Round 110a: each variant's contribution to Cochran's Q of MVMR-IVW (as the Results table "Which variants drive the heterogeneity?"):
+  # q_j = (beta_y - sum_k b_k beta_x_k)^2 / se_y^2 with b the MVMR-IVW estimate (first-order weights, as mr_mvivw); about chi-squared 1 df
+  # each without heterogeneity, so the Bonferroni cut-off at 0.05 / n marks the outlying variants. At most the 30 largest are drawn.
+  qd <- tryCatch(mv_q_contrib(d), error = function(e) NULL)
+  if (!is.null(qd)) { top <- utils::head(qd$rows, 30L); top$variant_id <- factor(top$variant_id, rev(top$variant_id)); top$over <- top$q > qd$cut
+    g <- ggplot2::ggplot(top, ggplot2::aes(q, variant_id, fill = over)) + ggplot2::geom_col(width = 0.7) + ggplot2::geom_vline(xintercept = qd$cut, linetype = 2, linewidth = 0.4) +
+      ggplot2::scale_fill_manual(NULL, values = c(`FALSE` = "#4682b4", `TRUE` = "#c0392b"), labels = c(`FALSE` = "Below the cut-off", `TRUE` = "Above the cut-off"), drop = FALSE) +
+      ggplot2::labs(x = "Contribution to Cochran's Q (MVMR-IVW)", y = NULL) + ggplot2::theme_bw(base_size = 9) + ggplot2::theme(legend.position = "bottom", panel.grid.major.y = ggplot2::element_blank())
+    put("mvmr_q", max(60, round(22 + 3.6 * nrow(top))), g, sprintf("Contribution of each variant to Cochran's Q of MVMR-IVW for %s on %s (the %d largest of %d variants): (beta_y minus the fitted value)^2 / se_y^2. Total Q = %s on %d degrees of freedom (P = %s). Dashed line: the Bonferroni cut-off, the chi-squared (1 df) quantile at 0.05 / %d = %s; variants beyond it (red, %d) disagree with the model more than chance allows. Heterogeneity is reported, not removed.",
+      paste(mvi@exposure, collapse = ", "), mvi@outcome, nrow(top), qd$n, formatC(qd$total, digits = 1, format = "f"), qd$df, format(signif(qd$p, 3)), qd$n, formatC(qd$cut, digits = 2, format = "f"), sum(qd$rows$q > qd$cut))) }
+  # Round 110a: radial MVMR (RMVMR, Spiller, Bowden and Sanderson; optional package): each exposure's variants on the radial scale, without
+  # and with correction for the other exposures, coloured by exposure. Drawn when RMVMR is installed.
+  if (requireNamespace("RMVMR", quietly = TRUE)) {
+    rp <- tryCatch(.fig_quiet(suppressMessages(suppressWarnings({ fit <- RMVMR::ivw_rmvmr(mvi, summary = FALSE); RMVMR::plot_rmvmr(mvi, fit) }))), error = function(e) NULL)
+    nm <- function(g) { if (is.null(g)) return(NULL); K <- length(mvi@exposure); pal <- c("#E69F00", "#56B4E9", "#009E73", "#F0E442", "#D55E00", "#0072B2", "#CC79A7")[seq_len(K)]   # RMVMR's palette
+      suppressMessages(g + ggplot2::scale_colour_manual(values = stats::setNames(pal, paste0("Exposure_", seq_len(K))), labels = stats::setNames(mvi@exposure, paste0("Exposure_", seq_len(K))), name = "Exposure")) }   # the exposures by name (RMVMR writes Exposure_1, ...)
+    rp$p1 <- nm(rp$p1); rp$p2 <- nm(rp$p2)
+    if (!is.null(rp$p1)) put("mvmr_radial", round(wmm * 0.75), mrf_restyle(rp$p1, wmm), sprintf("Radial MVMR plot without correction (RMVMR plot_rmvmr) of %s on %s: for each exposure, its variants (F > 10) on the radial scale, sqrt(W_j) against beta_j sqrt(W_j), with the exposure's line; variants far from their line contribute most to heterogeneity.", paste(mvi@exposure, collapse = ", "), mvi@outcome))
+    if (!is.null(rp$p2)) put("mvmr_radial_corrected", round(wmm * 0.75), mrf_restyle(rp$p2, wmm), sprintf("Radial MVMR plot with correction (RMVMR plot_rmvmr) of %s on %s: each variant's estimate corrected for its associations with the other exposures, on the radial scale and coloured by the exposure it was chosen for.", paste(mvi@exposure, collapse = ", "), mvi@outcome)) }
   out
 }
 #' Round 110: the interactive versions of MendelianRandomization's mr_plot (the package's default, interactive = TRUE: plotly, the variant
@@ -940,10 +968,10 @@ interactive_figures <- function(cx) {
   one <- function(key, p, cap) { j <- tryCatch(as.character(plotly::plotly_json(p, jsonedit = FALSE)), error = function(e) NULL); if (is.null(j)) NULL else list(key = key, caption = cap, json = j) }
   out <- if (isTRUE(cx$mv)) { d <- cx$mvdat; if (is.null(d) || nrow(d) < 3L) list() else { mvi <- .mv_mri(cx)
       list(one("mvmr_plot_interactive", MendelianRandomization::mr_plot(mvi, interactive = TRUE, error = TRUE, line = TRUE, orientate = FALSE),
-        sprintf("Interactive multivariable scatter plot (MendelianRandomization mr_plot, interactive) of %s on %s: hover a point for the variant; outcome association against its fitted value from MVMR-IVW, 95%% error bars on both axes, line through the origin with gradient 1. Zoom by dragging; double-click to reset.", paste(mvi@exposure, collapse = ", "), mvi@outcome))) } }
+        sprintf("Interactive multivariable scatter plot (MendelianRandomization mr_plot, interactive) of %s on %s: hover a point for the variant; outcome association against its fitted value from MVMR-IVW, 95%% error bars on both axes, line through the origin with gradient 1. Pinch or drag a box to zoom; when zoomed in, scroll with two fingers to move around; double-click to reset.", paste(mvi@exposure, collapse = ", "), mvi@outcome))) } }
     else { k <- cx$kept; if (is.null(k) || nrow(k) < 3L) list() else { mri <- MendelianRandomization::mr_input(bx = k$bx, bxse = k$sx, by = k$by, byse = k$sy, snps = k$id, exposure = cx$p$exName, outcome = cx$p$outName)
       list(one("mr_plot_interactive", MendelianRandomization::mr_plot(mri, interactive = TRUE, labels = FALSE, line = "ivw", orientate = TRUE),
-        sprintf("Interactive scatter plot (MendelianRandomization mr_plot, interactive) of %s on %s: hover a point for the variant and its associations; variants oriented to a positive effect on the exposure, 95%% error bars on both axes and the IVW line. Zoom by dragging; double-click to reset.", cx$p$exName, cx$p$outName))) } }
+        sprintf("Interactive scatter plot (MendelianRandomization mr_plot, interactive) of %s on %s: hover a point for its variant (rs number); variants oriented to a positive effect on the exposure, 95%% error bars on both axes and the IVW line. Pinch or drag a box to zoom; when zoomed in, scroll with two fingers to move around; double-click to reset.", cx$p$exName, cx$p$outName))) } }
   Filter(Negate(is.null), out)
 }
 #' Round 110: plotly.js as shipped with the R package plotly (offline; sent to the screen once, when the first interactive figure is shown).
@@ -1038,7 +1066,7 @@ mode_table <- function(k, ci_level = 0.95, iterations = 1000L, seed = 12345L) {
 # the exact plotting functions of this MR Studio (dumped from the running engine, so the app and the script cannot differ), the
 # recorded inputs (figure_inputs.rds) and the pair's instruments and estimates (figure_data.csv, figure_estimates.csv).
 FIG_REC <- new.env()
-FIG_NAMESPACES <- c("ggplot2", "MendelianRandomization", "cowplot", "simex")   # loaded before any figure is drawn (loading them changes how text is drawn)
+FIG_NAMESPACES <- c("ggplot2", "MendelianRandomization", "cowplot", "simex", "RMVMR")   # Round 110a: RMVMR (radial MVMR, optional); loaded before any figure is drawn (loading them changes how text is drawn)
 #' Draws a Greek letter once off-screen, so the symbol font is loaded before the first figure (its first use could differ).
 fig_warmup <- function() tryCatch({ f <- tempfile(fileext = ".png"); grDevices::png(f, type = "cairo"); grid::grid.text(expression(phi == lambda)); grDevices::dev.off(); unlink(f) }, error = function(e) NULL)
 #' Evaluates expr with a fixed random state, restored afterwards: robust fits (robustbase::lmrob in MendelianRandomization) draw random subsamples from the session state,
@@ -1071,7 +1099,7 @@ write_figures_script <- function(h, cx, i, wmm, items, xkeys) {
   calls <- unique(unlist(lapply(its, function(x) all.names(x$body)))); deps <- .fig_deps(unique(c(".fig_write", xfun, "fig_warmup", calls)))
   df <- tempfile(fileext = ".R"); dump(deps, file = df, envir = environment(extra_figures)); defs <- readLines(df, warn = FALSE); unlink(df)
   defs <- vapply(enc2utf8(defs), function(s) { cp <- utf8ToInt(s); if (all(cp < 128L)) return(s); paste(vapply(cp, function(c) if (c < 128L) intToUtf8(c) else sprintf("\\u%04x", c), ""), collapse = "") }, "", USE.NAMES = FALSE)   # ASCII only: other characters as \u escapes, so the script reads the same in any locale
-  pk <- c("ggplot2", "MendelianRandomization", "cowplot", "simex", "codetools"); ver <- vapply(pk, function(p) tryCatch(as.character(utils::packageVersion(p)), error = function(e) "not installed"), "")
+  pk <- c("ggplot2", "MendelianRandomization", "cowplot", "simex", "RMVMR", "codetools"); ver <- vapply(pk, function(p) tryCatch(as.character(utils::packageVersion(p)), error = function(e) "not installed"), "")
   txt <- c("# make_figures.R: redraws every figure of this pair exactly as in the publication package.",
     sprintf("# Written by MR Studio %s with %s. Packages: %s.", .mrs_ver_build(), R.version.string, paste(sprintf("%s %s", pk, ver), collapse = ", ")),
     "# Run from this folder:  Rscript make_figures.R   (the figures are written to ./figures as PDF, SVG and PNG at 300 dpi)",
@@ -1079,7 +1107,7 @@ write_figures_script <- function(h, cx, i, wmm, items, xkeys) {
     if (mv) "# figure_data.csv the variants (beta_x_k and se_x_k of each exposure k, beta_y, se_y) and figure_estimates.csv the estimates of the pair." else "# figure_data.csv the instruments (bx, by, sx, sy) and figure_estimates.csv the estimates of the pair.", "",
     "if (!isTRUE(l10n_info()[[\"UTF-8\"]])) for (l in c(\"C.UTF-8\", \"en_US.UTF-8\", \"English_United States.utf8\")) if (nzchar(suppressWarnings(Sys.setlocale(\"LC_CTYPE\", l)))) break   # Greek letters (phi) need a UTF-8 locale", "",
     "# ---- plotting functions of MR Studio ----", defs, "",
-    "for (ns in c(\"ggplot2\", \"MendelianRandomization\", \"cowplot\", \"simex\")) suppressWarnings(requireNamespace(ns, quietly = TRUE))   # as MR Studio, before any figure",
+    sprintf("for (ns in %s) suppressWarnings(requireNamespace(ns, quietly = TRUE))   # as MR Studio, before any figure", paste(deparse(FIG_NAMESPACES), collapse = "")),
     "fig_warmup()",
     "# ---- the figures ----",
     "dir.create(\"figures\", showWarnings = FALSE)",

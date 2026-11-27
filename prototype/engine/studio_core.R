@@ -899,8 +899,13 @@ maf_filter <- function(d, maf_min = MAF_MIN) {
 #' unit) or "binary" (log odds: no variance explained on the observed scale, so 2 and 3 are not given; F = (beta / SE)^2 is used).
 .f_scale <- function(recipe) {
   if (identical(recipe$facts$kind, "binary")) return("binary")
-  u <- trimws(as.character(recipe$source$unit %||% recipe$facts$unit %||% "")[1]); if (is.na(u) || !nzchar(u) || toupper(u) %in% c("NA", "NULL", "?")) return("unknown")
-  if (grepl("^(sd|s\\.d\\.?|sds|standard deviations?|standardi[sz]ed|z|z-?scores?|rank-?based inverse normal|inverse normal|ivnt|inverse-normal transformed)( units?)?$", tolower(u))) "sd" else "other"
+  # Round 110a: OpenGWAS writes units in many forms (49 in its catalogue): "SD", "SD (mg/dL)" (SD units, original scale in brackets),
+  # "1 SD = 0.780 litres", "Standardised rank-transformed ...", "log odds", "logOR", and placeholders ("NA", "beta and SE", a stray "\n").
+  u <- tolower(trimws(gsub("\\\\+n", " ", as.character(recipe$source$unit %||% recipe$facts$unit %||% "")[1])))
+  if (is.na(u) || !nzchar(u) || u %in% c("na", "n/a", "null", "?", "none", "unknown", "beta", "beta and se", "beta_bolt")) return("unknown")
+  if (grepl("^(1 )?(sd|s\\.d\\.?|sds)\\b|^standard deviations?\\b|standardi[sz]ed|^z\\b|z-?scores?|inverse[- ]normal|rank-?based inverse|^ivnt\\b", u)) return("sd")
+  if (grepl("^(log ?odds( ratios?)?|logor|log\\(or\\)|log\\(odds( ratio)?\\))$", u)) return("binary")
+  "other"
 }
 instrument_f_stats <- function(d, scale = "unknown") {
   k <- nrow(d); out <- list(k = k, scale = scale)

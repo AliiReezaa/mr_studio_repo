@@ -38,6 +38,13 @@ Licences are given as each package's `DESCRIPTION` file states them. "GPL-2 | GP
 | MRlap | commit 660f026 | GPL-2 | GitHub n-mounier/MRlap |
 | MRAPSS | commit 85c18ea | MIT (the repository's `LICENSE` file; its `DESCRIPTION` licence field is left unfilled) | GitHub YangLabHKUST/MR-APSS |
 | cause | commit 6257e6c (compiled; where a system cannot build it, the app says CAUSE is not installed) | GPL (>= 2) | GitHub jean997/cause |
+| gsmr2 | commit e7953cc (checked by SHA-256) | GPL (>= 2) | GitHub JianYang-Lab/gsmr2 |
+| mrclust | commit 039ed85 (checked by SHA-256) | GPL-3 | GitHub cnfoley/mrclust |
+| GRAPPLE | 0.2.2, commit 317e837 (optional; checked by SHA-256) | GPL (>= 2) | GitHub jingshuw/GRAPPLE |
+| haploR | 4.0.7 (CRAN archive; needed by GRAPPLE; checked by SHA-256) | GPL-3 | CRAN |
+| PPMR | 1.0.1 (optional; checked by SHA-256) | GPL-3 | CRAN |
+| MVMR | 0.4.9, tag v0.4.9 (optional; needed by RMVMR; checked by SHA-256) | GPL-3 | GitHub WSpiller/MVMR |
+| RMVMR | 0.4.7, tag v0.4.7 (optional; radial MVMR figures; checked by SHA-256) | GPL-2 | GitHub WSpiller/RMVMR |
 | loo | 2.8.0 (pinned for cause, see `prototype/ci/runtime.yml`) | GPL (>= 3) | CRAN |
 | boot | 1.3-32 | Unlimited | CRAN |
 | ieugwasr | conda-forge | MIT | CRAN |

@@ -210,8 +210,12 @@ For each pair:
 - the analyses that need full summary statistics, if you run them.
 - **More figures** (Show the figures): the forest, funnel and scatter plots of MendelianRandomization, the all-methods plot, the
   mode-estimate density, the MR-Egger and SIMEX plots and Figures 5 to 8 of mendelianrandomization, as in the publication package,
-  and an interactive scatter plot: hover a point to see the variant, drag to zoom, double-click to reset. A multivariable pair shows
-  the multivariable scatter plot (outcome associations against the fitted values) and its interactive version.
+  and an interactive scatter plot: hover a point to see the variant; pinch or drag a box to zoom, scroll with two fingers to move
+  around while zoomed in, and double-click to reset. A multivariable pair shows
+  the multivariable scatter plot (outcome associations against the fitted values), each variant's contribution to Cochran's Q
+  with the Bonferroni cut-off, the radial MVMR plots without and with correction (when the optional RMVMR package is installed) and
+  the interactive scatter plot. The plots of single-exposure pairs rest on each variant's ratio estimate, which a variant does not
+  have with several exposures, so they are not drawn for a multivariable pair.
 
 **Reading the result.** Check whether the methods agree in direction and roughly in size, whether the MR-Egger intercept is close
 to zero, and whether heterogeneity is large. When the methods disagree, the result depends on which pleiotropy assumption holds,

@@ -185,6 +185,12 @@ jobs:
           curl -fsSL -o "$GS" https://codeload.github.com/JianYang-Lab/gsmr2/tar.gz/e7953cc136ad1cfae14674facde21e90caddea5f
           if [[ "$RUNNER_OS" == "Windows" ]]; then GS="$(cygpath -m "$GS")"; fi
           export PK_GSMR2="$GS"
+          # Round 110a: radial MVMR (RMVMR 0.4.7, GPL-2, and MVMR 0.4.9, GPL-3; both pure R, tags v0.4.7 and v0.4.9): optional, checked by SHA-256 in R below
+          RV="$RUNNER_TEMP/rmvmr110"; mkdir -p "$RV"
+          curl -fsSL -o "$RV/MVMR.tar.gz" https://codeload.github.com/WSpiller/MVMR/tar.gz/f31bdf861eab2d582c19014111d4d1a05a37b185 || true
+          curl -fsSL -o "$RV/RMVMR.tar.gz" https://codeload.github.com/WSpiller/RMVMR/tar.gz/4e8b91909afce947445737ce042ced1948199efc || true
+          if [[ "$RUNNER_OS" == "Windows" ]]; then RV="$(cygpath -m "$RV")"; fi
+          export PK_RMVMR110="$RV"
           # Round 109: GRAPPLE (with haploR from the CRAN archive and its CRAN imports) and PPMR (CRAN, C++): optional, checked by SHA-256 in R below
           OPT="$RUNNER_TEMP/opt109"; mkdir -p "$OPT"
           curl -fsSL -o "$OPT/GRAPPLE.tar.gz" https://codeload.github.com/jingshuw/GRAPPLE/tar.gz/317e837340a29129c52c9d9b22f5f8bae72e27d0 || true
@@ -259,6 +265,11 @@ jobs:
               if (!requireNamespace(n, quietly = TRUE)) stop("package did not install: ", n)
               cat(sprintf("%-12s %s\n", n, as.character(utils::packageVersion(n))))
             }
+            rv <- Sys.getenv("PK_RMVMR110"); sha <- c(MVMR = "b0669c5efb1473d36297d394c9da60b38924b47c415d49c3ba09ed99d8c4ce88", RMVMR = "4bde0c8ec60482c39d7d3498c42ed71d74e77f7abcf289992ad8e08a38bd9680")
+            for (n in names(sha)) { f <- file.path(rv, paste0(n, ".tar.gz"))   # Round 110a: optional (radial MVMR figures); RMVMR needs RadialMR, installed just above
+              if (!file.exists(f) || !identical(digest::digest(file = f, algo = "sha256"), sha[[n]])) { message("optional: ", n, " missing or checksum differs"); next }
+              if (!requireNamespace(n, quietly = TRUE)) tryCatch(install.packages(f, repos = NULL, type = "source", INSTALL_opts = c("--no-docs", "--no-multiarch")), error = function(e) message("optional: ", conditionMessage(e))) }
+            for (n in c("MVMR", "RMVMR")) cat(sprintf("%-12s %s\n", n, if (requireNamespace(n, quietly = TRUE)) as.character(utils::packageVersion(n)) else "NOT INSTALLED (optional)"))
             # Round 64: GenomicSEM (with simsalapar, checked by SHA-256) and MRcML, Round 65: lhcMR; pure R and required.
             if (!requireNamespace("mixtools", quietly = TRUE)) {   # Round 65: macOS arm64, CRAN source checked by SHA-256
               mx <- Sys.getenv("PK_MIXTOOLS")

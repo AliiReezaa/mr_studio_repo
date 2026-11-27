@@ -2990,12 +2990,14 @@ if (requireNamespace("GRAPPLE", quietly = TRUE)) {
     g <- e109g[e109g$method == "grapple" & e109g$estimand == "causal_effect", ]; i <- e109g[e109g$method == "ivw_mre" & e109g$estimand == "causal_effect", ]
     identical(pl109g$replay$status, "identical") && nrow(g) == 1L && abs(g$estimate - i$estimate) < g$se })
 }
-if (requireNamespace("PPMR", quietly = TRUE)) expect("Round 109: PPMR gives an estimate with likelihood-ratio P values and no interval, as the package gives none", {
+if (requireNamespace("PPMR", quietly = TRUE)) expect("Round 109: PPMR gives an estimate with likelihood-ratio P values and no interval, as the package gives none; Round 110a: on the pair's scale (k saved)", {
   set.seed(7); J <- 20; R <- 0.3^abs(outer(1:J, 1:J, "-")); bx <- as.vector(R %*% stats::rnorm(J, 0, 0.05)); by <- 0.3 * bx + as.vector(R %*% stats::rnorm(J, 0, 0.002))
-  d <- data.frame(variant_id = paste0("rs", 1:J), beta_x = bx, se_x = 0.01, beta_y = by, se_y = 0.01, n_x = 10000, n_y = 10000, mr_keep = TRUE)
+  d <- data.frame(variant_id = paste0("rs", 1:J), beta_x = bx, se_x = 0.01, beta_y = by, se_y = 0.02, n_x = 10000, n_y = 10000, mr_keep = TRUE)   # Round 110a: SD(outcome) = 2 SD(exposure)
   ld <- R; dimnames(ld) <- list(d$variant_id, d$variant_id)
   r <- ADAPTER_PPMR_V11$run(list(data = d, ld = ld, exposure_id = "X", outcome_id = "Y", outcome_scale = "beta"), resolve_params(ADAPTER_PPMR_V11, list()), list(seed = 1L))
-  nrow(r$estimates) == 1L && is.finite(r$estimates$estimate) && is.na(r$estimates$ci_lower) && is.finite(r$estimates$p) })
+  k <- r$diagnostics$value[r$diagnostics$name == "ppmr_scale"]
+  nrow(r$estimates) == 1L && is.finite(r$estimates$estimate) && is.na(r$estimates$ci_lower) && is.finite(r$estimates$p) &&
+    isTRUE(all.equal(k, 2)) && abs(r$estimates$estimate - 0.3) < 0.05 })   # on the pair's scale (true 0.3), not the standardised 0.15
 # ---- Round 109: mode estimates table (item 9) ----
 expect("Round 109: the mode table gives simple, weighted and NOME mode estimates at phi 0.25, 0.5 and 1, equal to mr_mbe, and the workbook has the sheet", {
   p <- pair_input("expA", "outA"); d <- p$input$data[p$input$data$mr_keep, ]; k <- data.frame(id = d$variant_id, bx = d$beta_x, by = d$beta_y, sx = d$se_x, sy = d$se_y)
@@ -3044,11 +3046,11 @@ expect("Round 109a: the cached height of M is cleared before each figure device 
   lengths(regmatches(fw, gregexpr(".fig_metric_reset()", fw, fixed = TRUE))) == 3L && grepl(".fig_metric_reset()", pw, fixed = TRUE) && same_dev &&
     length(p1) == 1L && identical(unname(tools::md5sum(p1)), unname(tools::md5sum(p2))) })
 # ---- Round 110: F statistics on the exposure's scale (item 3) ----
-expect("Round 110: the variance-explained F statistics follow the exposure's scale (SD, unknown, other unit, binary)", {
+expect("Round 110: the variance-explained F statistics follow the exposure's scale (SD, unknown, other unit, binary; OpenGWAS unit forms such as SD (mg/dL))", {
   set.seed(1); d <- data.frame(beta_x = rnorm(20, .05, .01), se_x = .005, eaf_x = runif(20, .1, .9), n_x = 1e5)
-  sc <- vapply(list(list(facts = list(kind = "binary")), list(source = list(unit = "SD")), list(source = list(unit = "standard deviation units")), list(source = list(unit = "mmol/L")), list(source = list(unit = NA)), list()), .f_scale, "")
+  sc <- vapply(list(list(facts = list(kind = "binary")), list(source = list(unit = "SD")), list(source = list(unit = "standard deviation units")), list(source = list(unit = "mmol/L")), list(source = list(unit = NA)), list(), list(source = list(unit = "SD (mg/dL)")), list(source = list(unit = "1 SD = 0.780 litres")), list(source = list(unit = "logOR")), list(source = list(unit = "beta and SE")), list(source = list(unit = "log10 units"))), .f_scale, "")
   t_sd <- f_stats_text(instrument_f_stats(d, "sd")); t_un <- f_stats_text(instrument_f_stats(d, "unknown")); fo <- instrument_f_stats(d, "other"); t_ot <- f_stats_text(fo); fb <- instrument_f_stats(d, "binary"); t_bi <- f_stats_text(fb)
-  identical(sc, c("binary", "sd", "sd", "other", "unknown", "unknown")) && !grepl("assumes", t_sd) && grepl("assumes the exposure is in standard deviation (SD) units", t_un, fixed = TRUE) &&
+  identical(sc, c("binary", "sd", "sd", "other", "unknown", "unknown", "sd", "sd", "binary", "unknown", "other")) && !grepl("assumes", t_sd) && grepl("assumes the exposure is in standard deviation (SD) units", t_un, fixed = TRUE) &&
     identical(fo$f_r2$r2_from, "beta, SE and N") && grepl("not in SD units", t_ot) && grepl("N = 100,000", t_ot, fixed = TRUE) &&
     !is.null(fb$f_r2$why) && is.null(fb$f_all$value) && grepl("is not given: the exposure is binary", t_bi, fixed = TRUE) && !grepl("Overall F", t_bi) && is.finite(fb$f_z$mean) &&
     identical(instrument_f_stats(d)$f_r2$mean, instrument_f_stats(d, "sd")$f_r2$mean) })
@@ -3058,7 +3060,7 @@ expect("Round 110: the pair ledger records the exposure's scale and computes the
 ui_state_set(h50$con, "pairs", list(list(ex = list("expA", "expB"), out = "outA", mv = TRUE, exName = p50$exposure_label, exNames = as.list(p50$exposure_labels), outName = p50$outcome_label, folder = r50$pair_folder, methods = as.list(m50), ci = 0.95, pthr = 5e-8, simulated = TRUE, ledger = p50$ledger)))
 expect("Round 110: a multivariable pair gets the MendelianRandomization mr_plot of its MRMVInput in the package, with caption", {
   cx <- mv_context(h50, ui_state_get(h50$con, "pairs")[[1]]); td <- tempfile("mvf-"); dir.create(file.path(td, "figures"), recursive = TRUE); x <- mv_extra_figures(cx, td, "P1", 140)
-  nrow(cx$mvdat) == 60L && length(x) == 1L && identical(x[[1]]$key, "mvmr_plot") && any(grepl("[.]png$", x[[1]]$files)) && grepl("fitted value from the MVMR-IVW model", x[[1]]$caption, fixed = TRUE) && grepl("Simulated exposure A, Simulated exposure B", x[[1]]$caption, fixed = TRUE) })
+  nrow(cx$mvdat) == 60L && identical(x[[1]]$key, "mvmr_plot") && any(grepl("[.]png$", x[[1]]$files)) && grepl("fitted value from the MVMR-IVW model", x[[1]]$caption, fixed = TRUE) && grepl("Simulated exposure A, Simulated exposure B", x[[1]]$caption, fixed = TRUE) })
 expect("Round 110: the figures script of a multivariable pair redraws its figures identical to the package", {
   pk <- build_package(h50, c("figs", "capsule"), 140); pr <- ui_state_get(h50$con, "pairs")[[1]]; fd <- file.path(h50$dir, "03_pairs", pr$folder, "05_figures")
   td <- tempfile("mkmv-"); dir.create(td); file.copy(list.files(fd, full.names = TRUE), td)
@@ -3080,6 +3082,39 @@ expect("Round 110: drawing the package's figures writes no Rplots.pdf (mr_forest
   td <- tempfile("quiet-"); dir.create(file.path(td, "figures"), recursive = TRUE); wd <- getwd(); setwd(td)
   grDevices::pdf(NULL); mine <- grDevices::dev.cur(); n0 <- length(grDevices::dev.list())
   xf <- tryCatch(extra_figures(pair_context(h109f, ui_state_get(h109f$con, "pairs")[[1]]), td, "Q", 140), error = function(e) list()); xm <- tryCatch(mv_extra_figures(mv_context(h50, ui_state_get(h50$con, "pairs")[[1]]), td, "M", 140), error = function(e) list()); setwd(wd)
-  ok <- !file.exists(file.path(td, "Rplots.pdf")) && identical(grDevices::dev.cur(), mine) && length(grDevices::dev.list()) == n0 && length(xf) >= 8L && length(xm) == 1L
+  ok <- !file.exists(file.path(td, "Rplots.pdf")) && identical(grDevices::dev.cur(), mine) && length(grDevices::dev.list()) == n0 && length(xf) >= 8L && length(xm) >= 2L
   grDevices::dev.off(mine); ok })
+# ---- Round 110a: found in the real-data test of build-60 (LDL on CAD) ----
+expect("Round 110a: a method without a confidence interval (PPMR) reads 'no CI' on the screen and in the report, not 1.00 to 1.00", {
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  r <- data.frame(estimate = 0.42, ci_lower = NA_real_, ci_upper = NA_real_, ci_level = 0.95, p = 1e-90, p_resolution = NA_character_)
+  t1 <- .ci_phrase(r, "log_or"); t2 <- .ci_phrase(transform(r, ci_lower = 0.3, ci_upper = 0.5), "log_or")
+  grepl("const CI = (lo, hi, d, ex, fixed)", js, fixed = TRUE) && !grepl("Math.exp(r.ci_lower)", js, fixed = TRUE) && grepl("no confidence interval", t1, fixed = TRUE) && !grepl("NA", t1, fixed = TRUE) && grepl("95% CI 1.350 to 1.649", t2, fixed = TRUE) })
+expect("Round 110a: More figures is on the main Results page of every pair (not on Review instruments)", {
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  grepl("methodResults(pay) + figsSection(pair) +", js, fixed = TRUE) && !grepl("harmSection(pair) + figsSection(pair)", js, fixed = TRUE) && grepl("figsSection(pair) + hetOptions(pay, 'mv')", js, fixed = TRUE) })
+expect("Round 110a: the run's time estimate counts GSMR, MR-Clust, GRAPPLE and PPMR and the LD matrix GSMR and PPMR need", {
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  grepl("const t = { gsmr: 1, mrclust: 2, grapple: 2, ppmr: 1,", js, fixed = TRUE) && grepl("const ld = use.some((m) => m === 'gsmr' || m === 'ppmr') ? 0.5 * k : 0;", js, fixed = TRUE) })
+expect("Round 110a: touchpad gestures on the interactive plot: pinch zooms (WebKit gesture events and Ctrl+wheel); two-finger scroll pans when zoomed and scrolls the page at the full view", {
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  grepl("el.addEventListener('wheel', plyPinch, { passive: false });", js, fixed = TRUE) && grepl("['gesturestart', 'gesturechange', 'gestureend'].forEach((t) => el.addEventListener(t, plyGesture", js, fixed = TRUE) &&
+    grepl("function plyPinch(e) {", js, fixed = TRUE) && grepl("if (!plyZoomed(el) || !window.Plotly) return;", js, fixed = TRUE) && grepl("el._plyHome = {", js, fixed = TRUE) && grepl("window.Plotly.newPlot(el, j.data || [], plyLayout(j.layout)", js, fixed = TRUE) && grepl("function plyLayout(lay)", js, fixed = TRUE) && grepl("function plyZoom(el, f, clientX, clientY)", js, fixed = TRUE) })
+expect("Round 110a: the Data step counts a multivariable study as one model per outcome (all exposures together), not exposures x outcomes", {
+  js <- paste(readLines(file.path(args_dir, "ui", "studio.js"), warn = FALSE), collapse = "\n")
+  grepl("S.kind === 'multi' ? (S.ex.length >= 2 && S.ex.length <= 6 ? S.out.length : 0) : S.ex.length * S.out.length", js, fixed = TRUE) && grepl("'multivariable model' + (pairs === 1 ? '' : 's')", js, fixed = TRUE) &&
+    grepl("(pairs || (S.kind === 'multi' && S.ex.length && S.out.length) ? '' : 'disabled')", js, fixed = TRUE) })
+expect("Round 110a: the MVMR GRAPPLE script has the multivariable data head (no single-exposure F filter, whose min_f it does not have)", {
+  b <- ADAPTER_MVGRAPPLE_V11$emit_script(list(exposure_id = "A|B", outcome_id = "Y", outcome_scale = "beta", data_file = "d.csv", estimates_file = "e.csv", diagnostics_file = "g.csv"), resolve_params(ADAPTER_MVGRAPPLE_V11, list()), 1L)
+  sc <- b$method_script; !grepl("min_f", sc, fixed = TRUE) && !grepl("dat$beta_x)", sc, fixed = TRUE) && grepl("beta_x_%d", sc, fixed = TRUE) })
+if (requireNamespace("GRAPPLE", quietly = TRUE)) expect("Round 110a: MVMR GRAPPLE runs through the app's scripts on a multivariable pair and gives a direct effect per exposure", {
+  h <- studio_new("Round 110a MV GRAPPLE"); p <- mv_pair_input(c("expA", "expB"), "outA")
+  r <- studio_run(h, p$exposure_label, p$outcome_label, p$input, c("mvivw", "mvgrapple"), idx = 1L, params = list(ci_level = 0.95))
+  e <- .est_df(pair_payload(h$dir, r$pair_folder)); g <- e[e$estimand == "direct_effect" & e$method == "mvgrapple", ]
+  nrow(g) == 2L && all(is.finite(g$estimate)) && g$ci_lower[g$exposure_id == "demo:expA"] <= 0.3 && 0.3 <= g$ci_upper[g$exposure_id == "demo:expA"] })
+expect("Round 110a: a multivariable pair gets each variant's contribution to Cochran's Q of MVMR-IVW as a figure, equal to the Results table, with the Bonferroni cut-off", {
+  pr <- ui_state_get(h50$con, "pairs")[[1]]; cx <- mv_context(h50, pr); q <- mv_q_contrib(cx$mvdat); rv <- mv_review(h50, pr$folder)
+  td <- tempfile("mvq-"); dir.create(file.path(td, "figures"), recursive = TRUE); x <- mv_extra_figures(cx, td, "P1", 140); k <- vapply(x, `[[`, "", "key")
+  "mvmr_q" %in% k && isTRUE(all.equal(q$total, rv$q_total)) && identical(q$rows$variant_id[1:5], rv$rows$variant_id[1:5]) && isTRUE(all.equal(q$cut, stats::qchisq(1 - 0.05 / q$n, 1))) &&
+    grepl("Bonferroni cut-off", x[[which(k == "mvmr_q")]]$caption, fixed = TRUE) && (requireNamespace("RMVMR", quietly = TRUE) == all(c("mvmr_radial", "mvmr_radial_corrected") %in% k)) })
 cat(sprintf("\n%d passed, %d failed\n", n_pass, n_fail)); if (n_fail) quit(status = 1)

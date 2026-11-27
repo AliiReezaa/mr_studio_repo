@@ -307,12 +307,16 @@ PIN_RADIALMR <- "7ca35c052489001890347871e38998ca53a02b03"
   sprintf("  stop(\"Package %s is not installed. See README_RERUN.md (renv::restore()).\")", pkg),
   "")
 
-.detector_emit <- function(a, spec, params, seed, pkg, body, seed_note) {
+# Round 110a: mv = TRUE (MVMR GRAPPLE) writes the multivariable data head: the table as saved, no single-exposure F filter (its min_f
+# setting does not exist for a multivariable method, so the script stopped with "object 'min_f' not found"); the body keeps the variants
+# with every exposure and the outcome, as .mv_core.
+.detector_emit <- function(a, spec, params, seed, pkg, body, seed_note, mv = FALSE) {
+  data_lines <- if (mv) c("# ---- 4. Data (the exact table the calculation uses) ----------------------------", "dat <- utils::read.csv(DATA_FILE, stringsAsFactors = FALSE)", "") else c(.script_lines_data, .script_lines_minf(a$requires$min_ivs))
   txt <- c(.script_lines_head_pk(a, spec), .script_lines_guard_pk(spec, pkg),
            "# ---- 2. Settings (every adjustable argument of this method) --------------------",
            .param_comment_lines(a, params),
            sprintf("seed <- %d   # %s", as.integer(seed), seed_note),
-           "", .script_lines_repro(seed), .script_lines_data, .script_lines_minf(a$requires$min_ivs),
+           "", .script_lines_repro(seed), data_lines,
            body, "", .script_lines_write(spec))
   script_bundle(paste0(paste(txt, collapse = "\n"), "\n"), a$packages,
                 list(list(file = file.path("04_tables", spec$estimates_file), role = "estimates"),
@@ -1773,10 +1777,8 @@ ADAPTER_MVGRAPPLE_V11 <- mrgui_adapter(
   emit_script = function(spec, params, seed) .detector_emit(ADAPTER_MVGRAPPLE_V11, spec, params, seed, "GRAPPLE", c(
     sprintf("EXPOSURE_ID <- %s; OUTCOME_ID <- %s; SCALE <- %s", .q(spec$exposure_id), .q(spec$outcome_id), .q(spec$outcome_scale)),
     "# ---- 5. Analysis: multivariable GRAPPLE (grappleRobustEst) ----", .grapple_mv_prep, .grapple_body),
-    "fixed seed (this method is deterministic; kept for the record)"),
+    "fixed seed (this method is deterministic; kept for the record)", mv = TRUE),   # Round 110a: the multivariable data head
   column_requirements = .mv_colreq)
-# Note for integration: .detector_emit writes the univariable data lines and F filter; for the multivariable adapter the main
-# session should use the .mv_adapter script head instead (as MVMR-IVW does), with .grapple_mv_prep in place of .mv_core.
 
 # ---- Round 109: ppmr (item 19), from the methods helper (validated by simulation with known truth) ----
 # ---- Item 19: PPMR, probabilistic MR with correlated instruments and horizontal pleiotropy ------------------------------
@@ -1788,6 +1790,10 @@ ADAPTER_MVGRAPPLE_V11 <- mrgui_adapter(
 # PMR_summary works on the standardised scale (betax = X'y / (n - 1) for standardised genotypes and phenotypes), so the
 # associations are entered as z / sqrt(n): N of both GWAS is required, and alpha is per SD of the exposure on SD of the outcome.
 # The package gives no standard error, so the estimate has no confidence interval (as the paper, which reports P values).
+# Round 110a: alpha is converted back to the pair's own scale (beta or log OR per unit of the exposure, as the other methods) with
+# k = median over the variants of (se_y sqrt(n_y)) / (se_x sqrt(n_x)): z / sqrt(n) is beta / (se sqrt(n)), so by = alpha bx on the
+# standardised scale is beta_y = alpha k beta_x when k is the same for every variant (it is, up to sampling, as se sqrt(n) is about
+# SD(trait) / SD(genotype)). k is saved as the diagnostic ppmr_scale; gamma stays on the standardised scale (it is not a slope).
 # Requires reference_adapters_v11.R sourced first.
 PIN_PPMR <- "1.0.1"
 .ppmr_params <- c(
@@ -1801,11 +1807,12 @@ PIN_PPMR <- "1.0.1"
   "f <- pmr(0, 0); fa <- pmr(0, 1); fg <- pmr(1, 0)   # full model, alpha = 0, gamma = 0",
   "lrt <- function(l1, l0) stats::pchisq(max(0, 2 * (l1 - l0)), 1, lower.tail = FALSE)",
   "p_alpha <- lrt(f$loglik, fa$loglik); p_gamma <- lrt(f$loglik, fg$loglik)",
-  "estimates <- est1(f$alpha, NA, NA, NA, p_alpha, nrow(dat), \"profile\")",
+  "k <- stats::median((dat$se_y * sqrt(dat$n_y)) / (dat$se_x * sqrt(dat$n_x)))   # back to the pair's scale (beta or log OR per unit)",
+  "estimates <- est1(f$alpha * k, NA, NA, NA, p_alpha, nrow(dat), \"profile\")",
   "diagnostics <- rbind(drow(\"ppmr_gamma\", f$gamma, df = 1, p = p_gamma, note = \"horizontal pleiotropic effect (likelihood ratio test of gamma = 0)\"),",
   "  drow(\"ppmr_iterations\", f$iteration, note = sprintf(\"EM iterations of the full model (maximum %d)\", ppmr_max_iter)),",
   "  drow(\"ppmr_loglik\", f$loglik, note = sprintf(\"log-likelihood; alpha = 0: %.6g; gamma = 0: %.6g\", fa$loglik, fg$loglik)),",
-  "  drow(\"ppmr_scale\", NA, note = sprintf(\"per SD of the exposure on SD of the outcome (z / sqrt(n)); N exposure %g, outcome %g\", nx, ny)))")
+  "  drow(\"ppmr_scale\", k, note = sprintf(\"fitted on the standardised scale (z / sqrt(n)), alpha %.6g per SD on SD; the estimate is alpha x k, k = median (se_y sqrt(n_y)) / (se_x sqrt(n_x)), on the scale of the other methods; gamma is on the standardised scale; N exposure %g, outcome %g\", f$alpha, nx, ny)))")
 .ppmr_check <- function(input, params) {
   d <- .usable(input$data); ld <- input$ld
   if (is.null(ld) || !is.matrix(ld)) return(verdict("block", "FEAS_NEEDS_LD", "PPMR needs the LD correlation between the instruments. Install the 1000 Genomes LD reference panel for this ancestry (Settings > Data and access)."))
